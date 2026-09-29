@@ -145,63 +145,6 @@ st.markdown(
     .custom-kpi-table tbody tr:nth-child(odd) {
         background-color: #ffffff !important;
     }
-
-    .custom-kpi-table thead th {
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 5 !important;
-        background-color: #1a365d !important;
-        color: #ffffff !important;
-    }
-
-
-    /* Format st.dataframe giống bảng KPI + sticky header */
-    div[data-testid="stDataFrame"] {
-        border: 1px solid #90cdf4 !important;
-        border-radius: 4px !important;
-        overflow: hidden !important;
-    }
-    div[data-testid="stDataFrame"] table {
-        border-collapse: collapse !important;
-        font-family: sans-serif !important;
-        font-size: 11px !important;
-        width: 100% !important;
-    }
-    div[data-testid="stDataFrame"] thead th,
-    div[data-testid="stDataFrame"] th {
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 3 !important;
-        background-color: #1a365d !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        text-align: center !important;
-        border: 1px solid #90cdf4 !important;
-        padding: 6px 5px !important;
-        white-space: nowrap !important;
-    }
-    div[data-testid="stDataFrame"] tbody td,
-    div[data-testid="stDataFrame"] td {
-        border: 1px solid #bce2f5 !important;
-        padding: 5px 6px !important;
-        font-size: 11px !important;
-    }
-    div[data-testid="stDataFrame"] tbody tr:nth-child(even) td {
-        background-color: #e6f4fc !important;
-    }
-    div[data-testid="stDataFrame"] tbody tr:nth-child(odd) td {
-        background-color: #ffffff !important;
-    }
-    /* Glide Data Grid (Streamlit mới) */
-    div[data-testid="stDataFrame"] [role="columnheader"] {
-        background-color: #1a365d !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-    }
-    div[data-testid="stDataFrameResizable"] {
-        border: 1px solid #90cdf4 !important;
-        border-radius: 4px !important;
-    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -2210,12 +2153,10 @@ def render_summary_html_table(df, selected_metrics):
   return ''.join(html)
 
 
-def render_html_table(df, max_height=420):
+def render_html_table(df):
   html = [
-      f'<div style="overflow: auto; -webkit-overflow-scrolling: touch;'
-      f' max-height: {max_height}px; border: 1px solid #90cdf4;'
-      f' border-radius: 4px;">'
-      f'<table class="custom-kpi-table">'
+      '<div style="overflow-x: auto; -webkit-overflow-scrolling:'
+      ' touch;"><table class="custom-kpi-table">'
   ]
   html.append('<thead><tr>')
   for col in df.columns:
@@ -3116,30 +3057,8 @@ with tab_kpi:
             '% TH',
             'Có nhiệm vụ NEW',
         ]
-        df_view = df_show[[c for c in cols_show if c in df_show.columns]].copy()
-
-        # Toolbar (giống Streamlit) + bảng format KPI + sticky header
-        tbar1, tbar2, tbar3 = st.columns([8, 1, 1])
-        with tbar2:
-          st.download_button(
-              label='⬇️',
-              data=df_view.to_csv(index=False).encode('utf-8-sig'),
-              file_name='MBS_CAT_ChiTiet_KH.csv',
-              mime='text/csv',
-              key='mbs_cat_dl_csv',
-              help='Tải CSV',
-          )
-        with tbar3:
-          with st.popover('🔍'):
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=480,
-                hide_index=True,
-            )
-
-        # Format bảng giống 10 báo cáo KPI + dòng tiêu đề cố định khi cuộn
-        st.markdown(render_html_table(df_view, max_height=420), unsafe_allow_html=True)
+        df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
+        st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
@@ -3330,30 +3249,8 @@ with tab_kpi:
             'Thứ VT', 'Member type', 'Actual', 'Target', '% TH',
             'Có nhiệm vụ NEW',
         ]
-        df_view = df_show[[c for c in cols_show if c in df_show.columns]].copy()
-
-        # Toolbar (giống Streamlit) + bảng format KPI + sticky header
-        tbar1, tbar2, tbar3 = st.columns([8, 1, 1])
-        with tbar2:
-          st.download_button(
-              label='⬇️',
-              data=df_view.to_csv(index=False).encode('utf-8-sig'),
-              file_name='MBS_BRAND_ChiTiet_KH.csv',
-              mime='text/csv',
-              key='mbs_brand_dl_csv',
-              help='Tải CSV',
-          )
-        with tbar3:
-          with st.popover('🔍'):
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=480,
-                hide_index=True,
-            )
-
-        # Format bảng giống 10 báo cáo KPI + dòng tiêu đề cố định khi cuộn
-        st.markdown(render_html_table(df_view, max_height=420), unsafe_allow_html=True)
+        df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
+        st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
