@@ -2781,32 +2781,40 @@ with tab_kpi:
           unsafe_allow_html=True,
       )
 
-      # Bộ lọc gọn (scale nhỏ)
+      # Bộ lọc gọn - 2 ô cân đối cùng hàng
       st.markdown(
           """
           <style>
           div[data-testid="stPopover"] button {
             font-size: 12px !important;
-            padding: 0.25rem 0.75rem !important;
-            min-height: 2rem !important;
+            padding: 0.35rem 0.8rem !important;
+            min-height: 2.4rem !important;
+            width: 100% !important;
+            justify-content: center !important;
           }
           </style>
           """,
           unsafe_allow_html=True,
       )
-      fc1, fc2, fc_sp = st.columns([1.1, 1.1, 1.8])
+      fc1, fc2, _ = st.columns([1, 1, 2])
       with fc1:
-        with st.popover('👁️ Lọc nhóm', use_container_width=True):
+        st.markdown(
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+            '👁️ Lọc nhóm</p>',
+            unsafe_allow_html=True,
+        )
+        with st.popover('Chọn nhóm hiển thị', use_container_width=True):
           nhom_filter = st.multiselect(
-              'Chọn nhóm:',
+              '',
               options=[1, 2, 3, 4, 5, 6],
               default=[1, 2, 3, 4, 5, 6],
               format_func=lambda x: groups[x]['name'],
               key='mbs_cat_nhom_filter',
+              label_visibility='collapsed',
           )
       with fc2:
         st.markdown(
-            '<p class="filter-label" style="margin-bottom:0;font-size:10px !important;">'
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
             '📅 Thứ VT</p>',
             unsafe_allow_html=True,
         )
