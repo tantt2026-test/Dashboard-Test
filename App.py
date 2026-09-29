@@ -2533,7 +2533,7 @@ with f3:
   )
   selected_kpi = kpi_map[selected_name]
 
-f4, f5 = st.columns([1, 1])
+f4, f5, f6 = st.columns([1, 1, 1])
 with f4:
   st.markdown('<p class="filter-label">SALE SUP</p>', unsafe_allow_html=True)
   st.selectbox(
@@ -2548,6 +2548,19 @@ with f5:
       ['Tất cả ĐDKD'] + nv_list,
       key='ddkd',
       label_visibility='collapsed',
+  )
+with f6:
+  st.markdown(
+      '<p class="filter-label">📅 Thứ VT (MBS CAT)</p>', unsafe_allow_html=True
+  )
+  thu_opts_main = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
+  f_thu_vt_main = st.multiselect(
+      '',
+      thu_opts_main,
+      default=[],
+      key='mbs_cat_thu_filter',
+      label_visibility='collapsed',
+      disabled=(selected_kpi != 'MBS_CAT'),
   )
 
 st.markdown('---')
@@ -2729,32 +2742,8 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
 
-    # Lọc Thứ VT nằm phía trên 6 nhóm
-    thu_col, _sp = st.columns([1.2, 2.8])
-    with thu_col:
-      st.markdown(
-          '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
-          '📅 Lọc Theo Thứ VT</p>',
-          unsafe_allow_html=True,
-      )
-      thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
-      available_thu = sorted(
-          set(
-              str(x).strip()
-              for x in df_detail.get('Thứ VT', pd.Series(dtype=str)).dropna()
-              if str(x).strip() and str(x).strip().lower() != 'nan'
-          )
-      ) if total_kh > 0 else thu_opts
-      thu_opts_show = [t for t in thu_opts if t in available_thu] or thu_opts
-      f_thu_vt = st.multiselect(
-          '',
-          thu_opts_show,
-          default=[],
-          key='mbs_cat_thu_filter',
-          label_visibility='collapsed',
-      )
-
-    # Áp dụng lọc Thứ VT lên df_detail + tính lại 6 nhóm
+    # Áp dụng lọc Thứ VT (từ bộ lọc chính phía trên) lên df_detail + tính lại 6 nhóm
+    f_thu_vt = f_thu_vt_main if selected_kpi == 'MBS_CAT' else []
     if total_kh > 0 and f_thu_vt and 'Thứ VT' in df_detail.columns:
       thu_s = df_detail['Thứ VT'].astype(str).str.strip()
       mapping_rules = {
