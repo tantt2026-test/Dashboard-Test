@@ -2781,12 +2781,24 @@ with tab_kpi:
           unsafe_allow_html=True,
       )
 
-      # Bộ lọc gọn: popover ẩn sau khi chọn + lọc Thứ VT
-      fc1, fc2 = st.columns([1, 1])
+      # Bộ lọc gọn (scale nhỏ)
+      st.markdown(
+          """
+          <style>
+          div[data-testid="stPopover"] button {
+            font-size: 12px !important;
+            padding: 0.25rem 0.75rem !important;
+            min-height: 2rem !important;
+          }
+          </style>
+          """,
+          unsafe_allow_html=True,
+      )
+      fc1, fc2, fc_sp = st.columns([1.1, 1.1, 1.8])
       with fc1:
-        with st.popover('👁️ Lọc nhóm hiển thị', use_container_width=True):
+        with st.popover('👁️ Lọc nhóm', use_container_width=True):
           nhom_filter = st.multiselect(
-              'Chọn nhóm (đóng popover để ẩn):',
+              'Chọn nhóm:',
               options=[1, 2, 3, 4, 5, 6],
               default=[1, 2, 3, 4, 5, 6],
               format_func=lambda x: groups[x]['name'],
@@ -2794,7 +2806,8 @@ with tab_kpi:
           )
       with fc2:
         st.markdown(
-            '<p class="filter-label">📅 Lọc Theo Thứ VT (Chọn nhiều)</p>',
+            '<p class="filter-label" style="margin-bottom:0;font-size:10px !important;">'
+            '📅 Thứ VT</p>',
             unsafe_allow_html=True,
         )
         thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
