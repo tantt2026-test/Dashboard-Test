@@ -2681,8 +2681,8 @@ with f3:
       '8. BÁO CÁO DOANH SỐ TURNOVER': 'TURNOVER',
       '9. BÁO CÁO TỔNG HỢP': 'SUMMARY',
       '10. BÁO CÁO LỊCH VIẾNG THĂM': 'VISIT',
-      '11. BÁO CÁO MBS CAT (6 NHÓM)': 'MBS_CAT',
-      '12. BÁO CÁO MBS BRAND (6 NHÓM)': 'MBS_BRAND',
+      '11. BÁO CÁO MBS CAT': 'MBS_CAT',
+      '12. BÁO CÁO MBS BRAND': 'MBS_BRAND',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
