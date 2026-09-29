@@ -2724,10 +2724,73 @@ with tab_kpi:
     )
     st.markdown(
         f'<p style="text-align: center; font-size: 12px; color: #4a5568;'
-        f' margin-bottom: 14px;">Tổng Doanh Số thực đạt / Chỉ tiêu từng KH'
+        f' margin-bottom: 8px;">Tổng Doanh Số thực đạt / Chỉ tiêu từng KH'
         f' | Lọc NV: {filter_nv} | Tổng KH MBS: <b>{total_kh}</b></p>',
         unsafe_allow_html=True,
     )
+
+    # Lọc Thứ VT nằm phía trên 6 nhóm
+    thu_col, _sp = st.columns([1.2, 2.8])
+    with thu_col:
+      st.markdown(
+          '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+          '📅 Lọc Theo Thứ VT</p>',
+          unsafe_allow_html=True,
+      )
+      thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
+      available_thu = sorted(
+          set(
+              str(x).strip()
+              for x in df_detail.get('Thứ VT', pd.Series(dtype=str)).dropna()
+              if str(x).strip() and str(x).strip().lower() != 'nan'
+          )
+      ) if total_kh > 0 else thu_opts
+      thu_opts_show = [t for t in thu_opts if t in available_thu] or thu_opts
+      f_thu_vt = st.multiselect(
+          '',
+          thu_opts_show,
+          default=[],
+          key='mbs_cat_thu_filter',
+          label_visibility='collapsed',
+      )
+
+    # Áp dụng lọc Thứ VT lên df_detail + tính lại 6 nhóm
+    if total_kh > 0 and f_thu_vt and 'Thứ VT' in df_detail.columns:
+      thu_s = df_detail['Thứ VT'].astype(str).str.strip()
+      mapping_rules = {
+          '2': ['2', '25'], '3': ['3', '36'], '4': ['4', '47'],
+          '5': ['5', '25'], '6': ['6', '36'], '7': ['7', '47'],
+          '25': ['25'], '36': ['36'], '47': ['47'],
+      }
+      mask = pd.Series(False, index=df_detail.index)
+      for t in f_thu_vt:
+        valid_set = mapping_rules.get(str(t).strip(), [str(t).strip()])
+        mask = mask | thu_s.isin(valid_set)
+      df_detail = df_detail[mask].copy()
+      total_kh = len(df_detail)
+      # Tính lại groups
+      group_meta = {
+          1: ('Nhóm 1 · Đã đạt MBS', '#c6f6d5', '#22543d'),
+          2: ('Nhóm 2 · Đạt DS, thiếu nhiệm vụ', '#edf2f7', '#2d3748'),
+          3: ('Nhóm 3 · Đạt nhiệm vụ, DS ≥50% Target', '#edf2f7', '#2d3748'),
+          4: ('Nhóm 4 · DS ≥60% Target, thiếu nhiệm vụ', '#e6fffa', '#234e52'),
+          5: ('Nhóm 5 · Chưa phát sinh DS', '#fff5f5', '#c53030'),
+          6: ('Nhóm 6 · Còn lại', '#ebf8ff', '#2b6cb0'),
+      }
+      groups = {}
+      for g in range(1, 7):
+        sub = df_detail[df_detail['Nhóm'] == g]
+        kh = len(sub)
+        act = float(sub['Actual'].sum()) if kh else 0.0
+        tgt = float(sub['Target'].sum()) if kh else 0.0
+        pct_th = round(act / tgt * 100, 1) if tgt > 0 else 0.0
+        pct_kh = round(kh / total_kh * 100, 1) if total_kh else 0.0
+        name, bg, color = group_meta[g]
+        groups[g] = {
+            'name': name, 'kh': kh, 'total_kh': total_kh,
+            'pct_kh': pct_kh, 'actual': act, 'target': tgt,
+            'pct_th': pct_th, 'bg': bg, 'color': color,
+        }
 
     if total_kh == 0:
       st.warning('Không có dữ liệu Data_Cat để chạy báo cáo MBS CAT.')
@@ -2781,7 +2844,7 @@ with tab_kpi:
           unsafe_allow_html=True,
       )
 
-      # Bộ lọc gọn - 2 ô cân đối cùng hàng
+      # Lọc nhóm (popover) — Thứ VT đã nằm phía trên 6 nhóm
       st.markdown(
           """
           <style>
@@ -2796,7 +2859,7 @@ with tab_kpi:
           """,
           unsafe_allow_html=True,
       )
-      fc1, fc2, _ = st.columns([1, 1, 2])
+      fc1, _ = st.columns([1, 3])
       with fc1:
         st.markdown(
             '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
@@ -2812,28 +2875,6 @@ with tab_kpi:
               key='mbs_cat_nhom_filter',
               label_visibility='collapsed',
           )
-      with fc2:
-        st.markdown(
-            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
-            '📅 Thứ VT</p>',
-            unsafe_allow_html=True,
-        )
-        thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
-        available_thu = sorted(
-            set(
-                str(x).strip()
-                for x in df_detail.get('Thứ VT', pd.Series(dtype=str)).dropna()
-                if str(x).strip() and str(x).strip().lower() != 'nan'
-            )
-        )
-        thu_opts_show = [t for t in thu_opts if t in available_thu] or thu_opts
-        f_thu_vt = st.multiselect(
-            '',
-            thu_opts_show,
-            default=[],
-            key='mbs_cat_thu_filter',
-            label_visibility='collapsed',
-        )
 
       nhom_selected = st.session_state.get(
           'mbs_cat_nhom_filter', [1, 2, 3, 4, 5, 6]
@@ -2841,26 +2882,6 @@ with tab_kpi:
       if not nhom_selected:
         nhom_selected = [1, 2, 3, 4, 5, 6]
       df_show = df_detail[df_detail['Nhóm'].isin(nhom_selected)].copy()
-
-      # Lọc theo Thứ VT (dùng filter_by_thu_multi logic)
-      if f_thu_vt and 'Thứ VT' in df_show.columns:
-        thu_s = df_show['Thứ VT'].astype(str).str.strip()
-        mapping_rules = {
-            '2': ['2', '25'],
-            '3': ['3', '36'],
-            '4': ['4', '47'],
-            '5': ['5', '25'],
-            '6': ['6', '36'],
-            '7': ['7', '47'],
-            '25': ['25'],
-            '36': ['36'],
-            '47': ['47'],
-        }
-        mask = pd.Series(False, index=df_show.index)
-        for t in f_thu_vt:
-          valid_set = mapping_rules.get(str(t).strip(), [str(t).strip()])
-          mask = mask | thu_s.isin(valid_set)
-        df_show = df_show[mask]
 
       if not df_show.empty:
         df_show = df_show.sort_values(
