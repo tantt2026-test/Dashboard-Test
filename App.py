@@ -3254,7 +3254,8 @@ with tab_kpi:
       if not df_show.empty:
         df_show = df_show.sort_values(
             ['Nhóm', 'Actual'], ascending=[True, False]
-        )
+        ).reset_index(drop=True)
+        df_show.insert(0, 'STT', range(1, len(df_show) + 1))
         def _fmt_num(x):
           try:
             return f'{float(x):,.0f}'.replace(',', '.')
@@ -3273,7 +3274,7 @@ with tab_kpi:
             return '0%'
         df_show['% TH'] = df_show['% TH'].apply(_fmt_pct)
         cols_show = [
-            'Nhóm',
+            'STT',
             'Tên nhóm',
             'Outlet Code',
             'Tên CH',
@@ -3460,7 +3461,8 @@ with tab_kpi:
       if not df_show.empty:
         df_show = df_show.sort_values(
             ['Nhóm', 'Actual'], ascending=[True, False]
-        )
+        ).reset_index(drop=True)
+        df_show.insert(0, 'STT', range(1, len(df_show) + 1))
         def _fmt_num_b(x):
           try:
             return f'{float(x):,.0f}'.replace(',', '.')
@@ -3479,7 +3481,7 @@ with tab_kpi:
             return '0%'
         df_show['% TH'] = df_show['% TH'].apply(_fmt_pct_brand)
         cols_show = [
-            'Nhóm', 'Tên nhóm', 'Outlet Code', 'Tên CH', 'Tên NVBH',
+            'STT', 'Tên nhóm', 'Outlet Code', 'Tên CH', 'Tên NVBH',
             'Thứ VT', 'Member type', 'Actual',
             'Actual (Not Cancel/Pending)', 'Target', '% TH',
             'Đạt nhiệm vụ',
