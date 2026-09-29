@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title='TRACKING KPI ĐDKD - SS Trương Thanh Tân ',
+    page_title='TRACKING KPI ĐDKD - SS Nguyễn Thị Tường Vy ',
     page_icon='📊',
     layout='wide',
     initial_sidebar_state='collapsed',
@@ -1026,7 +1026,7 @@ def build_report(
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Trương Thanh Tân Total'
+          'SS Nguyễn Thị Tường Vy Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -1098,7 +1098,7 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Trương Thanh Tân Total'
+          'SS Nguyễn Thị Tường Vy Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -1670,7 +1670,7 @@ def build_combo_matrix(
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Trương Thanh Tân Total'
+          'SS Nguyễn Thị Tường Vy Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -2356,6 +2356,38 @@ def render_html_table(df):
 
 
 # ====================== BÁO CÁO MBS CAT (6 NHÓM) ======================
+
+def check_mbs_mission(df_outlet, member_type, col_loai='_loai', col_actual='_actual'):
+  """Kiểm tra đạt nhiệm vụ theo Member type (CAT1/2/3 hoặc BRAND1/2/3).
+
+  CAT1 / BRAND1: >= 1 NEW có DS >= 200.000
+  CAT2 / BRAND2: Duy trì đủ FOCUS, mỗi FOCUS >= 200.000 (KHÔNG bắt buộc NEW)
+  CAT3 / BRAND3: Duy trì đủ FOCUS (>=200k mỗi cái) VÀ >= 1 NEW >= 200.000
+  """
+  mt = str(member_type or '').strip().upper().replace(' ', '')
+  loai = df_outlet[col_loai].astype(str).str.upper()
+  act = pd.to_numeric(df_outlet[col_actual], errors='coerce').fillna(0)
+
+  has_new = bool(((loai.str.contains('NEW', na=False)) & (act >= 200000)).any())
+
+  focus_mask = loai.str.contains('FOCUS', na=False)
+  if focus_mask.any():
+    # Mỗi dòng FOCUS phải >= 200.000
+    all_focus_ok = bool((act[focus_mask] >= 200000).all())
+  else:
+    # Không có FOCUS nào trong data -> coi như không cần duy trì FOCUS
+    all_focus_ok = True
+
+  if mt in ('CAT1', 'BRAND1'):
+    return has_new
+  if mt in ('CAT2', 'BRAND2'):
+    return all_focus_ok  # không bắt buộc NEW
+  if mt in ('CAT3', 'BRAND3'):
+    return all_focus_ok and has_new
+  # fallback: giữ logic cũ
+  return has_new
+
+
 def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
   """Phân loại KH MBS CAT thành 6 nhóm.
   Target = Doanh số nền tảng của OUTLET
@@ -2466,18 +2498,15 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
       df.groupby('_ma')[c_member].first() if c_member else pd.Series(dtype=str)
   )
 
-  # Nhiệm vụ NEW dựa trên Actual thường
-  new_mask = df['_loai'].str.contains('NEW', na=False)
-  new_ok = df[new_mask & (df['_actual'] >= 200000)].groupby('_ma').size()
-  has_new_mission = set(new_ok.index.tolist())
-
   rows = []
   for ma in actual_by_outlet.index:
     actual = float(actual_by_outlet.get(ma, 0) or 0)
     actual_nc = float(actual_nc_by_outlet.get(ma, 0) or 0)
     target = float(target_by_outlet.get(ma, 0) or 0)
     pct = (actual / target * 100) if target > 0 else (100.0 if actual > 0 else 0.0)
-    has_mission = ma in has_new_mission
+    member = member_by_outlet.get(ma, '') if len(member_by_outlet) else ''
+    df_out = df[df['_ma'] == ma]
+    has_mission = check_mbs_mission(df_out, member)
 
     if actual <= 0:
       nhom, nhom_name = 5, 'Nhóm 5 · Chưa phát sinh DS'
@@ -2496,15 +2525,13 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
         'Outlet Code': ma,
         'Tên CH': ten_by_outlet.get(ma, '') if len(ten_by_outlet) else '',
         'Tên NVBH': nv_by_outlet.get(ma, '') if len(nv_by_outlet) else '',
-        'Member type': (
-            member_by_outlet.get(ma, '') if len(member_by_outlet) else ''
-        ),
+        'Member type': member,
         'Thứ VT': thu_map.get(ma, ''),
         'Actual': actual,
         'Actual (Not Cancel/Pending)': actual_nc,
         'Target': target,
         '% TH': round(pct, 1),
-        'Có nhiệm vụ NEW': 'Có' if has_mission else 'Không',
+        'Đạt nhiệm vụ': 'Có' if has_mission else 'Không',
         'Nhóm': nhom,
         'Tên nhóm': nhom_name,
     })
@@ -2665,17 +2692,15 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
       df.groupby('_ma')[c_member].first() if c_member else pd.Series(dtype=str)
   )
 
-  new_mask = df['_loai'].str.contains('NEW', na=False)
-  new_ok = df[new_mask & (df['_actual'] >= 200000)].groupby('_ma').size()
-  has_new_mission = set(new_ok.index.tolist())
-
   rows = []
   for ma in actual_by_outlet.index:
     actual = float(actual_by_outlet.get(ma, 0) or 0)
     actual_nc = float(actual_nc_by_outlet.get(ma, 0) or 0)
     target = float(target_by_outlet.get(ma, 0) or 0)
     pct = (actual / target * 100) if target > 0 else (100.0 if actual > 0 else 0.0)
-    has_mission = ma in has_new_mission
+    member = member_by_outlet.get(ma, '') if len(member_by_outlet) else ''
+    df_out = df[df['_ma'] == ma]
+    has_mission = check_mbs_mission(df_out, member)
 
     if actual <= 0:
       nhom, nhom_name = 5, 'Nhóm 5 · Chưa phát sinh DS'
@@ -2694,15 +2719,13 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
         'Outlet Code': ma,
         'Tên CH': ten_by_outlet.get(ma, '') if len(ten_by_outlet) else '',
         'Tên NVBH': nv_by_outlet.get(ma, '') if len(nv_by_outlet) else '',
-        'Member type': (
-            member_by_outlet.get(ma, '') if len(member_by_outlet) else ''
-        ),
+        'Member type': member,
         'Thứ VT': thu_map.get(ma, ''),
         'Actual': actual,
         'Actual (Not Cancel/Pending)': actual_nc,
         'Target': target,
         '% TH': round(pct, 1),
-        'Có nhiệm vụ NEW': 'Có' if has_mission else 'Không',
+        'Đạt nhiệm vụ': 'Có' if has_mission else 'Không',
         'Nhóm': nhom,
         'Tên nhóm': nhom_name,
     })
@@ -2753,8 +2776,8 @@ st.markdown(
 <div class="main-header">
     <div class="logo">{logo_svg}</div>
     <div class="title-block">
-        <h1>SƯ ĐOÀN HCM4 - TRUNG ĐOÀN 10</h1>
-        <h2>TRACKING KPI ĐDKD - TEAM SS TRƯƠNG THANH TÂN </h2>
+        <h1>SƯ ĐOÀN HCM4 - TRUNG ĐOÀN 11</h1>
+        <h2>TRACKING KPI ĐDKD - TEAM SS NGUYỄN THỊ TƯỜNG VY </h2>
     </div>
 </div>
 """,
@@ -2878,7 +2901,7 @@ f4, f5, f6 = st.columns([1, 1, 1])
 with f4:
   st.markdown('<p class="filter-label">SALE SUP</p>', unsafe_allow_html=True)
   st.selectbox(
-      '', ['Trương Thanh Tân Total'], key='sup', label_visibility='collapsed'
+      '', ['Nguyễn Thị Tường Vy Total'], key='sup', label_visibility='collapsed'
   )
 with f5:
   st.markdown(
@@ -3241,7 +3264,7 @@ with tab_kpi:
             'Actual (Not Cancel/Pending)',
             'Target',
             '% TH',
-            'Có nhiệm vụ NEW',
+            'Đạt nhiệm vụ',
         ]
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
@@ -3439,7 +3462,7 @@ with tab_kpi:
             'Nhóm', 'Tên nhóm', 'Outlet Code', 'Tên CH', 'Tên NVBH',
             'Thứ VT', 'Member type', 'Actual',
             'Actual (Not Cancel/Pending)', 'Target', '% TH',
-            'Có nhiệm vụ NEW',
+            'Đạt nhiệm vụ',
         ]
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
