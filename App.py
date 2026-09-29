@@ -3060,6 +3060,13 @@ with tab_kpi:
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+        st.download_button(
+            label='⬇️ Xuất file CSV - Chi tiết MBS CAT',
+            data=df_html.to_csv(index=False).encode('utf-8-sig'),
+            file_name='MBS_CAT_ChiTiet_KH.csv',
+            mime='text/csv',
+            key='mbs_cat_export_csv',
+        )
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
@@ -3252,6 +3259,13 @@ with tab_kpi:
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+        st.download_button(
+            label='⬇️ Xuất file CSV - Chi tiết MBS BRAND',
+            data=df_html.to_csv(index=False).encode('utf-8-sig'),
+            file_name='MBS_BRAND_ChiTiet_KH.csv',
+            mime='text/csv',
+            key='mbs_brand_export_csv',
+        )
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
