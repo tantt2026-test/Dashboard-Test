@@ -145,6 +145,19 @@ st.markdown(
     .custom-kpi-table tbody tr:nth-child(odd) {
         background-color: #ffffff !important;
     }
+
+    /* Sticky header cho st.dataframe */
+    div[data-testid="stDataFrame"] thead th {
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 2 !important;
+        background-color: #1a365d !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+    div[data-testid="stDataFrame"] table {
+        border-collapse: separate !important;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -3059,29 +3072,36 @@ with tab_kpi:
         ]
         df_view = df_show[[c for c in cols_show if c in df_show.columns]].copy()
 
-        # Format giống bảng KPI (header xanh đậm + tô màu % TH)
-        st.markdown(render_html_table(df_view), unsafe_allow_html=True)
-        st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
-
-        # Toolbar: tải CSV + xem full (giống nút trên st.dataframe)
-        tb1, tb2, _ = st.columns([1, 1, 4])
-        with tb1:
-          csv_bytes = df_view.to_csv(index=False).encode('utf-8-sig')
-          st.download_button(
-              label='⬇️ Tải CSV',
-              data=csv_bytes,
-              file_name='MBS_CAT_ChiTiet_KH.csv',
-              mime='text/csv',
-              key='mbs_cat_dl_csv',
-          )
-        with tb2:
-          with st.popover('🔍 Xem full / Search'):
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=480,
-                hide_index=True,
+        def _style_pct_th(val):
+          try:
+            v = float(str(val).replace('%', '').strip())
+            if v >= 70:
+              return (
+                  'background-color: #c6f6d5; color:#22543d; font-weight:600'
+              )
+            if v >= 50:
+              return (
+                  'background-color: #fefcbf; color:#744210; font-weight:600'
+              )
+            return (
+                'background-color: #fed7d7; color:#742a2a; font-weight:600'
             )
+          except Exception:
+            return ''
+
+        try:
+          styled = df_view.style.map(_style_pct_th, subset=['% TH'])
+        except Exception:
+          styled = df_view.style.applymap(_style_pct_th, subset=['% TH'])
+
+        # Toolbar gốc Streamlit (👁 ⬇️ 🔍 ⛶) + header sticky khi cuộn
+        st.dataframe(
+            styled,
+            use_container_width=True,
+            height=420,
+            hide_index=True,
+        )
+        st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
@@ -3273,29 +3293,36 @@ with tab_kpi:
         ]
         df_view = df_show[[c for c in cols_show if c in df_show.columns]].copy()
 
-        # Format giống bảng KPI (header xanh đậm + tô màu % TH)
-        st.markdown(render_html_table(df_view), unsafe_allow_html=True)
-        st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
-
-        # Toolbar: tải CSV + xem full (giống nút trên st.dataframe)
-        tb1, tb2, _ = st.columns([1, 1, 4])
-        with tb1:
-          csv_bytes = df_view.to_csv(index=False).encode('utf-8-sig')
-          st.download_button(
-              label='⬇️ Tải CSV',
-              data=csv_bytes,
-              file_name='MBS_BRAND_ChiTiet_KH.csv',
-              mime='text/csv',
-              key='mbs_brand_dl_csv',
-          )
-        with tb2:
-          with st.popover('🔍 Xem full / Search'):
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=480,
-                hide_index=True,
+        def _style_pct_th(val):
+          try:
+            v = float(str(val).replace('%', '').strip())
+            if v >= 70:
+              return (
+                  'background-color: #c6f6d5; color:#22543d; font-weight:600'
+              )
+            if v >= 50:
+              return (
+                  'background-color: #fefcbf; color:#744210; font-weight:600'
+              )
+            return (
+                'background-color: #fed7d7; color:#742a2a; font-weight:600'
             )
+          except Exception:
+            return ''
+
+        try:
+          styled = df_view.style.map(_style_pct_th, subset=['% TH'])
+        except Exception:
+          styled = df_view.style.applymap(_style_pct_th, subset=['% TH'])
+
+        # Toolbar gốc Streamlit (👁 ⬇️ 🔍 ⛶) + header sticky khi cuộn
+        st.dataframe(
+            styled,
+            use_container_width=True,
+            height=420,
+            hide_index=True,
+        )
+        st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
