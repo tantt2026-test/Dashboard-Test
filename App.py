@@ -2175,7 +2175,7 @@ def render_html_table(df):
       if pd.isna(val):
         val = ''
 
-      if col in ['% MTD', '% MTD (OFF)', '% MTD (ON)', '% Hoàn Thành']:
+      if col in ['% MTD', '% MTD (OFF)', '% MTD (ON)', '% Hoàn Thành', '% TH']:
         style_bg = color_pct_bg(val)
         if is_total:
           html.append(
@@ -2943,13 +2943,13 @@ with tab_kpi:
       def render_mbs_group_card(ginfo):
         pct_badge_bg = (
             '#c6f6d5'
-            if ginfo['pct_th'] >= 100
-            else ('#fefcbf' if ginfo['pct_th'] >= 70 else '#fed7d7')
+            if ginfo['pct_th'] >= 70
+            else ('#fefcbf' if ginfo['pct_th'] >= 50 else '#fed7d7')
         )
         pct_badge_color = (
             '#22543d'
-            if ginfo['pct_th'] >= 100
-            else ('#744210' if ginfo['pct_th'] >= 70 else '#c53030')
+            if ginfo['pct_th'] >= 70
+            else ('#744210' if ginfo['pct_th'] >= 50 else '#c53030')
         )
         html = (
             '<div style="background:' + ginfo['bg'] + '; border:1px solid #e2e8f0;'
@@ -3038,7 +3038,12 @@ with tab_kpi:
         df_show['Target'] = df_show['Target'].apply(
             lambda x: f'{x:,.0f}'.replace(',', '.')
         )
-        df_show['% TH'] = df_show['% TH'].apply(lambda x: f'{x}%')
+        def _fmt_pct(x):
+          try:
+            return f"{float(str(x).replace('%','')):.1f}%"
+          except Exception:
+            return '0%'
+        df_show['% TH'] = df_show['% TH'].apply(_fmt_pct)
         cols_show = [
             'Nhóm',
             'Tên nhóm',
@@ -3052,12 +3057,8 @@ with tab_kpi:
             '% TH',
             'Có nhiệm vụ NEW',
         ]
-        st.dataframe(
-            df_show[[c for c in cols_show if c in df_show.columns]],
-            use_container_width=True,
-            height=420,
-            hide_index=True,
-        )
+        df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
+        st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
@@ -3145,12 +3146,12 @@ with tab_kpi:
     else:
       def render_mbs_brand_card(ginfo):
         pct_badge_bg = (
-            '#c6f6d5' if ginfo['pct_th'] >= 100
-            else ('#fefcbf' if ginfo['pct_th'] >= 70 else '#fed7d7')
+            '#c6f6d5' if ginfo['pct_th'] >= 70
+            else ('#fefcbf' if ginfo['pct_th'] >= 50 else '#fed7d7')
         )
         pct_badge_color = (
-            '#22543d' if ginfo['pct_th'] >= 100
-            else ('#744210' if ginfo['pct_th'] >= 70 else '#c53030')
+            '#22543d' if ginfo['pct_th'] >= 70
+            else ('#744210' if ginfo['pct_th'] >= 50 else '#c53030')
         )
         html = (
             '<div style="background:' + ginfo['bg'] + '; border:1px solid #e2e8f0;'
@@ -3237,18 +3238,19 @@ with tab_kpi:
         df_show['Target'] = df_show['Target'].apply(
             lambda x: f'{x:,.0f}'.replace(',', '.')
         )
-        df_show['% TH'] = df_show['% TH'].apply(lambda x: f'{x}%')
+        def _fmt_pct_brand(x):
+          try:
+            return f"{float(str(x).replace('%','')):.1f}%"
+          except Exception:
+            return '0%'
+        df_show['% TH'] = df_show['% TH'].apply(_fmt_pct_brand)
         cols_show = [
             'Nhóm', 'Tên nhóm', 'Outlet Code', 'Tên CH', 'Tên NVBH',
             'Thứ VT', 'Member type', 'Actual', 'Target', '% TH',
             'Có nhiệm vụ NEW',
         ]
-        st.dataframe(
-            df_show[[c for c in cols_show if c in df_show.columns]],
-            use_container_width=True,
-            height=420,
-            hide_index=True,
-        )
+        df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
+        st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
