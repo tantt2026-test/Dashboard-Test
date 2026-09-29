@@ -2269,14 +2269,44 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
           'Chỉ tiêu',
       ],
   )
-  c_actual = find_col(
-      df,
-      [
-          'Doanh số thực đạt của CAT(Not Cancel/Pending)',
-          'Doanh số thực đạt của CAT',
-          'Doanh so thuc dat',
-      ],
-  )
+  # Actual thường (ưu tiên cột không có Not Cancel)
+  c_actual = None
+  for cand in [
+      'Doanh số thực đạt của CAT',
+      'Doanh so thuc dat cua CAT',
+      'Doanh so thuc dat',
+  ]:
+    for c in df.columns:
+      if str(c).strip().lower() == cand.lower() or (
+          'thực đạt' in str(c).lower()
+          and 'cat' in str(c).lower()
+          and 'not cancel' not in str(c).lower()
+          and 'pending' not in str(c).lower()
+      ):
+        c_actual = c
+        break
+    if c_actual:
+      break
+  if not c_actual:
+    c_actual = find_col(
+        df, ['Doanh số thực đạt của CAT', 'Doanh so thuc dat']
+    )
+
+  # Actual Not Cancel/Pending
+  c_actual_nc = None
+  for c in df.columns:
+    cl = str(c).lower()
+    if 'not cancel' in cl or ('pending' in cl and 'thực đạt' in cl):
+      c_actual_nc = c
+      break
+  if not c_actual_nc:
+    c_actual_nc = find_col(
+        df,
+        [
+            'Doanh số thực đạt của CAT(Not Cancel/Pending)',
+            'Doanh số thực đạt của CAT (Not Cancel/Pending)',
+        ],
+    )
 
   if not c_ma or not c_target or not c_actual:
     return empty
@@ -2285,7 +2315,13 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
     df = df[df[c_nv].astype(str).str.strip() == str(filter_nv).strip()]
 
   df['_ma'] = df[c_ma].astype(str).str.strip()
-  df['_actual_cat'] = pd.to_numeric(df[c_actual], errors='coerce').fillna(0)
+  df['_actual'] = pd.to_numeric(df[c_actual], errors='coerce').fillna(0)
+  if c_actual_nc and c_actual_nc in df.columns:
+    df['_actual_nc'] = pd.to_numeric(
+        df[c_actual_nc], errors='coerce'
+    ).fillna(0)
+  else:
+    df['_actual_nc'] = df['_actual']
   df['_target'] = pd.to_numeric(df[c_target], errors='coerce').fillna(0)
   df['_loai'] = (
       df[c_loai].astype(str).str.strip().str.upper() if c_loai else ''
@@ -2304,7 +2340,8 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
           tmp.drop_duplicates('_ma').set_index('_ma')['_thu'].to_dict()
       )
 
-  actual_by_outlet = df.groupby('_ma')['_actual_cat'].sum()
+  actual_by_outlet = df.groupby('_ma')['_actual'].sum()
+  actual_nc_by_outlet = df.groupby('_ma')['_actual_nc'].sum()
   target_by_outlet = df.groupby('_ma')['_target'].first()
   nv_by_outlet = (
       df.groupby('_ma')[c_nv].first() if c_nv else pd.Series(dtype=str)
@@ -2316,13 +2353,15 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
       df.groupby('_ma')[c_member].first() if c_member else pd.Series(dtype=str)
   )
 
+  # Nhiệm vụ NEW dựa trên Actual thường
   new_mask = df['_loai'].str.contains('NEW', na=False)
-  new_ok = df[new_mask & (df['_actual_cat'] >= 200000)].groupby('_ma').size()
+  new_ok = df[new_mask & (df['_actual'] >= 200000)].groupby('_ma').size()
   has_new_mission = set(new_ok.index.tolist())
 
   rows = []
   for ma in actual_by_outlet.index:
     actual = float(actual_by_outlet.get(ma, 0) or 0)
+    actual_nc = float(actual_nc_by_outlet.get(ma, 0) or 0)
     target = float(target_by_outlet.get(ma, 0) or 0)
     pct = (actual / target * 100) if target > 0 else (100.0 if actual > 0 else 0.0)
     has_mission = ma in has_new_mission
@@ -2349,6 +2388,7 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
         ),
         'Thứ VT': thu_map.get(ma, ''),
         'Actual': actual,
+        'Actual (Not Cancel/Pending)': actual_nc,
         'Target': target,
         '% TH': round(pct, 1),
         'Có nhiệm vụ NEW': 'Có' if has_mission else 'Không',
@@ -2435,15 +2475,38 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
           'Chỉ tiêu',
       ],
   )
-  c_actual = find_col(
-      df,
-      [
-          'Doanh số thực đạt của brand (Not Cancel/Pending)',
-          'Doanh số thực đạt của brand',
-          'Doanh số thực đạt của CAT',
-          'Doanh so thuc dat',
-      ],
-  )
+  c_actual = None
+  for c in df.columns:
+    cl = str(c).lower()
+    if (
+        'thực đạt' in cl
+        and 'brand' in cl
+        and 'not cancel' not in cl
+        and 'pending' not in cl
+    ):
+      c_actual = c
+      break
+  if not c_actual:
+    c_actual = find_col(
+        df, ['Doanh số thực đạt của brand', 'Doanh so thuc dat']
+    )
+
+  c_actual_nc = None
+  for c in df.columns:
+    cl = str(c).lower()
+    if ('not cancel' in cl or 'pending' in cl) and (
+        'thực đạt' in cl or 'brand' in cl
+    ):
+      c_actual_nc = c
+      break
+  if not c_actual_nc:
+    c_actual_nc = find_col(
+        df,
+        [
+            'Doanh số thực đạt của brand (Not Cancel/Pending)',
+            'Doanh số thực đạt của brand(Not Cancel/Pending)',
+        ],
+    )
 
   if not c_ma or not c_target or not c_actual:
     return empty
@@ -2452,7 +2515,13 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
     df = df[df[c_nv].astype(str).str.strip() == str(filter_nv).strip()]
 
   df['_ma'] = df[c_ma].astype(str).str.strip()
-  df['_actual_cat'] = pd.to_numeric(df[c_actual], errors='coerce').fillna(0)
+  df['_actual'] = pd.to_numeric(df[c_actual], errors='coerce').fillna(0)
+  if c_actual_nc and c_actual_nc in df.columns:
+    df['_actual_nc'] = pd.to_numeric(
+        df[c_actual_nc], errors='coerce'
+    ).fillna(0)
+  else:
+    df['_actual_nc'] = df['_actual']
   df['_target'] = pd.to_numeric(df[c_target], errors='coerce').fillna(0)
   df['_loai'] = (
       df[c_loai].astype(str).str.strip().str.upper() if c_loai else ''
@@ -2470,7 +2539,8 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
           tmp.drop_duplicates('_ma').set_index('_ma')['_thu'].to_dict()
       )
 
-  actual_by_outlet = df.groupby('_ma')['_actual_cat'].sum()
+  actual_by_outlet = df.groupby('_ma')['_actual'].sum()
+  actual_nc_by_outlet = df.groupby('_ma')['_actual_nc'].sum()
   target_by_outlet = df.groupby('_ma')['_target'].first()
   nv_by_outlet = (
       df.groupby('_ma')[c_nv].first() if c_nv else pd.Series(dtype=str)
@@ -2483,12 +2553,13 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
   )
 
   new_mask = df['_loai'].str.contains('NEW', na=False)
-  new_ok = df[new_mask & (df['_actual_cat'] >= 200000)].groupby('_ma').size()
+  new_ok = df[new_mask & (df['_actual'] >= 200000)].groupby('_ma').size()
   has_new_mission = set(new_ok.index.tolist())
 
   rows = []
   for ma in actual_by_outlet.index:
     actual = float(actual_by_outlet.get(ma, 0) or 0)
+    actual_nc = float(actual_nc_by_outlet.get(ma, 0) or 0)
     target = float(target_by_outlet.get(ma, 0) or 0)
     pct = (actual / target * 100) if target > 0 else (100.0 if actual > 0 else 0.0)
     has_mission = ma in has_new_mission
@@ -2515,6 +2586,7 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
         ),
         'Thứ VT': thu_map.get(ma, ''),
         'Actual': actual,
+        'Actual (Not Cancel/Pending)': actual_nc,
         'Target': target,
         '% TH': round(pct, 1),
         'Có nhiệm vụ NEW': 'Có' if has_mission else 'Không',
@@ -3032,12 +3104,17 @@ with tab_kpi:
         df_show = df_show.sort_values(
             ['Nhóm', 'Actual'], ascending=[True, False]
         )
-        df_show['Actual'] = df_show['Actual'].apply(
-            lambda x: f'{x:,.0f}'.replace(',', '.')
-        )
-        df_show['Target'] = df_show['Target'].apply(
-            lambda x: f'{x:,.0f}'.replace(',', '.')
-        )
+        def _fmt_num(x):
+          try:
+            return f'{float(x):,.0f}'.replace(',', '.')
+          except Exception:
+            return x
+        df_show['Actual'] = df_show['Actual'].apply(_fmt_num)
+        if 'Actual (Not Cancel/Pending)' in df_show.columns:
+          df_show['Actual (Not Cancel/Pending)'] = df_show[
+              'Actual (Not Cancel/Pending)'
+          ].apply(_fmt_num)
+        df_show['Target'] = df_show['Target'].apply(_fmt_num)
         def _fmt_pct(x):
           try:
             return f"{float(str(x).replace('%','')):.1f}%"
@@ -3053,6 +3130,7 @@ with tab_kpi:
             'Thứ VT',
             'Member type',
             'Actual',
+            'Actual (Not Cancel/Pending)',
             'Target',
             '% TH',
             'Có nhiệm vụ NEW',
@@ -3239,12 +3317,17 @@ with tab_kpi:
         df_show = df_show.sort_values(
             ['Nhóm', 'Actual'], ascending=[True, False]
         )
-        df_show['Actual'] = df_show['Actual'].apply(
-            lambda x: f'{x:,.0f}'.replace(',', '.')
-        )
-        df_show['Target'] = df_show['Target'].apply(
-            lambda x: f'{x:,.0f}'.replace(',', '.')
-        )
+        def _fmt_num_b(x):
+          try:
+            return f'{float(x):,.0f}'.replace(',', '.')
+          except Exception:
+            return x
+        df_show['Actual'] = df_show['Actual'].apply(_fmt_num_b)
+        if 'Actual (Not Cancel/Pending)' in df_show.columns:
+          df_show['Actual (Not Cancel/Pending)'] = df_show[
+              'Actual (Not Cancel/Pending)'
+          ].apply(_fmt_num_b)
+        df_show['Target'] = df_show['Target'].apply(_fmt_num_b)
         def _fmt_pct_brand(x):
           try:
             return f"{float(str(x).replace('%','')):.1f}%"
@@ -3253,7 +3336,8 @@ with tab_kpi:
         df_show['% TH'] = df_show['% TH'].apply(_fmt_pct_brand)
         cols_show = [
             'Nhóm', 'Tên nhóm', 'Outlet Code', 'Tên CH', 'Tên NVBH',
-            'Thứ VT', 'Member type', 'Actual', 'Target', '% TH',
+            'Thứ VT', 'Member type', 'Actual',
+            'Actual (Not Cancel/Pending)', 'Target', '% TH',
             'Có nhiệm vụ NEW',
         ]
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
