@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title='TRACKING KPI ĐDKD - SS Kiều Trí Thịnh ',
+    page_title='TRACKING KPI ĐDKD - SS Trương Thanh Tân ',
     page_icon='📊',
     layout='wide',
     initial_sidebar_state='collapsed',
@@ -210,6 +210,18 @@ st.markdown(
         }
         .mbs-card { padding: 8px 10px; }
         .mbs-card-kh { font-size: 18px; }
+    }
+
+
+    .kpi-report-title {
+        color: #034ea2 !important;
+        font-weight: 800 !important;
+        font-size: 15px !important;
+        text-align: center !important;
+        margin-bottom: 4px !important;
+    }
+    div[data-testid="stCaptionContainer"] {
+        text-align: center !important;
     }
 
 </style>
@@ -1026,7 +1038,7 @@ def build_report(
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Kiều Trí Thịnh Total'
+          'SS Trương Thanh Tân Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -1098,7 +1110,7 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Kiều Trí Thịnh Total'
+          'SS Trương Thanh Tân Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -1670,7 +1682,7 @@ def build_combo_matrix(
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Kiều Trí Thịnh Total'
+          'SS Trương Thanh Tân Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -2784,8 +2796,8 @@ st.markdown(
 <div class="main-header">
     <div class="logo">{logo_svg}</div>
     <div class="title-block">
-        <h1>SƯ ĐOÀN HCM4 - TRUNG ĐOÀN 1</h1>
-        <h2>TRACKING KPI ĐDKD - TEAM SS KIỀU TRÍ THỊNH </h2>
+        <h1>SƯ ĐOÀN HCM4 - TRUNG ĐOÀN 10</h1>
+        <h2>TRACKING KPI ĐDKD - TEAM SS TRƯƠNG THANH TÂN </h2>
     </div>
 </div>
 """,
@@ -2909,7 +2921,7 @@ f4, f5, f6 = st.columns([1, 1, 1])
 with f4:
   st.markdown('<p class="filter-label">SALE SUP</p>', unsafe_allow_html=True)
   st.selectbox(
-      '', ['Kiều Trí Thịnh Total'], key='sup', label_visibility='collapsed'
+      '', ['Trương Thanh Tân Total'], key='sup', label_visibility='collapsed'
   )
 with f5:
   st.markdown(
@@ -3055,7 +3067,7 @@ with tab_kpi:
 
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px;">9. BÁO CÁO TỔNG HỢP - THÁNG'
+        f' font-size: 15px; text-align: center;">9. BÁO CÁO TỔNG HỢP - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
@@ -3652,12 +3664,12 @@ with tab_kpi:
 
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px;">{title} - THÁNG'
+        f' font-size: 15px; text-align: center;">{title} - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
     st.caption(
-        f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {filter_nv}"
+        f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {nv_label(filter_nv)}"
     )
 
     c1, c2, c3, c4 = st.columns(4)
@@ -3726,12 +3738,12 @@ with tab_kpi:
     pct_team = total_row['% MTD']
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px;">{title} - THÁNG'
+        f' font-size: 15px; text-align: center;">{title} - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
     st.caption(
-        f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {filter_nv}"
+        f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {nv_label(filter_nv)}"
     )
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -3793,7 +3805,7 @@ with tab_kpi:
 
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px;">7. BÁO CÁO ĐH COMBO (MATRIX OFF/ON) - THÁNG'
+        f' font-size: 15px; text-align: center;">7. BÁO CÁO ĐH COMBO (MATRIX OFF/ON) - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
