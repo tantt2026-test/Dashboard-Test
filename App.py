@@ -145,6 +145,73 @@ st.markdown(
     .custom-kpi-table tbody tr:nth-child(odd) {
         background-color: #ffffff !important;
     }
+
+    /* MBS group cards - responsive */
+    .mbs-card-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .mbs-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 12px 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        min-height: 0;
+    }
+    .mbs-card-title {
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 4px;
+        line-height: 1.3;
+    }
+    .mbs-card-kh {
+        font-size: 20px;
+        font-weight: 800;
+        line-height: 1.2;
+    }
+    .mbs-card-kh span {
+        font-size: 13px;
+        font-weight: 600;
+        color: #718096;
+    }
+    .mbs-card-pct {
+        font-size: 11px;
+        color: #718096;
+        margin: 2px 0 6px 0;
+    }
+    .mbs-card-footer {
+        border-top: 1px solid #e2e8f0;
+        padding-top: 6px;
+        font-size: 11px;
+        color: #4a5568;
+        line-height: 1.4;
+    }
+    @media (max-width: 768px) {
+        .mbs-card-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .mbs-card {
+            padding: 8px 10px;
+            border-radius: 8px;
+        }
+        .mbs-card-title { font-size: 10px; margin-bottom: 2px; }
+        .mbs-card-kh { font-size: 16px; }
+        .mbs-card-kh span { font-size: 11px; }
+        .mbs-card-pct { font-size: 10px; margin: 1px 0 4px 0; }
+        .mbs-card-footer { font-size: 10px; padding-top: 4px; }
+    }
+    @media (max-width: 400px) {
+        .mbs-card-grid {
+            grid-template-columns: 1fr;
+            gap: 6px;
+        }
+        .mbs-card { padding: 8px 10px; }
+        .mbs-card-kh { font-size: 18px; }
+    }
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -3012,7 +3079,10 @@ with tab_kpi:
     if total_kh == 0:
       st.warning('Không có dữ liệu Data_Cat để chạy báo cáo MBS CAT.')
     else:
-      def render_mbs_group_card(ginfo):
+      # 6 cards - grid responsive (3 cột desktop / 2 cột mobile / 1 cột máy nhỏ)
+      cards_html = ['<div class="mbs-card-grid">']
+      for g in [1, 2, 3, 4, 5, 6]:
+        ginfo = groups[g]
         pct_badge_bg = (
             '#c6f6d5'
             if ginfo['pct_th'] >= 70
@@ -3023,37 +3093,25 @@ with tab_kpi:
             if ginfo['pct_th'] >= 70
             else ('#744210' if ginfo['pct_th'] >= 50 else '#c53030')
         )
-        html = (
-            '<div style="background:' + ginfo['bg'] + '; border:1px solid #e2e8f0;'
-            ' border-radius:10px; padding:14px 16px; margin-bottom:10px;'
-            ' box-shadow:0 1px 3px rgba(0,0,0,0.06); min-height:120px;">'
-            '<div style="font-size:12px; font-weight:700; color:' + ginfo['color'] + ';'
-            ' margin-bottom:6px;">' + ginfo['name'] + '</div>'
-            '<div style="font-size:22px; font-weight:800; color:' + ginfo['color'] + ';'
-            ' line-height:1.2;">' + str(ginfo['kh']) + ' KH'
-            '<span style="font-size:14px; font-weight:600; color:#718096;">'
-            ' / ' + str(ginfo['total_kh']) + ' KH</span></div>'
-            '<div style="font-size:11px; color:#718096; margin:4px 0 8px 0;">'
-            + str(ginfo['pct_kh']) + '% tổng KH MBS</div>'
-            '<div style="border-top:1px solid #e2e8f0; padding-top:8px;'
-            ' font-size:11.5px; color:#4a5568;">'
+        cards_html.append(
+            '<div class="mbs-card" style="background:' + ginfo['bg'] + ';">'
+            '<div class="mbs-card-title" style="color:' + ginfo['color'] + ';">'
+            + ginfo['name'] + '</div>'
+            '<div class="mbs-card-kh" style="color:' + ginfo['color'] + ';">'
+            + str(ginfo['kh']) + ' KH'
+            '<span> / ' + str(ginfo['total_kh']) + ' KH</span></div>'
+            '<div class="mbs-card-pct">' + str(ginfo['pct_kh'])
+            + '% tổng KH MBS</div>'
+            '<div class="mbs-card-footer">'
             'Actual <b>' + format_trieu(ginfo['actual']) + '</b>'
             ' / Target <b>' + format_trieu(ginfo['target']) + '</b> Tr'
-            ' / % TH'
+            ' / % TH '
             '<span style="background:' + pct_badge_bg + '; color:' + pct_badge_color + ';'
-            ' font-weight:800; padding:1px 7px; border-radius:8px; margin-left:4px;">'
+            ' font-weight:800; padding:1px 6px; border-radius:8px;">'
             + str(ginfo['pct_th']) + '%</span></div></div>'
         )
-        st.markdown(html, unsafe_allow_html=True)
-
-      row1 = st.columns(3)
-      for i, g in enumerate([1, 2, 3]):
-        with row1[i]:
-          render_mbs_group_card(groups[g])
-      row2 = st.columns(3)
-      for i, g in enumerate([4, 5, 6]):
-        with row2[i]:
-          render_mbs_group_card(groups[g])
+      cards_html.append('</div>')
+      st.markdown(''.join(cards_html), unsafe_allow_html=True)
 
       st.markdown(
           '<p style="font-weight:800; color:#034ea2; margin:12px 0 6px 0;">'
@@ -3229,46 +3287,39 @@ with tab_kpi:
     if total_kh == 0:
       st.warning('Không có dữ liệu Data_Brand để chạy báo cáo MBS BRAND.')
     else:
-      def render_mbs_brand_card(ginfo):
+      # 6 cards - grid responsive (3 cột desktop / 2 cột mobile / 1 cột máy nhỏ)
+      cards_html = ['<div class="mbs-card-grid">']
+      for g in [1, 2, 3, 4, 5, 6]:
+        ginfo = groups[g]
         pct_badge_bg = (
-            '#c6f6d5' if ginfo['pct_th'] >= 70
+            '#c6f6d5'
+            if ginfo['pct_th'] >= 70
             else ('#fefcbf' if ginfo['pct_th'] >= 50 else '#fed7d7')
         )
         pct_badge_color = (
-            '#22543d' if ginfo['pct_th'] >= 70
+            '#22543d'
+            if ginfo['pct_th'] >= 70
             else ('#744210' if ginfo['pct_th'] >= 50 else '#c53030')
         )
-        html = (
-            '<div style="background:' + ginfo['bg'] + '; border:1px solid #e2e8f0;'
-            ' border-radius:10px; padding:14px 16px; margin-bottom:10px;'
-            ' box-shadow:0 1px 3px rgba(0,0,0,0.06); min-height:120px;">'
-            '<div style="font-size:12px; font-weight:700; color:' + ginfo['color'] + ';'
-            ' margin-bottom:6px;">' + ginfo['name'] + '</div>'
-            '<div style="font-size:22px; font-weight:800; color:' + ginfo['color'] + ';'
-            ' line-height:1.2;">' + str(ginfo['kh']) + ' KH'
-            '<span style="font-size:14px; font-weight:600; color:#718096;">'
-            ' / ' + str(ginfo['total_kh']) + ' KH</span></div>'
-            '<div style="font-size:11px; color:#718096; margin:4px 0 8px 0;">'
-            + str(ginfo['pct_kh']) + '% tổng KH MBS</div>'
-            '<div style="border-top:1px solid #e2e8f0; padding-top:8px;'
-            ' font-size:11.5px; color:#4a5568;">'
+        cards_html.append(
+            '<div class="mbs-card" style="background:' + ginfo['bg'] + ';">'
+            '<div class="mbs-card-title" style="color:' + ginfo['color'] + ';">'
+            + ginfo['name'] + '</div>'
+            '<div class="mbs-card-kh" style="color:' + ginfo['color'] + ';">'
+            + str(ginfo['kh']) + ' KH'
+            '<span> / ' + str(ginfo['total_kh']) + ' KH</span></div>'
+            '<div class="mbs-card-pct">' + str(ginfo['pct_kh'])
+            + '% tổng KH MBS</div>'
+            '<div class="mbs-card-footer">'
             'Actual <b>' + format_trieu(ginfo['actual']) + '</b>'
             ' / Target <b>' + format_trieu(ginfo['target']) + '</b> Tr'
-            ' / % TH'
+            ' / % TH '
             '<span style="background:' + pct_badge_bg + '; color:' + pct_badge_color + ';'
-            ' font-weight:800; padding:1px 7px; border-radius:8px; margin-left:4px;">'
+            ' font-weight:800; padding:1px 6px; border-radius:8px;">'
             + str(ginfo['pct_th']) + '%</span></div></div>'
         )
-        st.markdown(html, unsafe_allow_html=True)
-
-      row1 = st.columns(3)
-      for i, g in enumerate([1, 2, 3]):
-        with row1[i]:
-          render_mbs_brand_card(groups[g])
-      row2 = st.columns(3)
-      for i, g in enumerate([4, 5, 6]):
-        with row2[i]:
-          render_mbs_brand_card(groups[g])
+      cards_html.append('</div>')
+      st.markdown(''.join(cards_html), unsafe_allow_html=True)
 
       st.markdown(
           '<p style="font-weight:800; color:#034ea2; margin:12px 0 6px 0;">'
