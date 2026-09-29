@@ -2243,11 +2243,12 @@ def render_html_table(df):
 
 
 # ====================== BÁO CÁO MBS CAT (6 NHÓM) ======================
-def build_mbs_cat_report(df_cat, filter_nv=None):
+def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
   """Phân loại KH MBS CAT thành 6 nhóm.
   Target = Doanh số nền tảng của OUTLET
   Actual = Tổng Doanh số thực đạt của CAT (sau CK)
   Nhiệm vụ = có >= 1 Cat NEW với DS >= 200.000
+  Thứ VT lấy từ Data_MCP (cột Thứ) theo Outlet Code
   """
   empty = {'groups': {}, 'df_detail': pd.DataFrame(), 'total_kh': 0}
   if df_cat is None or df_cat.empty:
@@ -2289,6 +2290,19 @@ def build_mbs_cat_report(df_cat, filter_nv=None):
   df['_loai'] = (
       df[c_loai].astype(str).str.strip().str.upper() if c_loai else ''
   )
+
+  # Map Thứ VT từ MCP
+  thu_map = {}
+  if mcp_df is not None and not mcp_df.empty:
+    c_ma_mcp = find_col(mcp_df, ['Outlet_code', 'Outlet Code', 'Mã CH'])
+    c_thu_mcp = find_col(mcp_df, ['Thứ', 'Frequency', 'Tần suất'])
+    if c_ma_mcp and c_thu_mcp:
+      tmp = mcp_df[[c_ma_mcp, c_thu_mcp]].copy()
+      tmp['_ma'] = tmp[c_ma_mcp].astype(str).str.strip()
+      tmp['_thu'] = tmp[c_thu_mcp].astype(str).str.strip()
+      thu_map = (
+          tmp.drop_duplicates('_ma').set_index('_ma')['_thu'].to_dict()
+      )
 
   actual_by_outlet = df.groupby('_ma')['_actual_cat'].sum()
   target_by_outlet = df.groupby('_ma')['_target'].first()
@@ -2333,6 +2347,7 @@ def build_mbs_cat_report(df_cat, filter_nv=None):
         'Member type': (
             member_by_outlet.get(ma, '') if len(member_by_outlet) else ''
         ),
+        'Thứ VT': thu_map.get(ma, ''),
         'Actual': actual,
         'Target': target,
         '% TH': round(pct, 1),
@@ -2696,7 +2711,7 @@ with tab_kpi:
     )
 
   elif selected_kpi == 'MBS_CAT':
-    result = build_mbs_cat_report(df_cat, filter_nv)
+    result = build_mbs_cat_report(df_cat, filter_nv, mcp_df=mcp)
     groups = result['groups']
     df_detail = result['df_detail']
     total_kh = result['total_kh']
@@ -2765,14 +2780,67 @@ with tab_kpi:
           '📋 CHI TIẾT TỪNG KHÁCH HÀNG THEO NHÓM</p>',
           unsafe_allow_html=True,
       )
-      nhom_filter = st.multiselect(
-          'Lọc nhóm hiển thị:',
-          options=[1, 2, 3, 4, 5, 6],
-          default=[1, 2, 3, 4, 5, 6],
-          format_func=lambda x: groups[x]['name'],
-          key='mbs_cat_nhom_filter',
+
+      # Bộ lọc gọn: popover ẩn sau khi chọn + lọc Thứ VT
+      fc1, fc2 = st.columns([1, 1])
+      with fc1:
+        with st.popover('👁️ Lọc nhóm hiển thị', use_container_width=True):
+          nhom_filter = st.multiselect(
+              'Chọn nhóm (đóng popover để ẩn):',
+              options=[1, 2, 3, 4, 5, 6],
+              default=[1, 2, 3, 4, 5, 6],
+              format_func=lambda x: groups[x]['name'],
+              key='mbs_cat_nhom_filter',
+          )
+      with fc2:
+        st.markdown(
+            '<p class="filter-label">📅 Lọc Theo Thứ VT (Chọn nhiều)</p>',
+            unsafe_allow_html=True,
+        )
+        thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
+        available_thu = sorted(
+            set(
+                str(x).strip()
+                for x in df_detail.get('Thứ VT', pd.Series(dtype=str)).dropna()
+                if str(x).strip() and str(x).strip().lower() != 'nan'
+            )
+        )
+        thu_opts_show = [t for t in thu_opts if t in available_thu] or thu_opts
+        f_thu_vt = st.multiselect(
+            '',
+            thu_opts_show,
+            default=[],
+            key='mbs_cat_thu_filter',
+            label_visibility='collapsed',
+        )
+
+      nhom_selected = st.session_state.get(
+          'mbs_cat_nhom_filter', [1, 2, 3, 4, 5, 6]
       )
-      df_show = df_detail[df_detail['Nhóm'].isin(nhom_filter)].copy()
+      if not nhom_selected:
+        nhom_selected = [1, 2, 3, 4, 5, 6]
+      df_show = df_detail[df_detail['Nhóm'].isin(nhom_selected)].copy()
+
+      # Lọc theo Thứ VT (dùng filter_by_thu_multi logic)
+      if f_thu_vt and 'Thứ VT' in df_show.columns:
+        thu_s = df_show['Thứ VT'].astype(str).str.strip()
+        mapping_rules = {
+            '2': ['2', '25'],
+            '3': ['3', '36'],
+            '4': ['4', '47'],
+            '5': ['5', '25'],
+            '6': ['6', '36'],
+            '7': ['7', '47'],
+            '25': ['25'],
+            '36': ['36'],
+            '47': ['47'],
+        }
+        mask = pd.Series(False, index=df_show.index)
+        for t in f_thu_vt:
+          valid_set = mapping_rules.get(str(t).strip(), [str(t).strip()])
+          mask = mask | thu_s.isin(valid_set)
+        df_show = df_show[mask]
+
       if not df_show.empty:
         df_show = df_show.sort_values(
             ['Nhóm', 'Actual'], ascending=[True, False]
@@ -2790,6 +2858,7 @@ with tab_kpi:
             'Outlet Code',
             'Tên CH',
             'Tên NVBH',
+            'Thứ VT',
             'Member type',
             'Actual',
             'Target',
@@ -2803,6 +2872,8 @@ with tab_kpi:
             hide_index=True,
         )
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+      else:
+        st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
       g1, g5 = groups[1], groups[5]
       note_html = (
