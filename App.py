@@ -463,6 +463,35 @@ def find_col(df, candidates):
   return None
 
 
+
+def nv_selected(filter_nv):
+  """True nếu đang lọc NV cụ thể (list/str không rỗng, không phải Tất cả)."""
+  if filter_nv is None:
+    return False
+  if isinstance(filter_nv, list):
+    return len(filter_nv) > 0 and 'Tất cả ĐDKD' not in filter_nv
+  return str(filter_nv).strip() not in ('', 'Tất cả ĐDKD')
+
+
+def nv_label(filter_nv):
+  if not nv_selected(filter_nv):
+    return 'Tất cả ĐDKD'
+  if isinstance(filter_nv, list):
+    return ', '.join(str(x) for x in filter_nv)
+  return str(filter_nv)
+
+
+def filter_df_by_nv(df, col, filter_nv):
+  """Lọc DataFrame theo cột NV; hỗ trợ list (multi) hoặc str."""
+  if df is None or df.empty or not col or col not in df.columns:
+    return df
+  if not nv_selected(filter_nv):
+    return df
+  vals = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+  return df[df[col].astype(str).str.strip().isin([str(v).strip() for v in vals])]
+
+
+
 def filter_by_thu_multi(df, col_thu, f_thu_list):
   if not f_thu_list or not col_thu:
     return df
@@ -828,8 +857,8 @@ def build_report(
   df_mtd = df[
       df['date'] >= date(report_date.year, report_date.month, 1)
   ].copy()
-  if filter_nv and filter_nv != 'Tất cả ĐDKD':
-    df_mtd = df_mtd[df_mtd['Tên NVBH'] == filter_nv]
+  if nv_selected(filter_nv):
+    df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
   sm_names = df_mtd.groupby('Mã NVBH')['Tên NVBH'].first().to_dict()
   all_sms = sorted(sm_names.keys())
 
@@ -861,8 +890,8 @@ def build_report(
         .nunique()
     )
     df_today = df[df['date'] == report_date]
-    if filter_nv and filter_nv != 'Tất cả ĐDKD':
-      df_today = df_today[df_today['Tên NVBH'] == filter_nv]
+    if nv_selected(filter_nv):
+      df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
     off_t = df_today[
         (df_today['L1'] == 'Kênh Off Premise')
         & ~df_today['Sub Division']
@@ -884,8 +913,8 @@ def build_report(
     mtd = on_mtd.groupby('Mã NVBH')['Mã CH'].nunique()
 
     df_today = df[df['date'] == report_date]
-    if filter_nv and filter_nv != 'Tất cả ĐDKD':
-      df_today = df_today[df_today['Tên NVBH'] == filter_nv]
+    if nv_selected(filter_nv):
+      df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
     on_today = df_today[df_today['L1'] == 'Kênh On Premise']
     ngay = on_today.groupby('Mã NVBH')['Mã đơn hàng'].nunique()
 
@@ -917,8 +946,8 @@ def build_report(
         .nunique()
     )
     df_today = df[df['date'] == report_date]
-    if filter_nv and filter_nv != 'Tất cả ĐDKD':
-      df_today = df_today[df_today['Tên NVBH'] == filter_nv]
+    if nv_selected(filter_nv):
+      df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
     on_t = df_today[df_today['L1'] == 'Kênh On Premise']
     tea_t = on_t[
         on_t['Tên SP lower'].str.contains(
@@ -998,8 +1027,8 @@ def build_report(
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
           'SS Trương Thanh Tân Total'
-          if filter_nv == 'Tất cả ĐDKD'
-          else filter_nv
+          if not nv_selected(filter_nv)
+          else nv_label(filter_nv)
       ),
       'Chỉ Tiêu KPI': team_tgt,
       'Thực Hiện Ngày': total_ngay,
@@ -1015,9 +1044,9 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
   ].copy()
   df_today = df[df['date'] == report_date].copy()
 
-  if filter_nv and filter_nv != 'Tất cả ĐDKD':
-    df_mtd = df_mtd[df_mtd['Tên NVBH'] == filter_nv]
-    df_today = df_today[df_today['Tên NVBH'] == filter_nv]
+  if nv_selected(filter_nv):
+    df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
+    df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
 
   sm_names = df_mtd.groupby('Mã NVBH')['Tên NVBH'].first().to_dict()
   all_sms = sorted(sm_names.keys())
@@ -1070,8 +1099,8 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
           'SS Trương Thanh Tân Total'
-          if filter_nv == 'Tất cả ĐDKD'
-          else filter_nv
+          if not nv_selected(filter_nv)
+          else nv_label(filter_nv)
       ),
       'Chỉ Tiêu Doanh Số': team_tgt,
       'Thực Hiện Ngày': total_today,
@@ -1106,10 +1135,10 @@ def build_visit_report(
     )
 
   mcp_f = df_mcp.copy()
-  if filter_nv and filter_nv != 'Tất cả ĐDKD':
+  if nv_selected(filter_nv):
     c_nv = find_col(mcp_f, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
     if c_nv:
-      mcp_f = mcp_f[mcp_f[c_nv].astype(str).str.strip() == filter_nv]
+      mcp_f = filter_df_by_nv(mcp_f, c_nv, filter_nv)
 
   if f_thu_list:
     c_thu = find_col(mcp_f, ['Thứ', 'Frequency', 'Tần suất'])
@@ -1462,8 +1491,8 @@ def build_combo_matrix(
   df_mtd = df[
       df['date'] >= date(report_date.year, report_date.month, 1)
   ].copy()
-  if filter_nv and filter_nv != 'Tất cả ĐDKD':
-    df_mtd = df_mtd[df_mtd['Tên NVBH'] == filter_nv]
+  if nv_selected(filter_nv):
+    df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
 
   nv_list = sorted(df['Tên NVBH'].dropna().unique().tolist())
   if not df_off_master.empty and 'Tên NV' in df_off_master.columns:
@@ -1560,7 +1589,9 @@ def build_combo_matrix(
 
   rows = []
   for idx, nv in enumerate(nv_list, 1):
-    if filter_nv and filter_nv != 'Tất cả ĐDKD' and nv != filter_nv:
+    if nv_selected(filter_nv) and nv not in (
+        filter_nv if isinstance(filter_nv, list) else [filter_nv]
+    ):
       continue
     tgt_off = int(off_target_map.get(nv, 0))
     m_off = int(off_mtd.get(nv, 0))
@@ -1600,13 +1631,27 @@ def build_combo_matrix(
 
   tot_tgt_off = (
       int(sum(off_target_map.values()))
-      if not filter_nv or filter_nv == 'Tất cả ĐDKD'
-      else int(sum([off_target_map.get(filter_nv, 0)]))
+      if not nv_selected(filter_nv)
+      else int(
+          sum(
+              off_target_map.get(v, 0)
+              for v in (
+                  filter_nv if isinstance(filter_nv, list) else [filter_nv]
+              )
+          )
+      )
   )
   tot_tgt_on = (
       int(sum(on_target_map.values()))
-      if not filter_nv or filter_nv == 'Tất cả ĐDKD'
-      else int(sum([on_target_map.get(filter_nv, 0)]))
+      if not nv_selected(filter_nv)
+      else int(
+          sum(
+              on_target_map.get(v, 0)
+              for v in (
+                  filter_nv if isinstance(filter_nv, list) else [filter_nv]
+              )
+          )
+      )
   )
 
   tot_m_off = int(df_out['MTD (OFF)'].sum()) if not df_out.empty else 0
@@ -1626,8 +1671,8 @@ def build_combo_matrix(
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
           'SS Trương Thanh Tân Total'
-          if filter_nv == 'Tất cả ĐDKD'
-          else filter_nv
+          if not nv_selected(filter_nv)
+          else nv_label(filter_nv)
       ),
       'Target (OFF)': tot_tgt_off,
       'Phát sinh Ngày (OFF)': tot_n_off,
@@ -1677,8 +1722,9 @@ def build_summary_report(
       all_nvs.extend(brand_df[c_nv_brand].dropna().astype(str).tolist())
 
   nv_list = sorted(list(set([x.strip() for x in all_nvs if x.strip()])))
-  if filter_nv and filter_nv != 'Tất cả ĐDKD':
-    nv_list = [filter_nv] if filter_nv in nv_list else [filter_nv]
+  if nv_selected(filter_nv):
+    vals = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+    nv_list = [v for v in vals if v in nv_list] or list(vals)
 
   effective_thu_list = list(f_thu_list) if f_thu_list else []
   mcp_filtered = mcp_df.copy()
@@ -2378,8 +2424,8 @@ def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
   if not c_ma or not c_target or not c_actual:
     return empty
 
-  if filter_nv and filter_nv != 'Tất cả ĐDKD' and c_nv:
-    df = df[df[c_nv].astype(str).str.strip() == str(filter_nv).strip()]
+  if nv_selected(filter_nv) and c_nv:
+    df = filter_df_by_nv(df, c_nv, filter_nv)
 
   df['_ma'] = df[c_ma].astype(str).str.strip()
   df['_actual'] = pd.to_numeric(df[c_actual], errors='coerce').fillna(0)
@@ -2578,8 +2624,8 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
   if not c_ma or not c_target or not c_actual:
     return empty
 
-  if filter_nv and filter_nv != 'Tất cả ĐDKD' and c_nv:
-    df = df[df[c_nv].astype(str).str.strip() == str(filter_nv).strip()]
+  if nv_selected(filter_nv) and c_nv:
+    df = filter_df_by_nv(df, c_nv, filter_nv)
 
   df['_ma'] = df[c_ma].astype(str).str.strip()
   df['_actual'] = pd.to_numeric(df[c_actual], errors='coerce').fillna(0)
@@ -2836,13 +2882,16 @@ with f4:
   )
 with f5:
   st.markdown(
-      '<p class="filter-label">ĐDKD (Nhân viên)</p>', unsafe_allow_html=True
+      '<p class="filter-label">ĐDKD (Nhân viên - Chọn nhiều)</p>',
+      unsafe_allow_html=True,
   )
-  filter_nv = st.selectbox(
+  filter_nv = st.multiselect(
       '',
-      ['Tất cả ĐDKD'] + nv_list,
+      nv_list,
+      default=[],
       key='ddkd',
       label_visibility='collapsed',
+      placeholder='Tất cả ĐDKD',
   )
 with f6:
   st.markdown(
@@ -2855,6 +2904,7 @@ with f6:
       default=[],
       key='mbs_cat_thu_filter',
       label_visibility='collapsed',
+      placeholder='Tất cả các thứ',
       disabled=(selected_kpi not in ['MBS_CAT', 'MBS_BRAND']),
   )
 
@@ -2979,7 +3029,7 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
     st.caption(
-        f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc NV: {filter_nv} |"
+        f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc NV: {nv_label(filter_nv)} |"
         f" Lọc Thứ/Chu kỳ: {f_thu_sum if f_thu_sum else 'Tất cả'}"
     )
 
@@ -3033,7 +3083,7 @@ with tab_kpi:
     st.markdown(
         f'<p style="text-align: center; font-size: 12px; color: #4a5568;'
         f' margin-bottom: 8px;">Tổng Doanh Số thực đạt / Chỉ tiêu từng KH'
-        f' | Lọc NV: {filter_nv} | Tổng KH MBS: <b>{total_kh}</b></p>',
+        f' | Lọc NV: {nv_label(filter_nv)} | Tổng KH MBS: <b>{total_kh}</b></p>',
         unsafe_allow_html=True,
     )
 
@@ -3243,7 +3293,7 @@ with tab_kpi:
     st.markdown(
         f'<p style="text-align: center; font-size: 12px; color: #4a5568;'
         f' margin-bottom: 8px;">Tổng Doanh Số thực đạt / Chỉ tiêu từng KH'
-        f' | Lọc NV: {filter_nv} | Tổng KH MBS: <b>{total_kh}</b></p>',
+        f' | Lọc NV: {nv_label(filter_nv)} | Tổng KH MBS: <b>{total_kh}</b></p>',
         unsafe_allow_html=True,
     )
 
