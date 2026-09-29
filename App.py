@@ -3057,31 +3057,9 @@ with tab_kpi:
             '% TH',
             'Có nhiệm vụ NEW',
         ]
-        df_view = df_show[[c for c in cols_show if c in df_show.columns]].copy()
-
-        # Format giống bảng KPI (header xanh đậm + tô màu % TH)
-        st.markdown(render_html_table(df_view), unsafe_allow_html=True)
+        df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
+        st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
-
-        # Toolbar: tải CSV + xem full (giống nút trên st.dataframe)
-        tb1, tb2, _ = st.columns([1, 1, 4])
-        with tb1:
-          csv_bytes = df_view.to_csv(index=False).encode('utf-8-sig')
-          st.download_button(
-              label='⬇️ Tải CSV',
-              data=csv_bytes,
-              file_name='MBS_CAT_ChiTiet_KH.csv',
-              mime='text/csv',
-              key='mbs_cat_dl_csv',
-          )
-        with tb2:
-          with st.popover('🔍 Xem full / Search'):
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=480,
-                hide_index=True,
-            )
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
@@ -3271,31 +3249,9 @@ with tab_kpi:
             'Thứ VT', 'Member type', 'Actual', 'Target', '% TH',
             'Có nhiệm vụ NEW',
         ]
-        df_view = df_show[[c for c in cols_show if c in df_show.columns]].copy()
-
-        # Format giống bảng KPI (header xanh đậm + tô màu % TH)
-        st.markdown(render_html_table(df_view), unsafe_allow_html=True)
+        df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
+        st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
-
-        # Toolbar: tải CSV + xem full (giống nút trên st.dataframe)
-        tb1, tb2, _ = st.columns([1, 1, 4])
-        with tb1:
-          csv_bytes = df_view.to_csv(index=False).encode('utf-8-sig')
-          st.download_button(
-              label='⬇️ Tải CSV',
-              data=csv_bytes,
-              file_name='MBS_BRAND_ChiTiet_KH.csv',
-              mime='text/csv',
-              key='mbs_brand_dl_csv',
-          )
-        with tb2:
-          with st.popover('🔍 Xem full / Search'):
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=480,
-                hide_index=True,
-            )
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
