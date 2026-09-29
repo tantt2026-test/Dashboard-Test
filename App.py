@@ -146,17 +146,52 @@ st.markdown(
         background-color: #ffffff !important;
     }
 
-    /* Sticky header cho st.dataframe */
-    div[data-testid="stDataFrame"] thead th {
+    /* Format st.dataframe giống bảng KPI + sticky header */
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #90cdf4 !important;
+        border-radius: 4px !important;
+        overflow: hidden !important;
+    }
+    div[data-testid="stDataFrame"] table {
+        border-collapse: collapse !important;
+        font-family: sans-serif !important;
+        font-size: 11px !important;
+        width: 100% !important;
+    }
+    div[data-testid="stDataFrame"] thead th,
+    div[data-testid="stDataFrame"] th {
         position: sticky !important;
         top: 0 !important;
-        z-index: 2 !important;
+        z-index: 3 !important;
+        background-color: #1a365d !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        border: 1px solid #90cdf4 !important;
+        padding: 6px 5px !important;
+        white-space: nowrap !important;
+    }
+    div[data-testid="stDataFrame"] tbody td,
+    div[data-testid="stDataFrame"] td {
+        border: 1px solid #bce2f5 !important;
+        padding: 5px 6px !important;
+        font-size: 11px !important;
+    }
+    div[data-testid="stDataFrame"] tbody tr:nth-child(even) td {
+        background-color: #e6f4fc !important;
+    }
+    div[data-testid="stDataFrame"] tbody tr:nth-child(odd) td {
+        background-color: #ffffff !important;
+    }
+    /* Glide Data Grid (Streamlit mới) */
+    div[data-testid="stDataFrame"] [role="columnheader"] {
         background-color: #1a365d !important;
         color: #ffffff !important;
         font-weight: 700 !important;
     }
-    div[data-testid="stDataFrame"] table {
-        border-collapse: separate !important;
+    div[data-testid="stDataFrameResizable"] {
+        border: 1px solid #90cdf4 !important;
+        border-radius: 4px !important;
     }
 </style>
 """,
@@ -3089,12 +3124,52 @@ with tab_kpi:
           except Exception:
             return ''
 
-        try:
-          styled = df_view.style.map(_style_pct_th, subset=['% TH'])
-        except Exception:
-          styled = df_view.style.applymap(_style_pct_th, subset=['% TH'])
+        table_styles = [
+            {
+                'selector': 'th',
+                'props': [
+                    ('background-color', '#1a365d'),
+                    ('color', '#ffffff'),
+                    ('font-weight', '700'),
+                    ('text-align', 'center'),
+                    ('border', '1px solid #90cdf4'),
+                    ('padding', '6px 5px'),
+                    ('font-size', '11px'),
+                    ('white-space', 'nowrap'),
+                ],
+            },
+            {
+                'selector': 'td',
+                'props': [
+                    ('border', '1px solid #bce2f5'),
+                    ('padding', '5px 6px'),
+                    ('font-size', '11px'),
+                ],
+            },
+            {
+                'selector': 'tbody tr:nth-child(even)',
+                'props': [('background-color', '#e6f4fc')],
+            },
+            {
+                'selector': 'tbody tr:nth-child(odd)',
+                'props': [('background-color', '#ffffff')],
+            },
+        ]
 
-        # Toolbar gốc Streamlit (👁 ⬇️ 🔍 ⛶) + header sticky khi cuộn
+        try:
+          styled = (
+              df_view.style.map(_style_pct_th, subset=['% TH'])
+              .set_table_styles(table_styles)
+              .set_properties(**{'font-size': '11px'})
+          )
+        except Exception:
+          styled = (
+              df_view.style.applymap(_style_pct_th, subset=['% TH'])
+              .set_table_styles(table_styles)
+              .set_properties(**{'font-size': '11px'})
+          )
+
+        # Toolbar gốc Streamlit + sticky header + format KPI
         st.dataframe(
             styled,
             use_container_width=True,
@@ -3310,12 +3385,52 @@ with tab_kpi:
           except Exception:
             return ''
 
-        try:
-          styled = df_view.style.map(_style_pct_th, subset=['% TH'])
-        except Exception:
-          styled = df_view.style.applymap(_style_pct_th, subset=['% TH'])
+        table_styles = [
+            {
+                'selector': 'th',
+                'props': [
+                    ('background-color', '#1a365d'),
+                    ('color', '#ffffff'),
+                    ('font-weight', '700'),
+                    ('text-align', 'center'),
+                    ('border', '1px solid #90cdf4'),
+                    ('padding', '6px 5px'),
+                    ('font-size', '11px'),
+                    ('white-space', 'nowrap'),
+                ],
+            },
+            {
+                'selector': 'td',
+                'props': [
+                    ('border', '1px solid #bce2f5'),
+                    ('padding', '5px 6px'),
+                    ('font-size', '11px'),
+                ],
+            },
+            {
+                'selector': 'tbody tr:nth-child(even)',
+                'props': [('background-color', '#e6f4fc')],
+            },
+            {
+                'selector': 'tbody tr:nth-child(odd)',
+                'props': [('background-color', '#ffffff')],
+            },
+        ]
 
-        # Toolbar gốc Streamlit (👁 ⬇️ 🔍 ⛶) + header sticky khi cuộn
+        try:
+          styled = (
+              df_view.style.map(_style_pct_th, subset=['% TH'])
+              .set_table_styles(table_styles)
+              .set_properties(**{'font-size': '11px'})
+          )
+        except Exception:
+          styled = (
+              df_view.style.applymap(_style_pct_th, subset=['% TH'])
+              .set_table_styles(table_styles)
+              .set_properties(**{'font-size': '11px'})
+          )
+
+        # Toolbar gốc Streamlit + sticky header + format KPI
         st.dataframe(
             styled,
             use_container_width=True,
