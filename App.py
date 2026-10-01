@@ -1195,6 +1195,20 @@ def pick_best_pc_per_outlet_day(ok_orders):
 def build_report(
     df, report_date, targets, report_type, filter_nv=None, mcp_df=None
 ):
+  title = str(report_type)
+  key = str(report_type)
+  mtd, ngay = pd.Series(dtype=float), pd.Series(dtype=float)
+  on_targets = {}
+  mcp_off_tgt, mcp_on_tgt = {}, {}
+  mtd_off = ngay_off = mtd_on = ngay_on = pd.Series(dtype=float)
+
+  if df is None or df.empty:
+    empty_cols = [
+        'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu KPI',
+        'Thực Hiện Ngày', 'MTD', '% MTD',
+    ]
+    return pd.DataFrame(columns=empty_cols), 0, title
+
   df_mtd = df[
       df['date'] >= date(report_date.year, report_date.month, 1)
   ].copy()
@@ -1649,12 +1663,28 @@ def build_report(
       }
     results.append(row)
 
-  df_out = (
-      pd.DataFrame(results)
-      .sort_values('_ratio', ascending=True)
-      .drop(columns=['_ratio'])
-      .reset_index(drop=True)
-  )
+  if not results:
+    # Không có NV / dữ liệu → trả bảng rỗng an toàn
+    empty_cols = (
+        [
+            'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu MCP', 'Thực Hiện Ngày',
+            'MTD', '% MTD', 'MCP OFF', 'Thực hiện ngày OFF', 'MTD OFF',
+            '% MTD OFF', 'MCP ON', 'Thực hiện ngày ON', 'MTD ON', '% MTD ON',
+        ]
+        if report_type == 'ASO_ALL'
+        else [
+            'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu KPI',
+            'Thực Hiện Ngày', 'MTD', '% MTD',
+        ]
+    )
+    return pd.DataFrame(columns=empty_cols), 0, title
+
+  df_out = pd.DataFrame(results)
+  if '_ratio' in df_out.columns:
+    df_out = df_out.sort_values('_ratio', ascending=True).drop(
+        columns=['_ratio']
+    )
+  df_out = df_out.reset_index(drop=True)
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
   if report_type == 'ASO_ALL':
@@ -1735,6 +1765,13 @@ def build_report(
 
 
 def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
+  title = '1. TURNOVER - Tổng doanh số bán ra'
+  if df is None or df.empty:
+    return pd.DataFrame(columns=[
+        'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu Doanh Số',
+        'Thực Hiện Ngày', 'Doanh Số MTD', '% MTD',
+    ]), 0.0, title
+
   df_mtd = df[
       df['date'] >= date(report_date.year, report_date.month, 1)
   ].copy()
@@ -2184,9 +2221,18 @@ def render_visit_html_table(df):
 def build_combo_matrix(
     df, report_date, df_off_master, df_on_master, filter_nv=None
 ):
-  df_mtd = df[
-      df['date'] >= date(report_date.year, report_date.month, 1)
-  ].copy()
+  empty_cols = [
+      'STT', 'Mã NVBH', 'Tên NVBH',
+      'Target (OFF)', 'Phát sinh Ngày (OFF)', 'MTD (OFF)', '% MTD (OFF)',
+      'Target (ON)', 'Phát sinh Ngày (ON)', 'MTD (ON)', '% MTD (ON)',
+  ]
+  if df is None:
+    df = pd.DataFrame()
+  df_mtd = (
+      df[df['date'] >= date(report_date.year, report_date.month, 1)].copy()
+      if not df.empty and 'date' in df.columns
+      else pd.DataFrame()
+  )
   if nv_selected(filter_nv):
     df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
 
@@ -2247,41 +2293,38 @@ def build_combo_matrix(
     is_denhi = ('đệ nhị' in sp or 'de nhi' in sp) and km
     return is_olong_dao or is_denhi
 
-  df_off = df_mtd[df_mtd['L1'] == 'Kênh Off Premise'].copy()
-  df_off['is_combo'] = df_off.apply(is_combo_off, axis=1)
+  def _safe_combo_maps(df_ch, is_combo_fn, report_date):
+    """Trả (mtd_dict, ngay_dict) an toàn khi empty / thiếu cột."""
+    empty = {}
+    if df_ch is None or df_ch.empty or 'Tên NVBH' not in df_ch.columns:
+      return empty, empty
+    d = df_ch.copy()
+    d['is_combo'] = d.apply(is_combo_fn, axis=1)
+    c = d[d['is_combo']]
+    if c.empty or 'Mã CH' not in c.columns:
+      return empty, empty
+    mtd = c.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+    first = c.groupby(['Tên NVBH', 'Mã CH'])['date'].min().reset_index()
+    first.columns = ['Tên NVBH', 'Mã CH', 'first_date']
+    ngay = (
+        first[first['first_date'] == report_date]
+        .groupby('Tên NVBH')['Mã CH']
+        .nunique()
+        .to_dict()
+    )
+    return mtd, ngay
 
-  df_on = df_mtd[df_mtd['L1'] == 'Kênh On Premise'].copy()
-  df_on['is_combo'] = df_on.apply(is_combo_on, axis=1)
+  if df_mtd is None or df_mtd.empty:
+    df_off = pd.DataFrame()
+    df_on = pd.DataFrame()
+  else:
+    # L1 có thể là 'Kênh Off Premise' hoặc chứa 'Off'/'On'
+    l1 = df_mtd['L1'].astype(str) if 'L1' in df_mtd.columns else pd.Series('', index=df_mtd.index)
+    df_off = df_mtd[l1.str.contains('Off', case=False, na=False)].copy()
+    df_on = df_mtd[l1.str.contains('On', case=False, na=False)].copy()
 
-  off_mtd = (
-      df_off[df_off['is_combo']].groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-  )
-  off_c = df_off[df_off['is_combo']]
-  first_off = (
-      off_c.groupby(['Tên NVBH', 'Mã CH'])['date'].min().reset_index()
-  )
-  first_off.columns = ['Tên NVBH', 'Mã CH', 'first_date']
-  off_ngay = (
-      first_off[first_off['first_date'] == report_date]
-      .groupby('Tên NVBH')['Mã CH']
-      .nunique()
-      .to_dict()
-  )
-
-  on_mtd = (
-      df_on[df_on['is_combo']].groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-  )
-  on_c = df_on[df_on['is_combo']]
-  first_on = (
-      on_c.groupby(['Tên NVBH', 'Mã CH'])['date'].min().reset_index()
-  )
-  first_on.columns = ['Tên NVBH', 'Mã CH', 'first_date']
-  on_ngay = (
-      first_on[first_on['first_date'] == report_date]
-      .groupby('Tên NVBH')['Mã CH']
-      .nunique()
-      .to_dict()
-  )
+  off_mtd, off_ngay = _safe_combo_maps(df_off, is_combo_off, report_date)
+  on_mtd, on_ngay = _safe_combo_maps(df_on, is_combo_on, report_date)
 
   rows = []
   for idx, nv in enumerate(nv_list, 1):
@@ -2511,22 +2554,25 @@ def build_summary_report(
       )
 
       valid_off_ma_set = set(df_off_sub['MA'].unique())
-      df_off_trans = df_mtd[
-          (df_mtd['L1'] == 'Kênh Off Premise')
-          & (
-              df_mtd['Mã CH']
-              .astype(str)
-              .str.strip()
-              .isin(valid_off_ma_set)
-          )
-      ].copy()
-      df_off_trans['is_combo'] = df_off_trans.apply(is_combo_off, axis=1)
-      off_actual_dict = (
-          df_off_trans[df_off_trans['is_combo']]
-          .groupby('Tên NVBH')['Mã CH']
-          .nunique()
-          .to_dict()
-      )
+      off_actual_dict = {}
+      if (
+          not df_mtd.empty
+          and 'L1' in df_mtd.columns
+          and 'Mã CH' in df_mtd.columns
+          and 'Tên NVBH' in df_mtd.columns
+      ):
+        l1s = df_mtd['L1'].astype(str)
+        df_off_trans = df_mtd[
+            l1s.str.contains('Off', case=False, na=False)
+            & df_mtd['Mã CH'].astype(str).str.strip().isin(valid_off_ma_set)
+        ].copy()
+        if not df_off_trans.empty:
+          df_off_trans['is_combo'] = df_off_trans.apply(is_combo_off, axis=1)
+          sub = df_off_trans[df_off_trans['is_combo']]
+          if not sub.empty:
+            off_actual_dict = (
+                sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+            )
 
   on_filtered = df_combo_on_raw.copy()
   if not on_filtered.empty and effective_thu_list:
@@ -2546,17 +2592,25 @@ def build_summary_report(
       )
 
       valid_on_ma_set = set(df_on_sub['MA'].unique())
-      df_on_trans = df_mtd[
-          (df_mtd['L1'] == 'Kênh On Premise')
-          & (df_mtd['Mã CH'].astype(str).str.strip().isin(valid_on_ma_set))
-      ].copy()
-      df_on_trans['is_combo'] = df_on_trans.apply(is_combo_on, axis=1)
-      on_actual_dict = (
-          df_on_trans[df_on_trans['is_combo']]
-          .groupby('Tên NVBH')['Mã CH']
-          .nunique()
-          .to_dict()
-      )
+      on_actual_dict = {}
+      if (
+          not df_mtd.empty
+          and 'L1' in df_mtd.columns
+          and 'Mã CH' in df_mtd.columns
+          and 'Tên NVBH' in df_mtd.columns
+      ):
+        l1s = df_mtd['L1'].astype(str)
+        df_on_trans = df_mtd[
+            l1s.str.contains('On', case=False, na=False)
+            & df_mtd['Mã CH'].astype(str).str.strip().isin(valid_on_ma_set)
+        ].copy()
+        if not df_on_trans.empty:
+          df_on_trans['is_combo'] = df_on_trans.apply(is_combo_on, axis=1)
+          sub = df_on_trans[df_on_trans['is_combo']]
+          if not sub.empty:
+            on_actual_dict = (
+                sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+            )
 
   cat_filtered = cat_df.copy()
   if not cat_filtered.empty and effective_thu_list:
