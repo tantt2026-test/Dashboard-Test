@@ -1310,18 +1310,63 @@ def build_report(
     return lppc, ngay
 
   on_targets = {}
+  mcp_off_tgt, mcp_on_tgt = {}, {}
+  mtd_off = ngay_off = mtd_on = ngay_on = pd.Series(dtype=int)
   is_lppc = report_type in ('LPPC', 'LPPC_MEAT')
 
   if report_type == 'ASO_ALL':
-    # OFF & ON - bao phủ CH có mua SP Masan (MTD unique outlet)
-    mtd = df_mtd.groupby('Mã NVBH')['Mã CH'].nunique()
-    first = df_mtd.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
-    first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
-    ngay = (
-        first[first['first_date'] == report_date]
-        .groupby('Mã NVBH')['Mã CH']
-        .nunique()
-    )
+    # OFF & ON - bao phủ CH; tách MCP OFF / MCP ON
+    def _aso_by_channel(df_src, report_date):
+      if df_src is None or df_src.empty:
+        return pd.Series(dtype=int), pd.Series(dtype=int)
+      m = df_src.groupby('Mã NVBH')['Mã CH'].nunique()
+      first = (
+          df_src.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
+      )
+      first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
+      n = (
+          first[first['first_date'] == report_date]
+          .groupby('Mã NVBH')['Mã CH']
+          .nunique()
+      )
+      return m, n
+
+    mtd, ngay = _aso_by_channel(df_mtd, report_date)
+    off_df = df_mtd[
+        df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
+    ]
+    on_df = df_mtd[
+        df_mtd['L1'].astype(str).str.contains('On', case=False, na=False)
+    ]
+    mtd_off, ngay_off = _aso_by_channel(off_df, report_date)
+    mtd_on, ngay_on = _aso_by_channel(on_df, report_date)
+
+    # MCP OFF / ON từ master MCP (số CH theo NV)
+    mcp_off_tgt, mcp_on_tgt = {}, {}
+    if mcp_df is not None and not mcp_df.empty:
+      c_nv = find_col(
+          mcp_df, ['SM Code', 'Mã NVBH', 'SM code', 'SM Name', 'Tên NVBH']
+      )
+      c_l1 = find_col(mcp_df, ['L1', 'Channel'])
+      c_ma = find_col(mcp_df, ['Outlet_code', 'Outlet Code', 'Mã CH'])
+      if c_nv and c_l1 and c_ma:
+        tmp = mcp_df[[c_nv, c_l1, c_ma]].copy()
+        tmp['_nv'] = tmp[c_nv].astype(str).str.strip()
+        tmp['_l1'] = tmp[c_l1].astype(str)
+        tmp['_ma'] = tmp[c_ma].astype(str).str.strip()
+        off_m = tmp[tmp['_l1'].str.contains('Off', case=False, na=False)]
+        on_m = tmp[tmp['_l1'].str.contains('On', case=False, na=False)]
+        mcp_off_tgt = off_m.groupby('_nv')['_ma'].nunique().to_dict()
+        mcp_on_tgt = on_m.groupby('_nv')['_ma'].nunique().to_dict()
+        # map SM name -> code if needed via sm_names reverse
+        name_to_code = {v: k for k, v in sm_names.items()}
+        for d in (mcp_off_tgt, mcp_on_tgt):
+          extra = {}
+          for k, v in list(d.items()):
+            if k in name_to_code:
+              extra[name_to_code[k]] = v
+          d.update(extra)
+
     key, title = 'ASO_ALL', '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
 
   elif report_type == 'PC_BT':
@@ -1472,7 +1517,8 @@ def build_report(
       tgt = int(tgt) if tgt else 0
       pct = round(m / tgt * 100, 1) if tgt else 0
       ratio = m / tgt if tgt else 0
-    results.append({
+
+    row = {
         'Mã NVBH': sm,
         'Tên NVBH': sm_names.get(sm, ''),
         'Chỉ Tiêu KPI': tgt if not is_lppc else float(tgt),
@@ -1480,7 +1526,41 @@ def build_report(
         'MTD': m,
         '% MTD': f'{pct}%',
         '_ratio': ratio,
-    })
+    }
+
+    if report_type == 'ASO_ALL':
+      # map target by code or name
+      nv_name = sm_names.get(sm, '')
+      t_off = int(
+          mcp_off_tgt.get(sm, mcp_off_tgt.get(nv_name, 0)) or 0
+      )
+      t_on = int(mcp_on_tgt.get(sm, mcp_on_tgt.get(nv_name, 0)) or 0)
+      m_off = int(mtd_off.get(sm, 0) or 0)
+      n_off = int(ngay_off.get(sm, 0) or 0)
+      m_on = int(mtd_on.get(sm, 0) or 0)
+      n_on = int(ngay_on.get(sm, 0) or 0)
+      pct_off = round(m_off / t_off * 100, 1) if t_off else 0
+      pct_on = round(m_on / t_on * 100, 1) if t_on else 0
+      # Rename columns per sample
+      row = {
+          'Mã NVBH': sm,
+          'Tên NVBH': nv_name,
+          'Chỉ Tiêu MCP': tgt,
+          'Thực Hiện Ngày': n,
+          'MTD': m,
+          '%MTD': f'{pct}%',
+          'MCP OFF': t_off,
+          'Thực hiện ngày OFF': n_off,
+          'MTD OFF': m_off,
+          '% MTD OFF': f'{pct_off}%',
+          'MCP ON': t_on,
+          'Thực hiện ngày ON': n_on,
+          'MTD ON': m_on,
+          '% MTD ON': f'{pct_on}%',
+          '_ratio': ratio,
+      }
+    results.append(row)
+
   df_out = (
       pd.DataFrame(results)
       .sort_values('_ratio', ascending=True)
@@ -1488,6 +1568,49 @@ def build_report(
       .reset_index(drop=True)
   )
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
+
+  if report_type == 'ASO_ALL':
+    total_ngay = int(df_out['Thực Hiện Ngày'].sum()) if not df_out.empty else 0
+    total_mtd = int(df_out['MTD'].sum()) if not df_out.empty else 0
+    team_tgt = int(df_out['Chỉ Tiêu MCP'].sum()) if not df_out.empty else 0
+    total_pct = round(total_mtd / team_tgt * 100, 1) if team_tgt else 0
+    sum_off = int(df_out['MCP OFF'].sum()) if not df_out.empty else 0
+    sum_on = int(df_out['MCP ON'].sum()) if not df_out.empty else 0
+    sum_mtd_off = int(df_out['MTD OFF'].sum()) if not df_out.empty else 0
+    sum_mtd_on = int(df_out['MTD ON'].sum()) if not df_out.empty else 0
+    sum_ngay_off = (
+        int(df_out['Thực hiện ngày OFF'].sum()) if not df_out.empty else 0
+    )
+    sum_ngay_on = (
+        int(df_out['Thực hiện ngày ON'].sum()) if not df_out.empty else 0
+    )
+    total_row = pd.DataFrame([{
+        'STT': '-',
+        'Mã NVBH': 'TỔNG CỘNG',
+        'Tên NVBH': (
+            'SS Trương Thanh Tân Total'
+            if not nv_selected(filter_nv)
+            else nv_label(filter_nv)
+        ),
+        'Chỉ Tiêu MCP': team_tgt,
+        'Thực Hiện Ngày': total_ngay,
+        'MTD': total_mtd,
+        '%MTD': f'{total_pct}%',
+        'MCP OFF': sum_off,
+        'Thực hiện ngày OFF': sum_ngay_off,
+        'MTD OFF': sum_mtd_off,
+        '% MTD OFF': (
+            f'{round(sum_mtd_off / sum_off * 100, 1)}%' if sum_off else '0%'
+        ),
+        'MCP ON': sum_on,
+        'Thực hiện ngày ON': sum_ngay_on,
+        'MTD ON': sum_mtd_on,
+        '% MTD ON': (
+            f'{round(sum_mtd_on / sum_on * 100, 1)}%' if sum_on else '0%'
+        ),
+    }])
+    return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
+
   if is_lppc:
     total_ngay = (
         round(float(df_out['Thực Hiện Ngày'].mean()), 2)
@@ -4213,7 +4336,8 @@ with tab_kpi:
     total_row = df_r.iloc[-1]
     total_mtd = int(total_row['MTD'])
     total_ngay = int(total_row['Thực Hiện Ngày'])
-    pct_team = total_row['% MTD']
+    pct_col = '%MTD' if '%MTD' in total_row.index else '% MTD'
+    pct_team = total_row[pct_col]
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
         f' font-size: 15px; text-align: center;">{title} - THÁNG'
@@ -4223,19 +4347,39 @@ with tab_kpi:
     st.caption(
         f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {nv_label(filter_nv)}"
     )
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-      render_metric_card('🎯 Target', f'{team_tgt:,}')
-    with c2:
-      render_metric_card('📈 MTD', f'{total_mtd:,}')
-    with c3:
-      render_metric_card('📊 % MTD', pct_team)
-    with c4:
-      render_metric_card('🆕 Ngày', f'+{total_ngay}')
+    if selected_kpi == 'ASO_ALL':
+      c1, c2, c3, c4, c5, c6 = st.columns(6)
+      with c1:
+        render_metric_card('🎯 Chỉ Tiêu MCP', f'{team_tgt:,}')
+      with c2:
+        render_metric_card('📈 MTD', f'{total_mtd:,}')
+      with c3:
+        render_metric_card('📊 %MTD', pct_team)
+      with c4:
+        render_metric_card('🆕 Ngày', f'+{total_ngay}')
+      with c5:
+        render_metric_card(
+            'MCP OFF', f"{int(total_row.get('MTD OFF', 0)):,}/{int(total_row.get('MCP OFF', 0)):,}"
+        )
+      with c6:
+        render_metric_card(
+            'MCP ON', f"{int(total_row.get('MTD ON', 0)):,}/{int(total_row.get('MCP ON', 0)):,}"
+        )
+    else:
+      c1, c2, c3, c4 = st.columns(4)
+      with c1:
+        render_metric_card('🎯 Target', f'{team_tgt:,}')
+      with c2:
+        render_metric_card('📈 MTD', f'{total_mtd:,}')
+      with c3:
+        render_metric_card('📊 % MTD', pct_team)
+      with c4:
+        render_metric_card('🆕 Ngày', f'+{total_ngay}')
     st.markdown(render_html_table(df_r), unsafe_allow_html=True)
     df_eval = df_r.iloc[:-1].copy()
+    _pc = '%MTD' if '%MTD' in df_eval.columns else '% MTD'
     df_eval['_pct_val'] = (
-        df_eval['% MTD'].str.replace('%', '').astype(float)
+        df_eval[_pc].astype(str).str.replace('%', '').astype(float)
     )
 
     df_sorted_pct = df_eval.sort_values(by='_pct_val', ascending=False)
@@ -4243,10 +4387,10 @@ with tab_kpi:
     bottom3 = df_sorted_pct.tail(3).iloc[::-1]
 
     top3_text = ', '.join(
-        [f"{r['Tên NVBH']} ({r['% MTD']})" for _, r in top3.iterrows()]
+        [f"{r['Tên NVBH']} ({r[_pc]})" for _, r in top3.iterrows()]
     )
     bottom3_text = ', '.join(
-        [f"{r['Tên NVBH']} ({r['% MTD']})" for _, r in bottom3.iterrows()]
+        [f"{r['Tên NVBH']} ({r[_pc]})" for _, r in bottom3.iterrows()]
     )
     st.markdown(
         f"""
