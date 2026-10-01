@@ -491,9 +491,13 @@ def get_all_sm_roster():
       for _, r in kpi.iterrows():
         code = str(r['SM code']).strip()
         name = str(r['SM name']).strip() if pd.notna(r['SM name']) else ''
-        if code and code.lower() not in ('nan', 'none', ''):
-          if code not in roster or (name and not roster.get(code)):
-            roster[code] = name
+        # Bỏ dòng header / rác
+        if code.lower() in ('nan', 'none', '', 'sm code', 'smcode', 'mã nvbh'):
+          continue
+        if name.lower() in ('sm name', 'sm name', 'tên nvbh', 'nhân viên', 'nan', 'none'):
+          name = ''
+        if code not in roster or (name and not roster.get(code)):
+          roster[code] = name
     except Exception:
       pass
   return roster
@@ -540,7 +544,22 @@ def merge_sm_roster(sm_names, all_sms, targets=None, turnover_targets=None, mcp_
           if code not in all_sms:
             all_sms.append(code)
 
-  all_sms = sorted(set(all_sms))
+  # Xoá tên rác "SM Name" / header
+  bad_names = {
+      'sm name', 'sm name', 'sm code', 'smcode', 'tên nvbh', 'mã nvbh',
+      'nhân viên', 'nan', 'none', '',
+  }
+  cleaned = {}
+  for code, name in sm_names.items():
+    code_s = str(code).strip()
+    name_s = str(name).strip() if name else ''
+    if code_s.lower() in bad_names:
+      continue
+    if name_s.lower() in bad_names:
+      name_s = ''
+    cleaned[code_s] = name_s
+  sm_names = cleaned
+  all_sms = sorted([c for c in set(all_sms) if str(c).strip().lower() not in bad_names and c in sm_names])
   return sm_names, all_sms
 
 
@@ -3697,8 +3716,12 @@ if mcp is not None and not mcp.empty:
   _c_nm = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
   if _c_nm:
     _nv_set.update(mcp[_c_nm].dropna().astype(str).str.strip().tolist())
+_bad_nv = {
+    'sm name', 'sm name', 'sm code', 'smcode', 'tên nvbh', 'mã nvbh',
+    'nhân viên', 'nan', 'none', '',
+}
 nv_list = sorted(
-    [x for x in _nv_set if x and x.lower() not in ('nan', 'none', '')]
+    [x for x in _nv_set if x and x.lower() not in _bad_nv]
 )
 
 vn_time = dt.datetime.utcnow() + dt.timedelta(hours=7)
