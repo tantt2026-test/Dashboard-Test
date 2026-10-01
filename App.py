@@ -1173,11 +1173,21 @@ def count_moq_lines_per_order(df_src):
 
 
 def pick_best_pc_per_outlet_day(ok_orders):
-  """Max 1 PC/CH/ngày; ưu tiên đơn có n_moq_lines cao nhất."""
+  """Max 1 PC/CH/ngày; ưu tiên đơn có số line cao nhất."""
   if ok_orders is None or ok_orders.empty:
     return ok_orders
+  df = ok_orders.copy()
+  # Chuẩn hóa cột đếm line
+  if 'n_moq_lines' not in df.columns:
+    # groupby nunique thường để tên cột là tên SKU col
+    for c in list(df.columns):
+      if c not in ('Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng'):
+        df = df.rename(columns={c: 'n_moq_lines'})
+        break
+  if 'n_moq_lines' not in df.columns:
+    df['n_moq_lines'] = 1
   return (
-      ok_orders.sort_values('n_moq_lines', ascending=False)
+      df.sort_values('n_moq_lines', ascending=False)
       .drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'], keep='first')
   )
 
@@ -1248,6 +1258,10 @@ def build_report(
         sku_col
     ].nunique()
     ok = lines[lines >= min_lines].reset_index()
+    # Đặt tên cột đếm line = n_moq_lines
+    count_col = [c for c in ok.columns if c not in ('Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng')]
+    if count_col:
+      ok = ok.rename(columns={count_col[0]: 'n_moq_lines'})
     ok_day = pick_best_pc_per_outlet_day(ok)
     mtd_s = ok_day.groupby('Mã NVBH').size()
     ngay_s = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
@@ -1449,10 +1463,15 @@ def build_report(
     key, title = 'PC_BT', '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
 
   elif report_type == 'PC_ON':
+    # L1 ON, >=1 line đạt MOQ, max 1 PC/CH/ngày
     on = df_mtd[
         df_mtd['L1'].astype(str).str.contains('On', case=False, na=False)
     ]
-    mtd, ngay = _pc_by_outlet_day(on, min_lines=1, exclude_meat_beer=False)
+    order_moq = count_moq_lines_per_order(on)
+    ok = order_moq[order_moq['n_moq_lines'] >= 1]
+    ok_day = pick_best_pc_per_outlet_day(ok)
+    mtd = ok_day.groupby('Mã NVBH').size()
+    ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
     if mcp_df is not None and not mcp_df.empty:
       c_nv_mcp = find_col(mcp_df, ['SM Code', 'Mã NVBH', 'SM code'])
       c_l1 = find_col(mcp_df, ['L1', 'Channel'])
