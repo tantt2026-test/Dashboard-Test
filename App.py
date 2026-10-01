@@ -3566,6 +3566,37 @@ def get_timegone_stats(target_date):
   )
 
 
+# Ngày báo cáo (lấy từ session để tính Timegone trước khi vẽ filter)
+report_date = st.session_state.get('ngay', default_date_t_minus_1)
+if not isinstance(report_date, date):
+  try:
+    report_date = date.fromisoformat(str(report_date)[:10])
+  except Exception:
+    report_date = default_date_t_minus_1
+# Clamp trong Tháng 10/2026
+if report_date < date(2026, 10, 1):
+  report_date = date(2026, 10, 1)
+elif report_date > date(2026, 10, 31):
+  report_date = date(2026, 10, 31)
+
+tot_days, elapsed_days, remain_days, pct_tg = get_timegone_stats(report_date)
+
+# Bảng Metric tiến độ — NẰM TRÊN các bộ lọc
+st.markdown(
+    f"""
+<div class="timegone-container" style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin: 5px 0 12px 0; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+    <div class="timegone-title" style="font-weight: 800; color: #1a365d; font-size: 12.5px; margin-bottom: 6px;">⏳ TIẾN ĐỘ THỜI GIAN THÁNG {report_date.strftime('%m/%Y')}</div>
+    <div class="timegone-grid" style="display: flex; justify-content: space-around; font-size: 11.5px; gap: 6px; flex-wrap: wrap;">
+        <div class="timegone-item" style="background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #edf2f7;"><b>Tổng làm việc:</b> <span style="color: #2b6cb0; font-weight: 700;">{tot_days}</span></div>
+        <div class="timegone-item" style="background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #edf2f7;"><b>Đã trôi qua:</b> <span style="color: #c53030; font-weight: 700;">{elapsed_days}</span></div>
+        <div class="timegone-item" style="background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #edf2f7;"><b>Còn lại:</b> <span style="color: #2f855a; font-weight: 700;">{remain_days}</span></div>
+        <div class="timegone-item" style="background: #c6f6d5; padding: 3px 8px; border-radius: 4px; border: 1px solid #9ae6b4; color: #22543d;"><b>% Timegone:</b> <span style="font-weight: 800;">{pct_tg}%</span></div>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
 # Bộ lọc chính
 f1, f2, f3 = st.columns([1, 1, 1.3])
 with f1:
@@ -3577,13 +3608,12 @@ with f2:
   st.markdown('<p class="filter-label">NGÀY</p>', unsafe_allow_html=True)
   report_date = st.date_input(
       '',
-      value=default_date_t_minus_1,
+      value=report_date,
       min_value=date(2026, 10, 1),
       max_value=date(2026, 10, 31),
       key='ngay',
       label_visibility='collapsed',
   )
-  # Tiến độ thời gian Tháng 10/2026 theo ngày báo cáo (rule cũ: trừ CN + lễ)
   tot_days, elapsed_days, remain_days, pct_tg = get_timegone_stats(report_date)
 with f3:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
@@ -3642,22 +3672,6 @@ with f6:
       placeholder='Tất cả các thứ',
       disabled=(selected_kpi not in ['MBS_CAT', 'MBS_BRAND']),
   )
-
-# Bảng tiến độ thời gian theo tháng của ngày báo cáo (T10/2026)
-st.markdown(
-    f"""
-<div class="timegone-container" style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin: 5px 0 12px 0; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-    <div class="timegone-title" style="font-weight: 800; color: #1a365d; font-size: 12.5px; margin-bottom: 6px;">⏳ TIẾN ĐỘ THỜI GIAN THÁNG {report_date.strftime('%m/%Y')}</div>
-    <div class="timegone-grid" style="display: flex; justify-content: space-around; font-size: 11.5px; gap: 6px; flex-wrap: wrap;">
-        <div class="timegone-item" style="background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #edf2f7;"><b>Tổng làm việc:</b> <span style="color: #2b6cb0; font-weight: 700;">{tot_days}</span></div>
-        <div class="timegone-item" style="background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #edf2f7;"><b>Đã trôi qua:</b> <span style="color: #c53030; font-weight: 700;">{elapsed_days}</span></div>
-        <div class="timegone-item" style="background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #edf2f7;"><b>Còn lại:</b> <span style="color: #2f855a; font-weight: 700;">{remain_days}</span></div>
-        <div class="timegone-item" style="background: #c6f6d5; padding: 3px 8px; border-radius: 4px; border: 1px solid #9ae6b4; color: #22543d;"><b>% Timegone:</b> <span style="font-weight: 800;">{pct_tg}%</span></div>
-    </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
 
 st.markdown('---')
 
