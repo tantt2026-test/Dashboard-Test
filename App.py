@@ -1,6 +1,7 @@
 import datetime as dt
 from datetime import date, timedelta
 import os
+import re
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -879,6 +880,250 @@ def process_brand_sales(df_rpt, df_brand):
   return df_out.drop(columns=drop_cols)
 
 
+
+# ====================== MOQ RULES (Công văn T10.2026) ======================
+# pattern (regex, lowercase), min_qty, unit: 'le' = Tổng lẻ / SL lẻ, 'chan' = Tổng chẵn / SL Chẵn
+MOQ_RULES = [
+    # Seasoning
+    (r'nước tương.*tam thái tử|nuoc tuong.*tam thai tu', 6, 'le'),
+    (r'nước tương.*chinsu|nuoc tuong.*chinsu', 6, 'le'),
+    (r'nước mắm nam ngư.*đệ ii.*thùng|nuoc mam nam ngu.*de ii.*thung', 1, 'chan'),
+    (r'nước mắm nam ngư.*đệ ii|nuoc mam nam ngu.*de ii', 6, 'le'),
+    (r'nước mắm nam ngư.*siêu tiết kiệm can|nuoc mam.*sieu tiet kiem can', 3, 'le'),
+    (r'nước mắm nam ngư.*siêu tiết kiệm|nuoc mam.*sieu tiet kiem', 1, 'chan'),
+    (r'nước mắm nam ngư.*nhãn vàng|nuoc mam.*nhan vang', 3, 'le'),
+    (r'nước mắm nam ngư.*đặc sản|nuoc mam.*dac san', 3, 'le'),
+    (r'nước mắm nam ngư.*thủy tinh|nuoc mam.*thuy tinh', 3, 'le'),
+    (r'nước mắm nam ngư|nuoc mam nam ngu', 6, 'le'),
+    (r'nước mắm chinsu.*cá hồi|nuoc mam chinsu.*ca hoi', 3, 'le'),
+    (r'nước mắm chinsu.*biển đông|nuoc mam chinsu.*bien dong', 3, 'le'),
+    (r'nước chấm nam ngư|nuoc cham nam ngu', 6, 'le'),
+    (r'xốt chinsu|xot chinsu|sốt chinsu', 1, 'le'),
+    (r'hạt nêm chinsu', 6, 'le'),
+    (r'sa tế chinsu|sa te chinsu', 6, 'le'),
+    (r'xốt nhà hàng|xot nha hang', 1, 'le'),
+    (r'mayonnaise chinsu|xốt mayonnaise', 6, 'le'),
+    (r'muối tôm chinsu|muoi tom chinsu', 3, 'le'),
+    (r'xốt muối ớt|xot muoi ot', 6, 'le'),
+    (r'kho quẹt nam ngư|kho quet', 4, 'le'),
+    (r'dầu hào.*820|dau hao.*820', 4, 'le'),
+    (r'dầu hào.*400|dau hao.*400', 6, 'le'),
+    (r'dầu hào.*150|dau hao.*150', 6, 'le'),
+    (r'dầu hào|dau hao', 6, 'le'),
+    (r'tương cà.*250|tuong ca.*250', 8, 'le'),
+    (r'tương cà.*500|tuong ca.*500', 6, 'le'),
+    (r'tương ớt.*professional|tuong ot.*professional|2\.1kg', 2, 'le'),
+    (r'tương ớt.*can|tuong ot.*can', 2, 'le'),
+    (r'tương ớt.*1kg|tuong ot.*1kg', 3, 'le'),
+    (r'tương ớt.*500|tuong ot.*500', 6, 'le'),
+    (r'tương ớt.*250|tuong ot.*250', 8, 'le'),
+    (r'tương ớt|tuong ot', 6, 'le'),
+    # Home Care
+    (r'bột giặt joins.*2\.7|bot giat joins.*2\.7', 2, 'le'),
+    (r'bột giặt joins|bot giat joins', 6, 'le'),
+    (r'super net.*bột|bot.*super net', 1, 'le'),
+    (r'combo.*bột giặt|combo.*bot giat', 2, 'le'),
+    (r'bột giặt net|bot giat net', 2, 'le'),
+    (r'nước giặt super net|nuoc giat super net', 1, 'le'),
+    (r'nước giặt net|nuoc giat net', 2, 'le'),
+    (r'nước giặt xả joins|nuoc giat xa joins', 2, 'le'),
+    (r'nước lau sàn|nuoc lau san', 2, 'le'),
+    (r'combo.*nước rửa chén|combo.*nuoc rua chen', 3, 'le'),
+    (r'nước rửa chén net pro|nuoc rua chen net pro', 3, 'le'),
+    (r'nước rửa chén.*sạch|nuoc rua chen.*sach', 3, 'le'),
+    (r'nước rửa chén net|nuoc rua chen net', 3, 'le'),
+    (r'sữa rửa chén homey|sua rua chen homey', 3, 'le'),
+    (r'nước rửa chén homey|nuoc rua chen homey', 4, 'le'),
+    (r'nước giặt xả homey.*2\.9|homey.*2\.9|homey.*jeju', 2, 'le'),
+    (r'nước giặt xả homey|nuoc giat xa homey', 2, 'le'),
+    (r'nước giặt xả chanté|nuoc giat xa chante|chanté active|chante active', 2, 'le'),
+    (r"sữa tắm la'?petal.*dây|sua tam.*day", 6, 'le'),
+    (r"sữa tắm la'?petal|sua tam la.?petal", 2, 'le'),
+    # Coffee
+    (r'phil 2in1|phil 2 in 1', 4, 'le'),
+    (r'vinacafe special 3 in 1.*hộp|vinacafé special.*hộp', 4, 'le'),
+    (r'vinacafe special 3 in 1|vinacafé special', 1, 'le'),
+    (r'wake up white coffee', 4, 'le'),
+    (r'wake up mekong', 4, 'le'),
+    (r'vinacafé chất|vinacafe chat', 4, 'le'),
+    (r'vinacafé 3in1|vinacafe 3in1|vinacafe 3 in 1', 4, 'le'),
+    (r'wake up sài gòn|wake up sai gon', 4, 'le'),
+    (r'wake up hương chồn|wake up huong chon', 4, 'le'),
+    # Nutrition
+    (r"b'?fast canxi|bfast canxi", 4, 'le'),
+    (r"sữa b'?fast|sua b.?fast", 24, 'le'),
+    (r"ngũ cốc b'?fast|ngu coc b.?fast|b'?fast", 4, 'le'),
+    # Processed Meats
+    (r'thịt viên|thit vien', 2, 'le'),
+    (r'thịt áp chảo|thit ap chao', 2, 'le'),
+    (r'snack ponnie', 2, 'le'),
+    (r'xúc xích.*19gr|xuc xich.*19', 4, 'le'),
+    (r'xúc xích.*70gr|xuc xich.*70', 4, 'le'),
+    (r'xúc xích.*bò 35|xuc xich.*bo 35', 4, 'le'),
+    (r'xúc xích.*35gr|xuc xich.*35', 4, 'le'),
+    (r'cao bồi cuốn|cao boi cuon|cao bồi lắc|cao boi lac', 4, 'le'),
+    (r'heo cao bồi xì xèo|heo cao boi', 4, 'le'),
+    (r'bin.?bon|bin & bon', 4, 'le'),
+    (r'chân gà ponnie|chan ga ponnie', 10, 'le'),
+    (r'hotdog ponnie', 1, 'le'),
+    # Convenience Foods - thùng
+    (r'mì trộn kokomi|mi tron kokomi', 1, 'chan'),
+    (r'mì trộn omachi|mi tron omachi', 1, 'chan'),
+    (r'sợi tam hoa|soi tam hoa', 1, 'chan'),
+    (r'omachi special', 1, 'chan'),
+    (r'omachi quán xá|omachi quan xa', 6, 'le'),
+    (r'omachi premium', 1, 'chan'),
+    (r'mì nấu omachi|mi nau omachi', 1, 'chan'),
+    (r'omachi ly lẩu|omachi ly lau', 12, 'le'),
+    (r'omachi gói|omachi goi', 1, 'chan'),
+    (r'snacking kokomi', 10, 'le'),
+    (r'kokomi đại 90 thường ngày|kokomi dai 90.*thịt', 12, 'le'),
+    (r'kokomi đại 90|kokomi dai 90', 1, 'chan'),
+    (r'kokomi 65', 1, 'chan'),
+    (r'kokomi 75', 1, 'chan'),
+    (r'komi ly|kokomi ly', 12, 'le'),
+    (r'mì trộn komi|mi tron komi', 1, 'chan'),
+    (r'phở story|pho story', 1, 'chan'),
+    (r'cháo chinsu story|chao chinsu', 15, 'le'),
+    (r'bánh phở chinsu|banh pho chinsu', 6, 'le'),
+    # Beer
+    (r'bia lush|lush', 1, 'chan'),
+    (r'white lion', 1, 'chan'),
+    (r'red ruby', 1, 'chan'),
+    # Refreshment
+    (r'faith|chanh muối', 12, 'le'),
+    (r'lemona', 12, 'le'),
+    (r'vĩnh hảo|vinh hao', 12, 'le'),
+    (r'vivant', 12, 'le'),
+    (r'wake up 247', 12, 'le'),
+    (r'compact', 6, 'le'),
+    (r'búp non|bup non|tea\s*365|tea365', 6, 'le'),
+]
+
+# Nhóm dual-MOQ (tổng nhóm + từng SKU) — Công văn mục 8.2
+DUAL_MOQ_GROUPS = [
+    {
+        'name': 'omachi_hop_ly',
+        'pattern': r'omachi.*(hộp|ly|hộp thịt|ly thịt)',
+        'group_min': 12,
+        'sku_min': 4,
+        'unit': 'le',
+    },
+    {
+        'name': 'omachi_to',
+        'pattern': r'omachi.*(tô|to trộn|tô trộn)',
+        'group_min': 6,
+        'sku_min': 4,
+        'unit': 'le',
+    },
+    {
+        'name': 'cao_boi_xot_lac',
+        'pattern': r'cao bồi xốt lắc|cao boi xot lac',
+        'group_min': 12,
+        'sku_min': 3,
+        'unit': 'le',
+    },
+    {
+        'name': 'cao_boi',
+        'pattern': r'xúc xích cao bồi|xuc xich cao boi|cao bồi(?! xốt)',
+        'group_min': 2,
+        'sku_min': 1,
+        'unit': 'le',
+    },
+    {
+        'name': 'tea365',
+        'pattern': r'búp non|bup non|tea\s*365|tea365',
+        'group_min': 12,
+        'sku_min': 6,
+        'unit': 'le',
+    },
+    {
+        'name': 'compact',
+        'pattern': r'compact',
+        'group_min': 12,
+        'sku_min': 6,
+        'unit': 'le',
+    },
+]
+
+
+def _qty_for_moq(row, unit):
+  """Lấy số lượng theo ĐVT MOQ."""
+  if unit == 'chan':
+    for c in ['Tổng chẵn', 'SL Chẵn', 'SL chẵn']:
+      if c in row.index:
+        v = pd.to_numeric(row[c], errors='coerce')
+        if pd.notna(v):
+          return float(v)
+  for c in ['Tổng lẻ', 'SL lẻ', 'SL Lẻ']:
+    if c in row.index:
+      v = pd.to_numeric(row[c], errors='coerce')
+      if pd.notna(v):
+        return float(v)
+  return 0.0
+
+
+def line_meets_moq(row):
+  """True nếu 1 dòng SP trên đơn đạt MOQ riêng (không cộng dồn SP khác)."""
+  name = str(row.get('Tên sản phẩm', '') or '').lower()
+  if not name or name == 'nan':
+    return False
+  for pattern, min_qty, unit in MOQ_RULES:
+    if re.search(pattern, name, flags=re.IGNORECASE):
+      qty = _qty_for_moq(row, unit)
+      return qty >= min_qty
+  # Không khớp rule nào: coi đạt nếu có số lượng > 0 (SP khác ngoài bảng)
+  qty = _qty_for_moq(row, 'le') or _qty_for_moq(row, 'chan')
+  return qty > 0
+
+
+def apply_dual_moq_mask(df_order_lines):
+  """Với SP thuộc nhóm dual-MOQ: phải đạt cả MOQ từng SKU và tổng nhóm trên đơn.
+  df_order_lines: các dòng cùng 1 đơn hàng.
+  Trả về Series bool index = df_order_lines.index (True = line đạt).
+  """
+  ok = df_order_lines.apply(line_meets_moq, axis=1)
+  name = df_order_lines['Tên sản phẩm'].astype(str).str.lower()
+  for grp in DUAL_MOQ_GROUPS:
+    mask = name.str.contains(grp['pattern'], na=False, regex=True)
+    if not mask.any():
+      continue
+    # sku-level already in line_meets_moq via MOQ_RULES; enforce group total
+    unit = grp['unit']
+    total = 0.0
+    for idx in df_order_lines.index[mask]:
+      total += _qty_for_moq(df_order_lines.loc[idx], unit)
+    if total < grp['group_min']:
+      ok.loc[mask] = False
+  return ok
+
+
+def count_moq_lines_per_order(df_src):
+  """Trả DataFrame: Mã NVBH, Mã CH, date, Mã đơn hàng, n_moq_lines."""
+  if df_src is None or df_src.empty:
+    return pd.DataFrame(
+        columns=['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng', 'n_moq_lines']
+    )
+  d = df_src.copy()
+  if 'Tên SP lower' not in d.columns:
+    d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+
+  rows = []
+  group_cols = ['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng']
+  for keys, g in d.groupby(group_cols, sort=False):
+    ok = apply_dual_moq_mask(g)
+    n = int(ok.sum())
+    rows.append({
+        'Mã NVBH': keys[0],
+        'Mã CH': keys[1],
+        'date': keys[2],
+        'Mã đơn hàng': keys[3],
+        'n_moq_lines': n,
+    })
+  return pd.DataFrame(rows)
+
+
+
 def build_report(
     df, report_date, targets, report_type, filter_nv=None, mcp_df=None
 ):
@@ -1069,12 +1314,15 @@ def build_report(
     key, title = 'ASO_ALL', '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
 
   elif report_type == 'PC_BT':
-    # L1 OFF, >=4 line, max 1 PC/outlet/day
+    # L1 OFF, >=4 line đạt MOQ từng SKU, max 1 PC/CH/ngày, Target từ Target_KPI
     off = df_mtd[
         df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
     ]
-    mtd, ngay = _pc_by_outlet_day(off, min_lines=4, exclude_meat_beer=False)
-    # target từ file hoặc 65%*Call MCP OFF
+    order_moq = count_moq_lines_per_order(off)
+    ok = order_moq[order_moq['n_moq_lines'] >= 4]
+    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    mtd = ok_day.groupby('Mã NVBH').size()
+    ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
     key, title = 'PC_BT', '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
 
   elif report_type == 'PC_ON':
@@ -1117,11 +1365,69 @@ def build_report(
     key, title = 'ASO_FOCUS_2', '6. ASO_Focus_2 - Trận Vàng (Homey 2.9kg)'
 
   elif report_type == 'LPPC':
-    mtd, ngay = _lppc(df_mtd, meat_only=False)
+    # Trừ Meat & Beer; line đạt MOQ; PC = đơn ≥4 line MOQ; LPPC = Total line / Tổng PC
+    d = df_mtd.copy()
+    if 'Tên SP lower' not in d.columns:
+      d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+    sub = (
+        d['Sub Division'].astype(str)
+        if 'Sub Division' in d.columns
+        else pd.Series('', index=d.index)
+    )
+    name = d['Tên SP lower']
+    is_ex = sub.str.contains(
+        'Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False
+    ) | name.str.contains(
+        'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|'
+        'cao bồi|cao boi|hotdog|thịt viên|chân gà',
+        na=False,
+    )
+    d = d[~is_ex]
+    order_moq = count_moq_lines_per_order(d)
+    ok = order_moq[order_moq['n_moq_lines'] >= 4]
+    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    total_lines = ok_day.groupby('Mã NVBH')['n_moq_lines'].sum()
+    total_pc = ok_day.groupby('Mã NVBH').size()
+    mtd = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
+    today = ok_day[ok_day['date'] == report_date]
+    if today.empty:
+      ngay = pd.Series(dtype=float)
+    else:
+      tl = today.groupby('Mã NVBH')['n_moq_lines'].sum()
+      tp = today.groupby('Mã NVBH').size()
+      ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
     key, title = 'LPPC', '3. LPPC - Bình quân line/PC (trừ Meat & Beer)'
 
   elif report_type == 'LPPC_MEAT':
-    mtd, ngay = _lppc(df_mtd, meat_only=True)
+    d = df_mtd.copy()
+    if 'Tên SP lower' not in d.columns:
+      d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+    sub = (
+        d['Sub Division'].astype(str)
+        if 'Sub Division' in d.columns
+        else pd.Series('', index=d.index)
+    )
+    name = d['Tên SP lower']
+    is_meat = sub.str.contains(
+        'Processed Meats|Thịt chế biến', case=False, na=False
+    ) | name.str.contains(
+        'xúc xích|xuc xich|ponnie|cao bồi|cao boi|hotdog|thịt viên|chân gà',
+        na=False,
+    )
+    d = d[is_meat]
+    order_moq = count_moq_lines_per_order(d)
+    ok = order_moq[order_moq['n_moq_lines'] >= 1]
+    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    total_lines = ok_day.groupby('Mã NVBH')['n_moq_lines'].sum()
+    total_pc = ok_day.groupby('Mã NVBH').size()
+    mtd = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
+    today = ok_day[ok_day['date'] == report_date]
+    if today.empty:
+      ngay = pd.Series(dtype=float)
+    else:
+      tl = today.groupby('Mã NVBH')['n_moq_lines'].sum()
+      tp = today.groupby('Mã NVBH').size()
+      ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
     key, title = 'LPPC_MEAT', '8. LPPC_Meat - Bình quân line/PC (Processed Meats)'
 
   else:
