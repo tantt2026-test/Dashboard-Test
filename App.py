@@ -381,16 +381,28 @@ def get_targets():
         targets.setdefault(sm, {})['ASO_ALL'] = int(tgt)
       elif ktype_lower == 'pc_bt':
         targets.setdefault(sm, {})['PC_BT'] = int(tgt)
-      elif ktype_lower == 'aso_on':
-        targets.setdefault(sm, {})['ASO_ON'] = int(tgt)
-      elif ktype_lower == 'aso_focus' or 'xanh' in kname_lower:
-        targets.setdefault(sm, {})['ASO_CHANTE'] = int(tgt)
+      elif ktype_lower in ('pc_on', 'aso_on'):
+        targets.setdefault(sm, {})['PC_ON'] = int(tgt)
+      elif ktype_lower == 'lppc' and 'meat' not in kname_lower:
+        targets.setdefault(sm, {})['LPPC'] = float(tgt)
+      elif ktype_lower in ('lppc_meat', 'lppc meat') or (
+          'lppc' in ktype_lower and 'meat' in kname_lower
+      ):
+        targets.setdefault(sm, {})['LPPC_MEAT'] = float(tgt)
+      elif (
+          ktype_lower in ('aso_focus', 'aso_focus_1')
+          or 'xanh' in kname_lower
+          or 'tea 365' in kname_lower
+          or 'búp non' in kname_lower
+      ):
+        targets.setdefault(sm, {})['ASO_FOCUS'] = int(tgt)
       elif (
           ktype_lower == 'aso_focus_2'
           or 'vàng' in kname_lower
           or 'trận vàng' in kname_lower
+          or 'homey' in kname_lower
       ):
-        targets.setdefault(sm, {})['ASO_OMACHI'] = int(tgt)
+        targets.setdefault(sm, {})['ASO_FOCUS_2'] = int(tgt)
     return targets
   except:
     return {}
@@ -878,11 +890,94 @@ def build_report(
   sm_names = df_mtd.groupby('Mã NVBH')['Tên NVBH'].first().to_dict()
   all_sms = sorted(sm_names.keys())
 
-  if report_type == 'ASO_ALL':
-    off = df_mtd[df_mtd['L1'] == 'Kênh Off Premise'].copy()
-    mtd = off.groupby('Mã NVBH')['Mã CH'].nunique()
+  # ---- Helper: nhận diện ngành hàng ----
+  def _is_beer(row_sub, row_name):
+    s = f'{row_sub} {row_name}'.lower()
+    return any(x in s for x in ['beer', 'bia ', ' bia', 'lush', 'white lion', 'red ruby'])
+
+  def _is_meat(row_sub, row_name):
+    s = f'{row_sub} {row_name}'.lower()
+    return any(
+        x in s
+        for x in [
+            'processed meats',
+            'thịt chế biến',
+            'xúc xích',
+            'xuc xich',
+            'ponnie',
+            'cao bồi',
+            'cao boi',
+            'hotdog',
+            'thịt viên',
+            'chân gà',
+        ]
+    )
+
+  def _pc_by_outlet_day(df_src, min_lines=4, exclude_meat_beer=False):
+    """Đếm PC: max 1 đơn/ngày/cửa hàng có >= min_lines line (SKU)."""
+    if df_src is None or df_src.empty:
+      return pd.Series(dtype=int), pd.Series(dtype=int)
+    d = df_src.copy()
+    if 'Tên SP lower' not in d.columns and 'Tên sản phẩm' in d.columns:
+      d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+    if exclude_meat_beer:
+      sub = (
+          d['Sub Division'].astype(str)
+          if 'Sub Division' in d.columns
+          else pd.Series('', index=d.index)
+      )
+      name = (
+          d['Tên SP lower']
+          if 'Tên SP lower' in d.columns
+          else pd.Series('', index=d.index)
+      )
+      is_ex = sub.str.contains(
+          'Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False
+      ) | name.str.contains(
+          'beer|bia lush|white lion|red ruby|xúc xích|ponnie|cao bồi|hotdog',
+          na=False,
+      )
+      d = d[~is_ex]
+    if d.empty:
+      return pd.Series(dtype=int), pd.Series(dtype=int)
+    sku_col = 'Mã sản phẩm' if 'Mã sản phẩm' in d.columns else 'Tên sản phẩm'
+    lines = d.groupby(['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng'])[
+        sku_col
+    ].nunique()
+    ok = lines[lines >= min_lines].reset_index()
+    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    mtd_s = ok_day.groupby('Mã NVBH').size()
+    ngay_s = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
+    return mtd_s, ngay_s
+
+  def _aso_coverage(df_src, product_pattern, min_qty=1):
+    """Số CH có bao phủ SP theo pattern (ASO)."""
+    if df_src.empty:
+      return pd.Series(dtype=int), pd.Series(dtype=int)
+    d = df_src.copy()
+    if 'Tên SP lower' not in d.columns:
+      d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+    mask = d['Tên SP lower'].str.contains(product_pattern, na=False, regex=True)
+    d = d[mask]
+    if d.empty:
+      return pd.Series(dtype=int), pd.Series(dtype=int)
+    qty_col = None
+    for c in ['Tổng lẻ', 'Số lượng', 'Qty', 'SL']:
+      if c in d.columns:
+        qty_col = c
+        break
+    if qty_col:
+      d['_qty'] = pd.to_numeric(d[qty_col], errors='coerce').fillna(0)
+      ch = d.groupby(['Mã NVBH', 'Mã CH'])['_qty'].sum()
+      ch = ch[ch >= min_qty]
+    else:
+      ch = d.groupby(['Mã NVBH', 'Mã CH']).size()
+      ch = ch[ch >= 1]
+    ch = ch.reset_index()
+    mtd = ch.groupby('Mã NVBH')['Mã CH'].nunique()
+    # first buy day for "ngày"
     first = (
-        off.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
+        d.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
     )
     first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
     ngay = (
@@ -890,142 +985,184 @@ def build_report(
         .groupby('Mã NVBH')['Mã CH']
         .nunique()
     )
-    key, title = 'ASO_ALL', '5. ASO ALL KÊNH OFF'
-  elif report_type == 'PC_BT':
-    off = df_mtd[
-        (df_mtd['L1'] == 'Kênh Off Premise')
-        & ~df_mtd['Sub Division']
-        .astype(str)
-        .str.contains('Beer|Bia', case=False, na=False)
-    ]
-    lines = off.groupby(['Mã NVBH', 'Mã đơn hàng'])['Mã sản phẩm'].nunique()
-    mtd = (
-        lines[lines >= 4]
-        .reset_index()
-        .groupby('Mã NVBH')['Mã đơn hàng']
-        .nunique()
+    return mtd, ngay
+
+  def _lppc(df_src, meat_only=False):
+    """LPPC = Total line / Tổng PC.
+    meat_only=False: trừ Meat & Beer, PC >= 4 line
+    meat_only=True: chỉ Processed Meats, PC >= 1 line
+    """
+    if df_src.empty:
+      return pd.Series(dtype=float), pd.Series(dtype=float)
+    d = df_src.copy()
+    if 'Tên SP lower' not in d.columns:
+      d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+    sub = (
+        d['Sub Division'].astype(str)
+        if 'Sub Division' in d.columns
+        else pd.Series('', index=d.index)
     )
-    df_today = df[df['date'] == report_date]
-    if nv_selected(filter_nv):
-      df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
-    off_t = df_today[
-        (df_today['L1'] == 'Kênh Off Premise')
-        & ~df_today['Sub Division']
-        .astype(str)
-        .str.contains('Beer|Bia', case=False, na=False)
-    ]
-    lines_t = off_t.groupby(['Mã NVBH', 'Mã đơn hàng'])[
-        'Mã sản phẩm'
-    ].nunique()
+    name = d['Tên SP lower']
+    is_beer = sub.str.contains('Beer|Bia', case=False, na=False) | name.str.contains(
+        'beer|bia lush|white lion|red ruby', na=False
+    )
+    is_meat = sub.str.contains(
+        'Processed Meats|Thịt chế biến', case=False, na=False
+    ) | name.str.contains(
+        'xúc xích|xuc xich|ponnie|cao bồi|cao boi|hotdog|thịt viên|chân gà',
+        na=False,
+    )
+    if meat_only:
+      d = d[is_meat]
+      min_lines = 1
+    else:
+      d = d[~(is_beer | is_meat)]
+      min_lines = 4
+    if d.empty:
+      return pd.Series(dtype=float), pd.Series(dtype=float)
+    sku_col = 'Mã sản phẩm' if 'Mã sản phẩm' in d.columns else 'Tên sản phẩm'
+    # lines per order
+    order_lines = d.groupby(
+        ['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng']
+    )[sku_col].nunique()
+    ok_orders = order_lines[order_lines >= min_lines].reset_index()
+    ok_orders.columns = list(ok_orders.columns[:-1]) + ['n_lines']
+    # max 1 PC / outlet / day
+    pc_day = ok_orders.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    # total lines on qualifying PCs only
+    pc_keys = pc_day.set_index(
+        ['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng']
+    ).index
+    # use first order of the day for line count (the one kept as PC)
+    line_on_pc = ok_orders.merge(
+        pc_day[['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng']],
+        on=['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng'],
+        how='inner',
+    )
+    total_lines = line_on_pc.groupby('Mã NVBH')['n_lines'].sum()
+    total_pc = pc_day.groupby('Mã NVBH').size()
+    lppc = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
+    # ngày: LPPC of that day only
+    pc_today = pc_day[pc_day['date'] == report_date]
+    line_today = line_on_pc[line_on_pc['date'] == report_date]
+    if pc_today.empty:
+      ngay = pd.Series(dtype=float)
+    else:
+      tl = line_today.groupby('Mã NVBH')['n_lines'].sum()
+      tp = pc_today.groupby('Mã NVBH').size()
+      ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
+    return lppc, ngay
+
+  on_targets = {}
+  is_lppc = report_type in ('LPPC', 'LPPC_MEAT')
+
+  if report_type == 'ASO_ALL':
+    # OFF & ON - bao phủ CH có mua SP Masan (MTD unique outlet)
+    mtd = df_mtd.groupby('Mã NVBH')['Mã CH'].nunique()
+    first = df_mtd.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
+    first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
     ngay = (
-        lines_t[lines_t >= 4]
-        .reset_index()
-        .groupby('Mã NVBH')['Mã đơn hàng']
+        first[first['first_date'] == report_date]
+        .groupby('Mã NVBH')['Mã CH']
         .nunique()
     )
-    key, title = 'PC_BT', '4. PC BT (PC 4LINE - BEER)'
+    key, title = 'ASO_ALL', '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
+
+  elif report_type == 'PC_BT':
+    # L1 OFF, >=4 line, max 1 PC/outlet/day
+    off = df_mtd[
+        df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
+    ]
+    mtd, ngay = _pc_by_outlet_day(off, min_lines=4, exclude_meat_beer=False)
+    # target từ file hoặc 65%*Call MCP OFF
+    key, title = 'PC_BT', '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
+
   elif report_type == 'PC_ON':
-    on_mtd = df_mtd[df_mtd['L1'] == 'Kênh On Premise']
-    mtd = on_mtd.groupby('Mã NVBH')['Mã CH'].nunique()
-
-    df_today = df[df['date'] == report_date]
-    if nv_selected(filter_nv):
-      df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
-    on_today = df_today[df_today['L1'] == 'Kênh On Premise']
-    ngay = on_today.groupby('Mã NVBH')['Mã đơn hàng'].nunique()
-
-    on_targets = {}
+    on = df_mtd[
+        df_mtd['L1'].astype(str).str.contains('On', case=False, na=False)
+    ]
+    mtd, ngay = _pc_by_outlet_day(on, min_lines=1, exclude_meat_beer=False)
     if mcp_df is not None and not mcp_df.empty:
-      c_nv_mcp = find_col(mcp_df, ['SM Code', 'Mã NVBH', 'SM code', 'Tên NVBH'])
+      c_nv_mcp = find_col(mcp_df, ['SM Code', 'Mã NVBH', 'SM code'])
       c_l1 = find_col(mcp_df, ['L1', 'Channel'])
       c_ma = find_col(mcp_df, ['Outlet_code', 'Outlet Code', 'Mã CH'])
+      c_freq = find_col(mcp_df, ['Thứ', 'Frequency', 'Tần suất'])
       if c_nv_mcp and c_l1 and c_ma:
         on_mcp = mcp_df[
             mcp_df[c_l1].astype(str).str.contains('On', case=False, na=False)
         ].copy()
-        grouped = on_mcp.groupby(c_nv_mcp)[c_ma].nunique().to_dict()
-        on_targets = grouped
-    title = '6. ASO ACTIVE KÊNH ON'
-  elif report_type == 'ASO_TEA':
-    on = df_mtd[df_mtd['L1'] == 'Kênh On Premise']
-    tea = on[
-        on['Tên SP lower'].str.contains(
-            'tea|trà|ô long|olong|búp non', na=False
-        )
-    ].copy()
-    tea['qty'] = pd.to_numeric(tea['Tổng lẻ'], errors='coerce').fillna(0)
-    ch = tea.groupby(['Mã NVBH', 'Mã CH'])['qty'].sum()
-    mtd = (
-        ch[ch >= 12]
-        .reset_index()
-        .groupby('Mã NVBH')['Mã CH']
-        .nunique()
+        # PC_ON target = 50% * Số Call; Call ≈ outlets * freq estimate
+        # fallback: 50% * số outlet ON
+        outlet_cnt = on_mcp.groupby(c_nv_mcp)[c_ma].nunique().to_dict()
+        on_targets = {k: int(v * 0.5) for k, v in outlet_cnt.items()}
+    key, title = 'PC_ON', '7. PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)'
+
+  elif report_type == 'ASO_FOCUS':
+    # Trận Xanh: Trà Búp Non Tea 365 — mặc định target 72
+    # MOQ nhóm: 12 chai; simplified: qty lẻ >= 12 hoặc có mua
+    mtd, ngay = _aso_coverage(
+        df_mtd,
+        r'búp non|bup non|tea\s*365|tea365|trà.*365',
+        min_qty=1,
     )
-    df_today = df[df['date'] == report_date]
-    if nv_selected(filter_nv):
-      df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
-    on_t = df_today[df_today['L1'] == 'Kênh On Premise']
-    tea_t = on_t[
-        on_t['Tên SP lower'].str.contains(
-            'tea|trà|ô long|olong|búp non', na=False
-        )
-    ]
-    ngay = tea_t.groupby('Mã NVBH')['Mã CH'].nunique()
-    key, title = 'ASO_ON', '3. ASO TEA KÊNH ON'
-  elif report_type == 'OMACHI':
-    mask = df_mtd['Tên SP lower'].str.contains(
-        'omachi', na=False
-    ) & df_mtd['Tên SP lower'].str.contains('trộn|tron|xào|xao', na=False)
-    mtd = df_mtd[mask].groupby('Mã NVBH')['Mã CH'].nunique()
-    first = (
-        df_mtd[mask]
-        .groupby(['Mã NVBH', 'Mã CH'])['date']
-        .min()
-        .reset_index()
+    key, title = 'ASO_FOCUS', '5. ASO_Focus - Trận Xanh (Tea 365)'
+
+  elif report_type == 'ASO_FOCUS_2':
+    # Trận Vàng: Nước giặt xả Homey hương hoa trà Jeju tinh tế túi 2.9kg — target 26
+    mtd, ngay = _aso_coverage(
+        df_mtd,
+        r'homey.*2\.9|homey.*2,9|giặt xả homey|giat xa homey|homey.*jeju',
+        min_qty=1,
     )
-    first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
-    ngay = (
-        first[first['first_date'] == report_date]
-        .groupby('Mã NVBH')['Mã CH']
-        .nunique()
-    )
-    key, title = 'ASO_OMACHI', '2. ASO FOCUS OMC TRỘN'
-  elif report_type == 'CHANTE':
-    mask = df_mtd['Tên SP lower'].str.contains('chanté|chante', na=False)
-    mtd = df_mtd[mask].groupby('Mã NVBH')['Mã CH'].nunique()
-    first = (
-        df_mtd[mask]
-        .groupby(['Mã NVBH', 'Mã CH'])['date']
-        .min()
-        .reset_index()
-    )
-    first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
-    ngay = (
-        first[first['first_date'] == report_date]
-        .groupby('Mã NVBH')['Mã CH']
-        .nunique()
-    )
-    key, title = 'ASO_CHANTE', '1. ASO FOCUS CHANTÉ'
+    key, title = 'ASO_FOCUS_2', '6. ASO_Focus_2 - Trận Vàng (Homey 2.9kg)'
+
+  elif report_type == 'LPPC':
+    mtd, ngay = _lppc(df_mtd, meat_only=False)
+    key, title = 'LPPC', '3. LPPC - Bình quân line/PC (trừ Meat & Beer)'
+
+  elif report_type == 'LPPC_MEAT':
+    mtd, ngay = _lppc(df_mtd, meat_only=True)
+    key, title = 'LPPC_MEAT', '8. LPPC_Meat - Bình quân line/PC (Processed Meats)'
+
   else:
     return pd.DataFrame(), 0, ''
+
+  # Default target theo Công văn nếu không có trong Target_KPI
+  DEFAULT_TGT = {
+      'ASO_FOCUS': 72,
+      'ASO_FOCUS_2': 26,
+      'LPPC': 4.7,
+      'LPPC_MEAT': 3.8,
+  }
 
   results = []
   for sm in all_sms:
     if report_type == 'PC_ON':
-      tgt = int(on_targets.get(sm, 0))
+      tgt = targets.get(sm, {}).get('PC_ON', on_targets.get(sm, 0))
     else:
-      tgt = targets.get(sm, {}).get(key, 0)
-    m = int(mtd.get(sm, 0))
-    n = int(ngay.get(sm, 0))
-    pct = round(m / tgt * 100, 1) if tgt else 0
+      tgt = targets.get(sm, {}).get(key, DEFAULT_TGT.get(key, 0))
+    raw_m = mtd.get(sm, 0)
+    raw_n = ngay.get(sm, 0)
+    if is_lppc:
+      m = round(float(raw_m), 2) if pd.notna(raw_m) else 0
+      n = round(float(raw_n), 2) if pd.notna(raw_n) else 0
+      tgt_f = float(tgt) if tgt else 0
+      pct = round(m / tgt_f * 100, 1) if tgt_f else 0
+      ratio = m / tgt_f if tgt_f else 0
+    else:
+      m = int(raw_m) if pd.notna(raw_m) else 0
+      n = int(raw_n) if pd.notna(raw_n) else 0
+      tgt = int(tgt) if tgt else 0
+      pct = round(m / tgt * 100, 1) if tgt else 0
+      ratio = m / tgt if tgt else 0
     results.append({
         'Mã NVBH': sm,
         'Tên NVBH': sm_names.get(sm, ''),
-        'Chỉ Tiêu KPI': tgt,
+        'Chỉ Tiêu KPI': tgt if not is_lppc else float(tgt),
         'Thực Hiện Ngày': n,
         'MTD': m,
         '% MTD': f'{pct}%',
-        '_ratio': (m / tgt if tgt else 0),
+        '_ratio': ratio,
     })
   df_out = (
       pd.DataFrame(results)
@@ -1034,9 +1171,24 @@ def build_report(
       .reset_index(drop=True)
   )
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
-  total_ngay = int(df_out['Thực Hiện Ngày'].sum()) if not df_out.empty else 0
-  total_mtd = int(df_out['MTD'].sum()) if not df_out.empty else 0
-  team_tgt = int(df_out['Chỉ Tiêu KPI'].sum()) if not df_out.empty else 0
+  if is_lppc:
+    total_ngay = (
+        round(float(df_out['Thực Hiện Ngày'].mean()), 2)
+        if not df_out.empty
+        else 0
+    )
+    total_mtd = (
+        round(float(df_out['MTD'].mean()), 2) if not df_out.empty else 0
+    )
+    team_tgt = (
+        round(float(df_out['Chỉ Tiêu KPI'].mean()), 2)
+        if not df_out.empty
+        else 0
+    )
+  else:
+    total_ngay = int(df_out['Thực Hiện Ngày'].sum()) if not df_out.empty else 0
+    total_mtd = int(df_out['MTD'].sum()) if not df_out.empty else 0
+    team_tgt = int(df_out['Chỉ Tiêu KPI'].sum()) if not df_out.empty else 0
   total_pct = round(total_mtd / team_tgt * 100, 1) if team_tgt else 0
   total_row = pd.DataFrame([{
       'STT': '-',
@@ -2903,18 +3055,21 @@ with f2:
 with f3:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
   kpi_map = {
-      '1. ASO FOCUS CHANTÉ': 'CHANTE',
-      '2. ASO FOCUS OMC TRỘN': 'OMACHI',
-      '3. ASO TEA KÊNH ON': 'ASO_TEA',
-      '4. PC BT (PC 4LINE - BEER)': 'PC_BT',
-      '5. ASO ALL': 'ASO_ALL',
-      '6. ASO ACTIVE KÊNH ON': 'PC_ON',
-      '7. BÁO CÁO ĐH COMBO': 'COMBO',
-      '8. BÁO CÁO DOANH SỐ TURNOVER': 'TURNOVER',
-      '9. BÁO CÁO TỔNG HỢP': 'SUMMARY',
-      '10. BÁO CÁO LỊCH VIẾNG THĂM': 'VISIT',
-      '11. BÁO CÁO MBS CAT': 'MBS_CAT',
-      '12. BÁO CÁO MBS BRAND': 'MBS_BRAND',
+      # ===== 8 KPI THÁNG 10 (theo Công văn 22-011026) =====
+      '1. TURNOVER - Tổng doanh số bán ra': 'TURNOVER',
+      '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)': 'PC_BT',
+      '3. LPPC - Bình quân line/PC (trừ Meat & Beer)': 'LPPC',
+      '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)': 'ASO_ALL',
+      '5. ASO_Focus - Trận Xanh (Tea 365)': 'ASO_FOCUS',
+      '6. ASO_Focus_2 - Trận Vàng (Homey 2.9kg)': 'ASO_FOCUS_2',
+      '7. PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)': 'PC_ON',
+      '8. LPPC_Meat - Bình quân line/PC (Processed Meats)': 'LPPC_MEAT',
+      # ===== Báo cáo giữ logic Tháng 9 =====
+      '9. BÁO CÁO ĐH COMBO': 'COMBO',
+      '10. BÁO CÁO TỔNG HỢP': 'SUMMARY',
+      '11. BÁO CÁO LỊCH VIẾNG THĂM': 'VISIT',
+      '12. BÁO CÁO MBS CAT': 'MBS_CAT',
+      '13. BÁO CÁO MBS BRAND': 'MBS_BRAND',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
