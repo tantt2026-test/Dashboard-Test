@@ -472,6 +472,78 @@ KPI_COLOR_MOC = {
 }
 
 
+
+@st.cache_data(ttl=600)
+def get_all_sm_roster():
+  """Danh sách đầy đủ NVBH từ Target_KPI (SM code → SM name).
+  Dùng để hiển thị cả NV không có đơn trong RPT (giá trị = 0).
+  """
+  roster = {}
+  if os.path.exists(KPI_PATH):
+    try:
+      kpi = pd.read_excel(KPI_PATH, header=None).iloc[2:]
+      kpi.columns = [
+          'Region', 'Month', 'Ship to', 'Distributor', 'SUP', 'SM pos',
+          'SM code', 'SM name', 'Saleteam', 'KPI type', 'KPI Name',
+          'Target', 'Thực hiện', '% actual', '% Contrib', 'Chưa ra HĐ',
+      ]
+      kpi = kpi.dropna(subset=['SM code'])
+      for _, r in kpi.iterrows():
+        code = str(r['SM code']).strip()
+        name = str(r['SM name']).strip() if pd.notna(r['SM name']) else ''
+        if code and code.lower() not in ('nan', 'none', ''):
+          if code not in roster or (name and not roster.get(code)):
+            roster[code] = name
+    except Exception:
+      pass
+  return roster
+
+
+def merge_sm_roster(sm_names, all_sms, targets=None, turnover_targets=None, mcp_df=None):
+  """Gộp roster Target_KPI + targets + MCP vào sm_names/all_sms."""
+  sm_names = dict(sm_names) if sm_names else {}
+  all_sms = list(all_sms) if all_sms else []
+
+  roster = get_all_sm_roster()
+  for code, name in roster.items():
+    if code not in sm_names:
+      sm_names[code] = name
+    if code not in all_sms:
+      all_sms.append(code)
+
+  if targets:
+    for code in targets.keys():
+      code = str(code).strip()
+      if code not in sm_names:
+        sm_names[code] = roster.get(code, '')
+      if code not in all_sms:
+        all_sms.append(code)
+
+  if turnover_targets:
+    for code in turnover_targets.keys():
+      code = str(code).strip()
+      if code not in sm_names:
+        sm_names[code] = roster.get(code, '')
+      if code not in all_sms:
+        all_sms.append(code)
+
+  if mcp_df is not None and not mcp_df.empty:
+    c_code = find_col(mcp_df, ['SM Code', 'Mã NVBH', 'SM code'])
+    c_name = find_col(mcp_df, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
+    if c_code:
+      for _, r in mcp_df[[c_code] + ([c_name] if c_name else [])].drop_duplicates().iterrows():
+        code = str(r[c_code]).strip()
+        name = str(r[c_name]).strip() if c_name and pd.notna(r.get(c_name)) else roster.get(code, '')
+        if code and code.lower() not in ('nan', 'none', ''):
+          if code not in sm_names:
+            sm_names[code] = name
+          if code not in all_sms:
+            all_sms.append(code)
+
+  all_sms = sorted(set(all_sms))
+  return sm_names, all_sms
+
+
 def set_color_moc(moc):
   global _CURRENT_COLOR_MOC
   try:
@@ -1202,20 +1274,43 @@ def build_report(
   mcp_off_tgt, mcp_on_tgt = {}, {}
   mtd_off = ngay_off = mtd_on = ngay_on = pd.Series(dtype=float)
 
-  if df is None or df.empty:
-    empty_cols = [
-        'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu KPI',
-        'Thực Hiện Ngày', 'MTD', '% MTD',
-    ]
-    return pd.DataFrame(columns=empty_cols), 0, title
+  if df is None:
+    df = pd.DataFrame()
 
-  df_mtd = df[
-      df['date'] >= date(report_date.year, report_date.month, 1)
-  ].copy()
+  if df.empty or 'date' not in df.columns:
+    df_mtd = pd.DataFrame()
+  else:
+    df_mtd = df[
+        df['date'] >= date(report_date.year, report_date.month, 1)
+    ].copy()
   if nv_selected(filter_nv):
     df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
-  sm_names = df_mtd.groupby('Mã NVBH')['Tên NVBH'].first().to_dict()
-  all_sms = sorted(sm_names.keys())
+  if not df_mtd.empty and 'Mã NVBH' in df_mtd.columns:
+    sm_names = df_mtd.groupby('Mã NVBH')['Tên NVBH'].first().to_dict()
+    all_sms = sorted(sm_names.keys())
+  else:
+    sm_names, all_sms = {}, []
+  # Hiển thị đủ NV (kể cả không có đơn → 0)
+  sm_names, all_sms = merge_sm_roster(
+      sm_names, all_sms, targets=targets, mcp_df=mcp_df
+  )
+  if nv_selected(filter_nv):
+    # giữ filter: chỉ NV được chọn (theo tên hoặc mã)
+    vals = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+    name_to_code = {v: k for k, v in sm_names.items()}
+    keep = set()
+    for v in vals:
+      v = str(v).strip()
+      if v in sm_names:
+        keep.add(v)
+      elif v in name_to_code:
+        keep.add(name_to_code[v])
+      else:
+        # match by name
+        for c, n in sm_names.items():
+          if n == v:
+            keep.add(c)
+    all_sms = [c for c in all_sms if c in keep]
 
   # ---- Helper: nhận diện ngành hàng ----
   def _is_beer(row_sub, row_name):
@@ -1781,8 +1876,29 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
     df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
     df_today = filter_df_by_nv(df_today, 'Tên NVBH', filter_nv)
 
-  sm_names = df_mtd.groupby('Mã NVBH')['Tên NVBH'].first().to_dict()
-  all_sms = sorted(sm_names.keys())
+  if not df_mtd.empty and 'Mã NVBH' in df_mtd.columns:
+    sm_names = df_mtd.groupby('Mã NVBH')['Tên NVBH'].first().to_dict()
+    all_sms = sorted(sm_names.keys())
+  else:
+    sm_names, all_sms = {}, []
+  sm_names, all_sms = merge_sm_roster(
+      sm_names, all_sms, turnover_targets=turnover_targets
+  )
+  if nv_selected(filter_nv):
+    vals = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+    name_to_code = {v: k for k, v in sm_names.items()}
+    keep = set()
+    for v in vals:
+      v = str(v).strip()
+      if v in sm_names:
+        keep.add(v)
+      elif v in name_to_code:
+        keep.add(name_to_code[v])
+      else:
+        for c, n in sm_names.items():
+          if n == v:
+            keep.add(c)
+    all_sms = [c for c in all_sms if c in keep]
 
   val_col = (
       find_col(
@@ -2234,13 +2350,24 @@ def build_combo_matrix(
       else pd.DataFrame()
   )
   if nv_selected(filter_nv):
-    df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
+    if not df_mtd.empty and 'Tên NVBH' in df_mtd.columns:
+      df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
 
-  nv_list = sorted(df['Tên NVBH'].dropna().unique().tolist())
-  if not df_off_master.empty and 'Tên NV' in df_off_master.columns:
-    nv_list = sorted(
-        list(set(nv_list + df_off_master['Tên NV'].dropna().unique().tolist()))
-    )
+  # Full NV: master combo + RPT + roster (NV không bán vẫn hiện = 0)
+  _nv_set = set()
+  if not df.empty and 'Tên NVBH' in df.columns:
+    _nv_set.update(df['Tên NVBH'].dropna().astype(str).str.strip().tolist())
+  if not df_mtd.empty and 'Tên NVBH' in df_mtd.columns:
+    _nv_set.update(df_mtd['Tên NVBH'].dropna().astype(str).str.strip().tolist())
+  for master in (df_off_master, df_on_master):
+    if master is not None and not master.empty:
+      for col in ('Tên NV', 'Tên NVBH', 'SM name', 'Nhân viên'):
+        if col in master.columns:
+          _nv_set.update(master[col].dropna().astype(str).str.strip().tolist())
+          break
+  roster = get_all_sm_roster()
+  _nv_set.update([n for n in roster.values() if n])
+  nv_list = sorted([x for x in _nv_set if x and x.lower() not in ('nan', 'none', '')])
 
   off_target_map = {}
   on_target_map = {}
@@ -3560,7 +3687,19 @@ with st.spinner('Đang tải dữ liệu...'):
   df_cat = process_cat_sales(df, df_cat)
   df_brand = process_brand_sales(df, df_brand)
 
-nv_list = sorted(df['Tên NVBH'].dropna().unique().tolist())
+# Full NV list: RPT + Target_KPI + MCP (NV chưa bán vẫn chọn được / hiện 0)
+_nv_set = set()
+if not df.empty and 'Tên NVBH' in df.columns:
+  _nv_set.update(df['Tên NVBH'].dropna().astype(str).str.strip().tolist())
+_roster = get_all_sm_roster()
+_nv_set.update([n for n in _roster.values() if n])
+if mcp is not None and not mcp.empty:
+  _c_nm = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
+  if _c_nm:
+    _nv_set.update(mcp[_c_nm].dropna().astype(str).str.strip().tolist())
+nv_list = sorted(
+    [x for x in _nv_set if x and x.lower() not in ('nan', 'none', '')]
+)
 
 vn_time = dt.datetime.utcnow() + dt.timedelta(hours=7)
 _default_t1 = (vn_time - timedelta(days=1)).date()
