@@ -2353,8 +2353,105 @@ def render_visit_html_table(df):
   return ''.join(html)
 
 
+
+def is_combo_line_t10(row):
+  """Line thuộc CTKM Combo T10:
+  - Tặng 1 chai Tương Ớt Chinsu 250gr (Hàng KM)
+  - Tặng 1 chai Wake UP 247 (Hàng KM)
+  - Chiết khấu 20.000đ
+  """
+  sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
+  km = str(row.get('Hàng KM', 'N')).upper() in ('Y', 'YES', '1', 'TRUE')
+  ck = float(pd.to_numeric(row.get('Chiết khấu', 0), errors='coerce') or 0)
+  # CK có thể ghi 20000 hoặc gần đúng (do làm tròn)
+  is_ck_20k = abs(ck - 20000) < 1 or ck == 20000
+
+  is_chinsu_250 = km and (
+      ('chinsu' in sp or 'chin-su' in sp or 'chin su' in sp)
+      and ('250' in sp)
+      and ('tương' in sp or 'tuong' in sp or 'ớt' in sp or 'ot' in sp or 'sauce' in sp)
+  )
+  # fallback: chinsu 250 + KM
+  if km and not is_chinsu_250:
+    is_chinsu_250 = ('chinsu' in sp or 'chin-su' in sp) and '250' in sp
+
+  is_wakeup = km and (
+      ('wake' in sp and 'up' in sp and '247' in sp)
+      or 'wakeup 247' in sp.replace(' ', '')
+      or 'wake up 247' in sp
+      or ('247' in sp and 'wake' in sp)
+  )
+  return is_chinsu_250 or is_wakeup or is_ck_20k
+
+
+def build_mcp_channel_map(mcp_df):
+  """Map Mã CH → 'OFF' | 'ON' từ Data_MCP (L1 / Loại hình KD)."""
+  ch_map = {}
+  if mcp_df is None or mcp_df.empty:
+    return ch_map
+  c_ma = find_col(mcp_df, ['Outlet_code', 'Outlet Code', 'Mã CH', 'outlet_code'])
+  c_l1 = find_col(
+      mcp_df,
+      ['L1', 'Channel', 'Loại Hình Kinh Doanh', 'Loại hình kinh doanh', 'LHKD'],
+  )
+  if not c_ma:
+    return ch_map
+  for _, r in mcp_df.iterrows():
+    ma = str(r[c_ma]).strip()
+    if not ma or ma.lower() in ('nan', 'none'):
+      continue
+    l1 = str(r[c_l1]).lower() if c_l1 and pd.notna(r.get(c_l1)) else ''
+    if 'on' in l1 and 'off' not in l1:
+      ch_map[ma] = 'ON'
+    elif 'off' in l1:
+      ch_map[ma] = 'OFF'
+  return ch_map
+
+
+def tag_combo_orders_t10(df_mtd, mcp_df=None):
+  """Gắn cờ is_combo + channel (OFF/ON) theo CTKM T10 và map MCP.
+  Returns df of combo lines with columns including channel.
+  """
+  if df_mtd is None or df_mtd.empty:
+    return pd.DataFrame()
+  d = df_mtd.copy()
+  if 'Tên SP lower' not in d.columns and 'Tên sản phẩm' in d.columns:
+    d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+  elif 'Tên SP lower' not in d.columns:
+    d['Tên SP lower'] = ''
+
+  d['_line_combo'] = d.apply(is_combo_line_t10, axis=1)
+  # Đơn được coi là Combo nếu có ≥1 line thỏa CTKM
+  if 'Mã đơn hàng' in d.columns:
+    order_combo = (
+        d.groupby('Mã đơn hàng')['_line_combo'].transform('any')
+    )
+    d['is_combo'] = order_combo
+  else:
+    d['is_combo'] = d['_line_combo']
+
+  combo = d[d['is_combo']].copy()
+  if combo.empty:
+    return combo
+
+  ch_map = build_mcp_channel_map(mcp_df)
+  if 'Mã CH' in combo.columns:
+    combo['_ma'] = combo['Mã CH'].astype(str).str.strip()
+    combo['channel'] = combo['_ma'].map(ch_map)
+    # fallback L1 trên RPT nếu MCP không có
+    if 'L1' in combo.columns:
+      miss = combo['channel'].isna()
+      l1s = combo.loc[miss, 'L1'].astype(str).str.lower()
+      combo.loc[miss & l1s.str.contains('on', na=False) & ~l1s.str.contains('off', na=False), 'channel'] = 'ON'
+      combo.loc[miss & l1s.str.contains('off', na=False), 'channel'] = 'OFF'
+    combo['channel'] = combo['channel'].fillna('OFF')
+  else:
+    combo['channel'] = 'OFF'
+  return combo
+
+
 def build_combo_matrix(
-    df, report_date, df_off_master, df_on_master, filter_nv=None
+    df, report_date, df_off_master, df_on_master, filter_nv=None, mcp_df=None
 ):
   empty_cols = [
       'STT', 'Mã NVBH', 'Tên NVBH',
@@ -2407,50 +2504,19 @@ def build_combo_matrix(
         df_on_master.groupby('Tên NV')['outlet_code'].nunique().to_dict()
     )
 
-  def is_combo_off(row):
-    sp = str(row.get('Tên SP lower', ''))
-    km = str(row.get('Hàng KM', 'N')).upper() == 'Y'
-    giatri = (
-        float(
-            pd.to_numeric(row.get('Giá trị hàng KM', 0), errors='coerce') or 0
-        )
-    )
-    ck = float(
-        pd.to_numeric(row.get('Chiết khấu', 0), errors='coerce') or 0
-    )
-    is_olong_dao = (
-        ('ô long' in sp or 'olong' in sp)
-        and ('đào' in sp or 'dao' in sp)
-        and km
-    )
-    is_hpc_combo = ('chanté' in sp or 'chante' in sp or 'homey' in sp) and (
-        km or giatri > 0 or ck >= 10000
-    )
-    return is_olong_dao or is_hpc_combo
+  # ===== Logic Combo T10: CTKM + map kênh qua MCP =====
+  combo_df = tag_combo_orders_t10(df_mtd, mcp_df=mcp_df)
 
-  def is_combo_on(row):
-    sp = str(row.get('Tên SP lower', ''))
-    km = str(row.get('Hàng KM', 'N')).upper() == 'Y'
-    is_olong_dao = (
-        ('ô long' in sp or 'olong' in sp)
-        and ('đào' in sp or 'dao' in sp)
-        and km
-    )
-    is_denhi = ('đệ nhị' in sp or 'de nhi' in sp) and km
-    return is_olong_dao or is_denhi
-
-  def _safe_combo_maps(df_ch, is_combo_fn, report_date):
-    """Trả (mtd_dict, ngay_dict) an toàn khi empty / thiếu cột."""
+  def _maps_from_combo(combo_sub, report_date):
     empty = {}
-    if df_ch is None or df_ch.empty or 'Tên NVBH' not in df_ch.columns:
+    if combo_sub is None or combo_sub.empty or 'Tên NVBH' not in combo_sub.columns:
       return empty, empty
-    d = df_ch.copy()
-    d['is_combo'] = d.apply(is_combo_fn, axis=1)
-    c = d[d['is_combo']]
-    if c.empty or 'Mã CH' not in c.columns:
+    if 'Mã CH' not in combo_sub.columns:
       return empty, empty
-    mtd = c.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-    first = c.groupby(['Tên NVBH', 'Mã CH'])['date'].min().reset_index()
+    mtd = combo_sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+    first = (
+        combo_sub.groupby(['Tên NVBH', 'Mã CH'])['date'].min().reset_index()
+    )
     first.columns = ['Tên NVBH', 'Mã CH', 'first_date']
     ngay = (
         first[first['first_date'] == report_date]
@@ -2460,17 +2526,15 @@ def build_combo_matrix(
     )
     return mtd, ngay
 
-  if df_mtd is None or df_mtd.empty:
-    df_off = pd.DataFrame()
-    df_on = pd.DataFrame()
+  if combo_df.empty:
+    off_mtd, off_ngay, on_mtd, on_ngay = {}, {}, {}, {}
   else:
-    # L1 có thể là 'Kênh Off Premise' hoặc chứa 'Off'/'On'
-    l1 = df_mtd['L1'].astype(str) if 'L1' in df_mtd.columns else pd.Series('', index=df_mtd.index)
-    df_off = df_mtd[l1.str.contains('Off', case=False, na=False)].copy()
-    df_on = df_mtd[l1.str.contains('On', case=False, na=False)].copy()
-
-  off_mtd, off_ngay = _safe_combo_maps(df_off, is_combo_off, report_date)
-  on_mtd, on_ngay = _safe_combo_maps(df_on, is_combo_on, report_date)
+    off_mtd, off_ngay = _maps_from_combo(
+        combo_df[combo_df['channel'] == 'OFF'], report_date
+    )
+    on_mtd, on_ngay = _maps_from_combo(
+        combo_df[combo_df['channel'] == 'ON'], report_date
+    )
 
   rows = []
   for idx, nv in enumerate(nv_list, 1):
@@ -2651,36 +2715,11 @@ def build_summary_report(
   ].copy()
 
   def is_combo_off(row):
-    sp = str(row.get('Tên SP lower', ''))
-    km = str(row.get('Hàng KM', 'N')).upper() == 'Y'
-    giatri = (
-        float(
-            pd.to_numeric(row.get('Giá trị hàng KM', 0), errors='coerce') or 0
-        )
-    )
-    ck = float(
-        pd.to_numeric(row.get('Chiết khấu', 0), errors='coerce') or 0
-    )
-    is_olong_dao = (
-        ('ô long' in sp or 'olong' in sp)
-        and ('đào' in sp or 'dao' in sp)
-        and km
-    )
-    is_hpc_combo = ('chanté' in sp or 'chante' in sp or 'homey' in sp) and (
-        km or giatri > 0 or ck >= 10000
-    )
-    return is_olong_dao or is_hpc_combo
+    # T10: dùng chung rule CTKM
+    return is_combo_line_t10(row)
 
   def is_combo_on(row):
-    sp = str(row.get('Tên SP lower', ''))
-    km = str(row.get('Hàng KM', 'N')).upper() == 'Y'
-    is_olong_dao = (
-        ('ô long' in sp or 'olong' in sp)
-        and ('đào' in sp or 'dao' in sp)
-        and km
-    )
-    is_denhi = ('đệ nhị' in sp or 'de nhi' in sp) and km
-    return is_olong_dao or is_denhi
+    return is_combo_line_t10(row)
 
   off_filtered = df_combo_off_raw.copy()
   if not off_filtered.empty and effective_thu_list:
@@ -4753,7 +4792,7 @@ with tab_kpi:
     )
   else:
     df_combo, target_off_total, target_on_total = build_combo_matrix(
-        df, report_date, df_combo_off, df_combo_on, filter_nv
+        df, report_date, df_combo_off, df_combo_on, filter_nv, mcp_df=mcp
     )
     total_row = df_combo.iloc[-1]
     # Mốc tô màu Combo = % MTD dòng Total (trung bình OFF/ON nếu có)
