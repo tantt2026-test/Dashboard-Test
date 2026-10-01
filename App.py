@@ -1649,12 +1649,28 @@ def build_report(
       }
     results.append(row)
 
-  df_out = (
-      pd.DataFrame(results)
-      .sort_values('_ratio', ascending=True)
-      .drop(columns=['_ratio'])
-      .reset_index(drop=True)
-  )
+  if not results:
+    # Không có NV / dữ liệu → trả bảng rỗng an toàn
+    empty_cols = (
+        [
+            'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu MCP', 'Thực Hiện Ngày',
+            'MTD', '% MTD', 'MCP OFF', 'Thực hiện ngày OFF', 'MTD OFF',
+            '% MTD OFF', 'MCP ON', 'Thực hiện ngày ON', 'MTD ON', '% MTD ON',
+        ]
+        if report_type == 'ASO_ALL'
+        else [
+            'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu KPI',
+            'Thực Hiện Ngày', 'MTD', '% MTD',
+        ]
+    )
+    return pd.DataFrame(columns=empty_cols), 0, title
+
+  df_out = pd.DataFrame(results)
+  if '_ratio' in df_out.columns:
+    df_out = df_out.sort_values('_ratio', ascending=True).drop(
+        columns=['_ratio']
+    )
+  df_out = df_out.reset_index(drop=True)
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
   if report_type == 'ASO_ALL':
