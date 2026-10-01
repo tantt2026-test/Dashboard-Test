@@ -448,16 +448,34 @@ def get_turnover_targets():
     return {}
 
 
-def color_pct_bg(val):
+# % Timegone hiện tại (cập nhật theo ngày báo cáo) — dùng tô màu cột %
+_CURRENT_PROGRESS_PCT = 0.0
+
+
+def set_progress_pct(pct):
+  global _CURRENT_PROGRESS_PCT
+  try:
+    _CURRENT_PROGRESS_PCT = float(pct)
+  except Exception:
+    _CURRENT_PROGRESS_PCT = 0.0
+
+
+def color_pct_bg(val, progress=None):
+  """Tô màu % theo tiến độ thời gian:
+  - % < tiến độ           → Đỏ
+  - tiến độ <= % <= tiến độ + 5  → Xanh lá
+  - % > tiến độ + 5       → Tím
+  """
   try:
     v = float(str(val).replace('%', '').strip())
-    if v >= 70:
-      return 'background-color: #c6f6d5; color:#22543d; font-weight:600;'
-    elif v >= 50:
-      return 'background-color: #fefcbf; color:#744210; font-weight:600;'
-    else:
+    p = float(progress) if progress is not None else float(_CURRENT_PROGRESS_PCT)
+    if v < p:
       return 'background-color: #fed7d7; color:#742a2a; font-weight:600;'
-  except:
+    elif v <= p + 5:
+      return 'background-color: #c6f6d5; color:#22543d; font-weight:600;'
+    else:
+      return 'background-color: #e9d8fd; color:#553c9a; font-weight:600;'
+  except Exception:
     return ''
 
 
@@ -1342,30 +1360,50 @@ def build_report(
     mtd_on, ngay_on = _aso_by_channel(on_df, report_date)
 
     # MCP OFF / ON từ master MCP (số CH theo NV)
+    # Chỉ Tiêu MCP = MCP OFF + MCP ON (tổng CH trên MCP)
     mcp_off_tgt, mcp_on_tgt = {}, {}
     if mcp_df is not None and not mcp_df.empty:
-      c_nv = find_col(
-          mcp_df, ['SM Code', 'Mã NVBH', 'SM code', 'SM Name', 'Tên NVBH']
+      c_code = find_col(mcp_df, ['SM Code', 'Mã NVBH', 'SM code'])
+      c_name = find_col(
+          mcp_df, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên']
       )
       c_l1 = find_col(mcp_df, ['L1', 'Channel'])
       c_ma = find_col(mcp_df, ['Outlet_code', 'Outlet Code', 'Mã CH'])
-      if c_nv and c_l1 and c_ma:
-        tmp = mcp_df[[c_nv, c_l1, c_ma]].copy()
-        tmp['_nv'] = tmp[c_nv].astype(str).str.strip()
+      if c_l1 and c_ma and (c_code or c_name):
+        tmp = mcp_df.copy()
         tmp['_l1'] = tmp[c_l1].astype(str)
         tmp['_ma'] = tmp[c_ma].astype(str).str.strip()
+        name_to_code = {v: k for k, v in sm_names.items()}
+        # ưu tiên map theo Mã NVBH
+        if c_code:
+          tmp['_key'] = tmp[c_code].astype(str).str.strip()
+        else:
+          tmp['_key'] = tmp[c_name].astype(str).str.strip().map(
+              lambda x: name_to_code.get(x, x)
+          )
+        # nếu key là tên thì map sang mã
+        def _to_code(k):
+          k = str(k).strip()
+          if k in sm_names:
+            return k
+          return name_to_code.get(k, k)
+
+        tmp['_key'] = tmp['_key'].map(_to_code)
         off_m = tmp[tmp['_l1'].str.contains('Off', case=False, na=False)]
         on_m = tmp[tmp['_l1'].str.contains('On', case=False, na=False)]
-        mcp_off_tgt = off_m.groupby('_nv')['_ma'].nunique().to_dict()
-        mcp_on_tgt = on_m.groupby('_nv')['_ma'].nunique().to_dict()
-        # map SM name -> code if needed via sm_names reverse
-        name_to_code = {v: k for k, v in sm_names.items()}
-        for d in (mcp_off_tgt, mcp_on_tgt):
-          extra = {}
-          for k, v in list(d.items()):
-            if k in name_to_code:
-              extra[name_to_code[k]] = v
-          d.update(extra)
+        mcp_off_tgt = off_m.groupby('_key')['_ma'].nunique().to_dict()
+        mcp_on_tgt = on_m.groupby('_key')['_ma'].nunique().to_dict()
+        # bổ sung SM có trên MCP nhưng chưa có đơn
+        for k in set(list(mcp_off_tgt) + list(mcp_on_tgt)):
+          if k not in sm_names:
+            # thử lấy tên từ MCP
+            if c_name:
+              nm = tmp.loc[tmp['_key'] == k, c_name]
+              if len(nm):
+                sm_names[k] = str(nm.iloc[0]).strip()
+            if k not in all_sms:
+              all_sms.append(k)
+        all_sms = sorted(set(all_sms))
 
     key, title = 'ASO_ALL', '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
 
@@ -1529,26 +1567,28 @@ def build_report(
     }
 
     if report_type == 'ASO_ALL':
-      # map target by code or name
+      # Chỉ Tiêu MCP lấy từ Target_KPI (key ASO_ALL)
       nv_name = sm_names.get(sm, '')
-      t_off = int(
-          mcp_off_tgt.get(sm, mcp_off_tgt.get(nv_name, 0)) or 0
+      tgt_mcp = int(
+          targets.get(sm, {}).get('ASO_ALL', 0) or 0
       )
-      t_on = int(mcp_on_tgt.get(sm, mcp_on_tgt.get(nv_name, 0)) or 0)
+      t_off = int(mcp_off_tgt.get(sm, 0) or 0)
+      t_on = int(mcp_on_tgt.get(sm, 0) or 0)
       m_off = int(mtd_off.get(sm, 0) or 0)
       n_off = int(ngay_off.get(sm, 0) or 0)
       m_on = int(mtd_on.get(sm, 0) or 0)
       n_on = int(ngay_on.get(sm, 0) or 0)
+      pct = round(m / tgt_mcp * 100, 1) if tgt_mcp else 0
+      ratio = m / tgt_mcp if tgt_mcp else 0
       pct_off = round(m_off / t_off * 100, 1) if t_off else 0
       pct_on = round(m_on / t_on * 100, 1) if t_on else 0
-      # Rename columns per sample
       row = {
           'Mã NVBH': sm,
           'Tên NVBH': nv_name,
-          'Chỉ Tiêu MCP': tgt,
+          'Chỉ Tiêu MCP': tgt_mcp,
           'Thực Hiện Ngày': n,
           'MTD': m,
-          '%MTD': f'{pct}%',
+          '% MTD': f'{pct}%',
           'MCP OFF': t_off,
           'Thực hiện ngày OFF': n_off,
           'MTD OFF': m_off,
@@ -1595,7 +1635,7 @@ def build_report(
         'Chỉ Tiêu MCP': team_tgt,
         'Thực Hiện Ngày': total_ngay,
         'MTD': total_mtd,
-        '%MTD': f'{total_pct}%',
+        '% MTD': f'{total_pct}%',
         'MCP OFF': sum_off,
         'Thực hiện ngày OFF': sum_ngay_off,
         'MTD OFF': sum_mtd_off,
@@ -2896,7 +2936,7 @@ def render_html_table(df):
       if pd.isna(val):
         val = ''
 
-      if col in ['% MTD', '% MTD (OFF)', '% MTD (ON)', '% Hoàn Thành', '% TH']:
+      if col in ['% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON', '% Hoàn Thành', '% TH']:
         style_bg = color_pct_bg(val)
         if is_total:
           html.append(
@@ -3436,10 +3476,18 @@ def get_timegone_stats(target_date):
   total_working_days = 0
   elapsed_working_days = 0
 
+  # Ngày nghỉ lễ theo tháng (logic cũ: trừ CN + lễ)
+  # T9/2026: 01-02/09 Quốc khánh; T10/2026: không có lễ cố định
+  holidays_by_month = {
+      (2026, 9): {1, 2},
+      (2026, 10): set(),
+  }
+  holiday_days = holidays_by_month.get((year, month), set())
+
   curr = first_day
   while curr <= last_day:
     is_sunday = curr.weekday() == 6
-    is_holiday = month == 9 and curr.day in [1, 2]
+    is_holiday = curr.day in holiday_days
 
     if not is_sunday and not is_holiday:
       total_working_days += 1
@@ -3485,13 +3533,16 @@ f1, f2, f3 = st.columns([1, 1, 1.3])
 with f1:
   st.markdown('<p class="filter-label">MONTH</p>', unsafe_allow_html=True)
   st.selectbox(
-      '', ['Tháng 09/2026'], key='month', label_visibility='collapsed'
+      '', ['Tháng 10/2026'], key='month', label_visibility='collapsed'
   )
 with f2:
   st.markdown('<p class="filter-label">NGÀY</p>', unsafe_allow_html=True)
   report_date = st.date_input(
       '', value=default_date_t_minus_1, key='ngay', label_visibility='collapsed'
   )
+  # Cập nhật tiến độ theo ngày báo cáo (dùng tô màu % + hiển thị)
+  _tot2, _el2, _rem2, _pct2 = get_timegone_stats(report_date)
+  set_progress_pct(_pct2)
 with f3:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
   kpi_map = {
@@ -4336,7 +4387,7 @@ with tab_kpi:
     total_row = df_r.iloc[-1]
     total_mtd = int(total_row['MTD'])
     total_ngay = int(total_row['Thực Hiện Ngày'])
-    pct_col = '%MTD' if '%MTD' in total_row.index else '% MTD'
+    pct_col = '% MTD'
     pct_team = total_row[pct_col]
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
@@ -4354,7 +4405,7 @@ with tab_kpi:
       with c2:
         render_metric_card('📈 MTD', f'{total_mtd:,}')
       with c3:
-        render_metric_card('📊 %MTD', pct_team)
+        render_metric_card('📊 % MTD', pct_team)
       with c4:
         render_metric_card('🆕 Ngày', f'+{total_ngay}')
       with c5:
@@ -4377,7 +4428,7 @@ with tab_kpi:
         render_metric_card('🆕 Ngày', f'+{total_ngay}')
     st.markdown(render_html_table(df_r), unsafe_allow_html=True)
     df_eval = df_r.iloc[:-1].copy()
-    _pc = '%MTD' if '%MTD' in df_eval.columns else '% MTD'
+    _pc = '% MTD'
     df_eval['_pct_val'] = (
         df_eval[_pc].astype(str).str.replace('%', '').astype(float)
     )
