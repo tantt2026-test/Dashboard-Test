@@ -2454,7 +2454,7 @@ def build_combo_matrix(
     df, report_date, df_off_master, df_on_master, filter_nv=None, mcp_df=None
 ):
   empty_cols = [
-      'STT', 'Mã NVBH', 'Tên NVBH',
+      'STT', 'Tên NVBH',
       'Target (OFF)', 'Phát sinh Ngày (OFF)', 'MTD (OFF)', '% MTD (OFF)',
       'Target (ON)', 'Phát sinh Ngày (ON)', 'MTD (ON)', '% MTD (ON)',
   ]
@@ -2552,11 +2552,7 @@ def build_combo_matrix(
     n_on = int(on_ngay.get(nv, 0))
     pct_on = round(m_on / tgt_on * 100, 1) if tgt_on else 0
 
-    sub_df = df[df['Tên NVBH'] == nv]
-    ma_nv = sub_df['Mã NVBH'].iloc[0] if not sub_df.empty else ''
-
     rows.append({
-        'Mã NVBH': ma_nv,
         'Tên NVBH': nv,
         'Target (OFF)': tgt_off,
         'Phát sinh Ngày (OFF)': n_off,
@@ -2617,7 +2613,6 @@ def build_combo_matrix(
 
   total_row = pd.DataFrame([{
       'STT': '-',
-      'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
           'SS Trương Thanh Tân Total'
           if not nv_selected(filter_nv)
