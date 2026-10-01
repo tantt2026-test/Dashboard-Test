@@ -448,27 +448,56 @@ def get_turnover_targets():
     return {}
 
 
-# % Timegone hiện tại (cập nhật theo ngày báo cáo) — dùng tô màu cột %
-_CURRENT_PROGRESS_PCT = 0.0
+# Mốc tô màu % theo từng báo cáo Tab KPI
+_CURRENT_COLOR_MOC = 100.0
+
+# Mốc mặc định (%). LPPC/LPPC_Meat: mốc tuyệt đối (4.3 / 3.8) — xử lý riêng khi set.
+KPI_COLOR_MOC = {
+    'TURNOVER': 95.0,
+    'PC_BT': 100.0,
+    'LPPC': 91.5,         # mốc 4.3 / target 4.7 × 100 ≈ 91.5% trên cột % MTD
+    'ASO_ALL': 80.0,
+    'ASO_FOCUS': 100.0,
+    'ASO_FOCUS_2': 100.0,
+    'PC_ON': 100.0,
+    'LPPC_MEAT': 100.0,   # mốc 3.8 = target → 100% trên cột % MTD
+    'COMBO': 100.0,       # sẽ ghi đè bằng % MTD dòng Total khi render
+    'SUMMARY': 100.0,
+    'MBS_CAT': 100.0,
+    'MBS_BRAND': 100.0,
+    'VISIT': 100.0,
+    'CHANTE': 100.0,
+    'OMACHI': 100.0,
+    'ASO_TEA': 100.0,
+}
 
 
-def set_progress_pct(pct):
-  global _CURRENT_PROGRESS_PCT
+def set_color_moc(moc):
+  global _CURRENT_COLOR_MOC
   try:
-    _CURRENT_PROGRESS_PCT = float(pct)
+    _CURRENT_COLOR_MOC = float(moc)
   except Exception:
-    _CURRENT_PROGRESS_PCT = 0.0
+    _CURRENT_COLOR_MOC = 100.0
 
 
-def color_pct_bg(val, progress=None):
-  """Tô màu % theo tiến độ thời gian:
-  - % < tiến độ           → Đỏ
-  - tiến độ <= % <= tiến độ + 5  → Xanh lá
-  - % > tiến độ + 5       → Tím
+def set_color_moc_for_kpi(kpi_key, total_pct=None):
+  """Gán mốc tô màu theo loại báo cáo. Combo: dùng % MTD dòng Total nếu có."""
+  if kpi_key == 'COMBO' and total_pct is not None:
+    set_color_moc(total_pct)
+    return
+  moc = KPI_COLOR_MOC.get(str(kpi_key), 100.0)
+  set_color_moc(moc)
+
+
+def color_pct_bg(val, moc=None):
+  """Tô màu theo mốc báo cáo:
+  - % < mốc            → Đỏ
+  - mốc <= % <= mốc+5  → Xanh lá
+  - % > mốc + 5        → Tím
   """
   try:
     v = float(str(val).replace('%', '').strip())
-    p = float(progress) if progress is not None else float(_CURRENT_PROGRESS_PCT)
+    p = float(moc) if moc is not None else float(_CURRENT_COLOR_MOC)
     if v < p:
       return 'background-color: #fed7d7; color:#742a2a; font-weight:600;'
     elif v <= p + 5:
@@ -3540,9 +3569,8 @@ with f2:
   report_date = st.date_input(
       '', value=default_date_t_minus_1, key='ngay', label_visibility='collapsed'
   )
-  # Cập nhật tiến độ theo ngày báo cáo (dùng tô màu % + hiển thị)
+  # Tiến độ thời gian vẫn tính theo ngày báo cáo (hiển thị Timegone)
   _tot2, _el2, _rem2, _pct2 = get_timegone_stats(report_date)
-  set_progress_pct(_pct2)
 with f3:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
   kpi_map = {
@@ -3615,6 +3643,7 @@ tab_kpi, tab_mcp, tab_cat, tab_brand, tab_dskh_off, tab_dskh_on = st.tabs([
 # ----- TAB KPI -----
 with tab_kpi:
   if selected_kpi == 'SUMMARY':
+    set_color_moc_for_kpi('SUMMARY')
     saved_sum_thu = st.query_params.get('sum_thu', '')
     default_sum_thu_list = (
         [x.strip() for x in saved_sum_thu.split(',') if x.strip()]
@@ -3762,6 +3791,7 @@ with tab_kpi:
     )
 
   elif selected_kpi == 'MBS_CAT':
+    set_color_moc_for_kpi('MBS_CAT')
     result = build_mbs_cat_report(df_cat, filter_nv, mcp_df=mcp)
     groups = result['groups']
     df_detail = result['df_detail']
@@ -3973,6 +4003,7 @@ with tab_kpi:
 
 
   elif selected_kpi == 'MBS_BRAND':
+    set_color_moc_for_kpi('MBS_BRAND')
     result = build_mbs_brand_report(df_brand, filter_nv, mcp_df=mcp)
     groups = result['groups']
     df_detail = result['df_detail']
@@ -4171,6 +4202,7 @@ with tab_kpi:
 
 
   elif selected_kpi == 'VISIT':
+    set_color_moc_for_kpi('VISIT')
     # ===== TỰ NHẬN THỨ + TUẦN ISO CHẴN/LẺ TỪ NGÀY CHỌN =====
     iso_year, iso_week, iso_weekday = report_date.isocalendar()
     week_type = 'Tuần Chẵn' if iso_week % 2 == 0 else 'Tuần Lẻ'
@@ -4306,6 +4338,7 @@ with tab_kpi:
     )
 
   elif selected_kpi == 'TURNOVER':
+    set_color_moc_for_kpi('TURNOVER')
     df_r, team_tgt, title = build_turnover_report(
         df, report_date, turnover_targets, filter_nv
     )
@@ -4381,6 +4414,7 @@ with tab_kpi:
     )
 
   elif selected_kpi != 'COMBO':
+    set_color_moc_for_kpi(selected_kpi)
     df_r, team_tgt, title = build_report(
         df, report_date, targets, selected_kpi, filter_nv, mcp_df=mcp
     )
@@ -4462,6 +4496,14 @@ with tab_kpi:
         df, report_date, df_combo_off, df_combo_on, filter_nv
     )
     total_row = df_combo.iloc[-1]
+    # Mốc tô màu Combo = % MTD dòng Total (trung bình OFF/ON nếu có)
+    try:
+      _p_off = float(str(total_row.get('% MTD (OFF)', '0')).replace('%', ''))
+      _p_on = float(str(total_row.get('% MTD (ON)', '0')).replace('%', ''))
+      _combo_moc = round((_p_off + _p_on) / 2, 1) if (_p_off or _p_on) else 100.0
+    except Exception:
+      _combo_moc = 100.0
+    set_color_moc_for_kpi('COMBO', total_pct=_combo_moc)
     total_off = int(total_row['MTD (OFF)'])
     total_on = int(total_row['MTD (ON)'])
     ngay_off = int(total_row['Phát sinh Ngày (OFF)'])
