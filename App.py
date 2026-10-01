@@ -1124,6 +1124,17 @@ def count_moq_lines_per_order(df_src):
 
 
 
+
+def pick_best_pc_per_outlet_day(ok_orders):
+  """Max 1 PC/CH/ngày; ưu tiên đơn có n_moq_lines cao nhất."""
+  if ok_orders is None or ok_orders.empty:
+    return ok_orders
+  return (
+      ok_orders.sort_values('n_moq_lines', ascending=False)
+      .drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'], keep='first')
+  )
+
+
 def build_report(
     df, report_date, targets, report_type, filter_nv=None, mcp_df=None
 ):
@@ -1190,7 +1201,7 @@ def build_report(
         sku_col
     ].nunique()
     ok = lines[lines >= min_lines].reset_index()
-    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    ok_day = pick_best_pc_per_outlet_day(ok)
     mtd_s = ok_day.groupby('Mã NVBH').size()
     ngay_s = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
     return mtd_s, ngay_s
@@ -1320,7 +1331,7 @@ def build_report(
     ]
     order_moq = count_moq_lines_per_order(off)
     ok = order_moq[order_moq['n_moq_lines'] >= 4]
-    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    ok_day = pick_best_pc_per_outlet_day(ok)
     mtd = ok_day.groupby('Mã NVBH').size()
     ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
     key, title = 'PC_BT', '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
@@ -1385,7 +1396,7 @@ def build_report(
     d = d[~is_ex]
     order_moq = count_moq_lines_per_order(d)
     ok = order_moq[order_moq['n_moq_lines'] >= 4]
-    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    ok_day = pick_best_pc_per_outlet_day(ok)
     total_lines = ok_day.groupby('Mã NVBH')['n_moq_lines'].sum()
     total_pc = ok_day.groupby('Mã NVBH').size()
     mtd = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
@@ -1417,7 +1428,7 @@ def build_report(
     d = d[is_meat]
     order_moq = count_moq_lines_per_order(d)
     ok = order_moq[order_moq['n_moq_lines'] >= 1]
-    ok_day = ok.drop_duplicates(subset=['Mã NVBH', 'Mã CH', 'date'])
+    ok_day = pick_best_pc_per_outlet_day(ok)
     total_lines = ok_day.groupby('Mã NVBH')['n_moq_lines'].sum()
     total_pc = ok_day.groupby('Mã NVBH').size()
     mtd = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
