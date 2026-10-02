@@ -4033,78 +4033,64 @@ def build_performance_report(
     d_nv = df_day[df_day['_nv'] == nv_name] if not df_day.empty else pd.DataFrame()
     d_mid = d_nv[d_nv['_hour'] < 13] if not d_nv.empty else pd.DataFrame()
 
-    # Plan VT = CH có Ngày lịch VT = ngày BC (không tính dòng chỉ khớp actual)
-    plan_off, plan_on = set(), set()
+    # ----- Gán theo Ngày VT thực tế / Ngày lịch VT -----
+    # Plan VT  : Ngày lịch VT == ngày BC
+    # Đã VT    : date(Ngày VT thực tế) == ngày BC
+    # PC       : actual == ngày BC + Có đơn hàng + VT Trái tuyến != YES
+    # PC Trái  : actual == ngày BC + Có đơn hàng + VT Trái tuyến == YES
+    # KO ĐH    : actual == ngày BC + đã VT + không có đơn
     rd = report_date.date() if hasattr(report_date, 'date') else report_date
+
+    plan_off, plan_on = set(), set()
+    da_off, da_on = set(), set()
+    pc_off, pc_on = set(), set()
+    trai_off, trai_on = set(), set()
+    vip_ko, ko_off, ko_on = set(), set(), set()
+
     if not v_nv.empty:
-      v_plan = (
-          v_nv[v_nv['_plan_date'] == rd]
-          if '_plan_date' in v_nv.columns
-          else v_nv
-      )
+      # Plan VT theo lịch
+      if '_plan_date' in v_nv.columns:
+        v_plan = v_nv[v_nv['_plan_date'] == rd]
+      else:
+        v_plan = v_nv
       for ma in v_plan['_ma'].unique():
         if ma:
           (plan_on if _is_on(ma) else plan_off).add(ma)
 
-    # Đã VT
-    da_off, da_on = set(), set()
-    if not v_nv.empty:
-      for ma in v_nv.loc[v_nv['_da_vt'], '_ma']:
-        if ma:
-          (da_on if _is_on(ma) else da_off).add(ma)
+      # Lượt VT / ĐH theo Ngày VT thực tế
+      if '_actual' in v_nv.columns:
+        v_act = v_nv[v_nv['_actual'] == rd].copy()
+      else:
+        v_act = v_nv.iloc[0:0].copy()
 
-    # PC = đã VT + Có đơn hàng (file lịch)
-    pc_off, pc_on = set(), set()
-    if not v_nv.empty:
-      for ma in v_nv.loc[v_nv['_co_dh'], '_ma']:
-        if ma:
-          (pc_on if _is_on(ma) else pc_off).add(ma)
+      for _, r in v_act.iterrows():
+        ma = r.get('_ma', '')
+        if not ma:
+          continue
+        is_on = _is_on(ma)
+        is_trai = str(r.get('_trai', 'NO')).upper() == 'YES'
+        co_dh = bool(r.get('_co_dh', False))
+        da_vt = bool(r.get('_da_vt', False))
 
-    # % PC/VT (OFF) = PC / Đã VT
-    # % PC/Plan (ON) theo mô tả = PC / Đã VT ON
+        # Đã VT (có ngày VT thực tế trong ngày BC)
+        if da_vt or co_dh or is_trai:
+          (da_on if is_on else da_off).add(ma)
+
+        if co_dh:
+          if is_trai:
+            # PC Trái Tuyến: YES + Có ĐH + actual == ngày BC
+            (trai_on if is_on else trai_off).add(ma)
+          else:
+            # PC đúng tuyến
+            (pc_on if is_on else pc_off).add(ma)
+        elif da_vt:
+          # Đã VT không có đơn
+          (ko_on if is_on else ko_off).add(ma)
+          if _is_vip(ma, r.get('_nhom', '')):
+            vip_ko.add(ma)
+
     pct_off = round(len(pc_off) / len(da_off) * 100, 1) if da_off else 0.0
     pct_on = round(len(pc_on) / len(da_on) * 100, 1) if da_on else 0.0
-
-    # KO ĐH = đã VT nhưng không có đơn
-    # VIP KO ĐH = VIP3/VIP5/VIPSI đã VT không có đơn
-    vip_ko, ko_off, ko_on = set(), set(), set()
-    if not v_nv.empty:
-      for _, r in v_nv[v_nv['_da_vt']].iterrows():
-        ma = r['_ma']
-        if not ma or r['_co_dh']:
-          continue
-        (ko_on if _is_on(ma) else ko_off).add(ma)
-        if _is_vip(ma, r.get('_nhom', '')):
-          vip_ko.add(ma)
-
-    # PC Trái Tuyến (file lịch VT):
-    # - VT Trái tuyến = YES
-    # - Trạng thái = Có đơn hàng
-    # - Đối chiếu Ngày VT thực tế: phải có ngày VT thực tế (đã VT thật)
-    # - Ngày gắn báo cáo: Ngày lịch VT = report_date
-    #   HOẶC date(Ngày VT thực tế) = report_date
-    trai_off, trai_on = set(), set()
-    if not v_nv.empty:
-      has_actual = (
-          v_nv['_actual'].notna()
-          if '_actual' in v_nv.columns
-          else pd.Series(True, index=v_nv.index)
-      )
-      rd = report_date.date() if hasattr(report_date, 'date') else report_date
-      on_day = pd.Series(True, index=v_nv.index)
-      if '_plan_date' in v_nv.columns:
-        on_day = v_nv['_plan_date'] == rd
-      if '_actual' in v_nv.columns:
-        on_day = on_day | (v_nv['_actual'] == rd)
-      sub_trai = v_nv[
-          (v_nv['_trai'] == 'YES')
-          & (v_nv['_co_dh'])
-          & has_actual
-          & on_day
-      ]
-      for ma in sub_trai['_ma']:
-        if ma:
-          (trai_on if _is_on(ma) else trai_off).add(ma)
 
     # LPPC từ RPT: Tổng line ĐH OFF / Tổng số ĐH OFF trong ngày
     d_off = (
