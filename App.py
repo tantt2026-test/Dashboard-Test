@@ -4288,9 +4288,10 @@ def _perf_table_html(df, section='call'):
             f'<td style="{td}{vip_ko_bg(val)}text-align:center;">{val}</td>'
         )
       elif is_tot:
-        # Total: nền xanh đậm + chữ trắng (đồng nhất)
-        al = 'left' if c == 'Tên NVBH' else 'center'
-        html.append(f'<td style="{td_tot}text-align:{al} !important;">{val}</td>')
+        # Total: nền xanh đậm + chữ trắng, canh giữa giống dòng NV
+        html.append(
+            f'<td style="{td_tot}text-align:center !important;">{val}</td>'
+        )
       else:
         al = 'left' if c == 'Tên NVBH' else 'center'
         html.append(f'<td style="{td}{row_bg}text-align:{al};">{val}</td>')
