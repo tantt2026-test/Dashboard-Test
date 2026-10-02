@@ -152,10 +152,6 @@ st.markdown(
     .custom-kpi-table tbody tr:nth-child(odd) {
         background-color: #ffffff !important;
     }
-    /* Total row: tr nền xanh; từng td set inline (giữ màu % / VIP) */
-    .custom-kpi-table tbody tr:last-child {
-        background-color: #1a365d !important;
-    }
 
     /* MBS group cards - responsive */
     .mbs-card-grid {
@@ -635,20 +631,11 @@ def color_pct_bg(val, moc=None):
     v = float(str(val).replace('%', '').strip())
     p = float(moc) if moc is not None else float(_CURRENT_COLOR_MOC)
     if v < p:
-      return (
-          'background-color:#fed7d7 !important;color:#742a2a !important;'
-          'font-weight:700 !important;'
-      )
+      return 'background-color: #fed7d7; color:#742a2a; font-weight:600;'
     elif v <= p + 5:
-      return (
-          'background-color:#c6f6d5 !important;color:#22543d !important;'
-          'font-weight:700 !important;'
-      )
+      return 'background-color: #c6f6d5; color:#22543d; font-weight:600;'
     else:
-      return (
-          'background-color:#e9d8fd !important;color:#553c9a !important;'
-          'font-weight:700 !important;'
-      )
+      return 'background-color: #e9d8fd; color:#553c9a; font-weight:600;'
   except Exception:
     return ''
 
@@ -662,24 +649,12 @@ def vip_ko_bg(val):
   if v <= 0:
     return ''
   if v <= 2:
-    return (
-        'background-color:#fed7d7 !important;color:#742a2a !important;'
-        'font-weight:700 !important;'
-    )
+    return 'background-color:#fed7d7;color:#742a2a;font-weight:700;'
   if v <= 5:
-    return (
-        'background-color:#feb2b2 !important;color:#822727 !important;'
-        'font-weight:700 !important;'
-    )
+    return 'background-color:#feb2b2;color:#822727;font-weight:700;'
   if v <= 9:
-    return (
-        'background-color:#fc8181 !important;color:#742a2a !important;'
-        'font-weight:800 !important;'
-    )
-  return (
-      'background-color:#c53030 !important;color:#ffffff !important;'
-      'font-weight:900 !important;'
-  )
+    return 'background-color:#fc8181;color:#742a2a;font-weight:800;'
+  return 'background-color:#c53030;color:#ffffff;font-weight:900;'
 
 
 def format_number_vn(x):
@@ -4270,35 +4245,25 @@ def _perf_table_html(df, section='call'):
       html.append(f'<th style="{th}{extra}">{lab}</th>')
   html.append('</tr></thead><tbody>')
 
-  n_rows = len(df)
-  for pos, (idx, row) in enumerate(df.iterrows()):
-    # Dòng cuối = Total (bắt buộc)
-    is_tot = (pos == n_rows - 1) or (
-        str(row.get('STT', '')).strip() in ('-', '–', '')
-        and (
-            'TỔNG' in str(row.get('Mã NVBH', '')).upper()
-            or 'TOTAL' in str(row.get('Tên NVBH', '')).upper()
-        )
+  for i, row in df.iterrows():
+    is_tot = (
+        str(row.get('STT', '')) == '-'
+        or 'TỔNG' in str(row.get('Mã NVBH', '')).upper()
+        or 'Total' in str(row.get('Tên NVBH', ''))
     )
-    # Số thứ tự dòng data (bỏ total) để xen kẽ
     row_bg = ''
     if not is_tot:
       row_bg = (
           'background-color:#e6f4fc !important;'
-          if pos % 2 == 0
+          if i % 2 == 0
           else 'background-color:#ffffff !important;'
       )
-    # tr style cho Total để đè CSS zebra của .custom-kpi-table
-    if is_tot:
-      html.append(
-          '<tr style="background-color:#1a365d !important;">'
-      )
-    else:
-      html.append('<tr>')
+    html.append('<tr>')
     for c in all_cols:
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
+      # Format số doanh số
       if c in ('TH SO', 'CT Ngày SO') and val != '' and val is not None:
         try:
           _n = int(float(str(val).replace('.', '').replace(',', '')))
@@ -4313,27 +4278,23 @@ def _perf_table_html(df, section='call'):
       is_vip_col = c == 'VIP KO ĐH'
 
       if is_pct:
+        # % tô màu rule KPI — cả dòng Total
         html.append(
-            f'<td style="{td}{color_pct_bg(val)}'
-            f'text-align:center !important;font-weight:700 !important;">'
-            f'{val}</td>'
+            f'<td style="{td}{color_pct_bg(val)}text-align:center;'
+            f'font-weight:700;">{val}</td>'
         )
       elif is_vip_col:
         html.append(
-            f'<td style="{td}{vip_ko_bg(val)}'
-            f'text-align:center !important;">{val}</td>'
+            f'<td style="{td}{vip_ko_bg(val)}text-align:center;">{val}</td>'
         )
       elif is_tot:
+        # Total: nền xanh đậm + chữ trắng, canh giữa giống dòng NV
         html.append(
-            f'<td style="background-color:#1a365d !important;'
-            f'color:#ffffff !important;font-weight:900 !important;'
-            f'text-align:center !important;border:1px solid #90cdf4 !important;'
-            f'padding:6px 5px;font-size:11px;white-space:nowrap;">{val}</td>'
+            f'<td style="{td_tot}text-align:center !important;">{val}</td>'
         )
       else:
-        html.append(
-            f'<td style="{td}{row_bg}text-align:center !important;">{val}</td>'
-        )
+        al = 'left' if c == 'Tên NVBH' else 'center'
+        html.append(f'<td style="{td}{row_bg}text-align:{al};">{val}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
