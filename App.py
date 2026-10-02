@@ -146,14 +146,48 @@ st.markdown(
         border: 1px solid #bce2f5 !important;
         padding: 5px 6px;
     }
-    .custom-kpi-table tbody tr:nth-child(even) {
+    .custom-kpi-table tbody tr:nth-child(even) td:not([data-colored="1"]) {
         background-color: #e6f4fc !important;
     }
-    .custom-kpi-table tbody tr:nth-child(odd) {
+    .custom-kpi-table tbody tr:nth-child(odd) td:not([data-colored="1"]) {
         background-color: #ffffff !important;
     }
     .custom-kpi-table td {
         text-align: center !important;
+    }
+    /* Cột % — tô màu theo rule KPI */
+    .custom-kpi-table td.pct-red {
+        background-color: #fed7d7 !important;
+        color: #742a2a !important;
+        font-weight: 700 !important;
+    }
+    .custom-kpi-table td.pct-green {
+        background-color: #c6f6d5 !important;
+        color: #22543d !important;
+        font-weight: 700 !important;
+    }
+    .custom-kpi-table td.pct-purple {
+        background-color: #e9d8fd !important;
+        color: #553c9a !important;
+        font-weight: 700 !important;
+    }
+    /* VIP KO ĐH */
+    .custom-kpi-table td.vip-1 {
+        background-color: #fed7d7 !important; color: #742a2a !important; font-weight: 700 !important;
+    }
+    .custom-kpi-table td.vip-2 {
+        background-color: #feb2b2 !important; color: #822727 !important; font-weight: 700 !important;
+    }
+    .custom-kpi-table td.vip-3 {
+        background-color: #fc8181 !important; color: #742a2a !important; font-weight: 800 !important;
+    }
+    .custom-kpi-table td.vip-4 {
+        background-color: #c53030 !important; color: #ffffff !important; font-weight: 900 !important;
+    }
+    .custom-kpi-table tbody tr.row-total td:not([data-colored="1"]) {
+        background-color: #1a365d !important;
+        color: #ffffff !important;
+        font-weight: 900 !important;
     }
 
     /* MBS group cards - responsive */
@@ -625,11 +659,7 @@ def set_color_moc_for_kpi(kpi_key, total_pct=None):
 
 
 def color_pct_bg(val, moc=None):
-  """Tô màu theo mốc báo cáo:
-  - % < mốc            → Đỏ
-  - mốc <= % <= mốc+5  → Xanh lá
-  - % > mốc + 5        → Tím
-  """
+  """Tô màu theo mốc báo cáo (inline style)."""
   try:
     v = float(str(val).replace('%', '').strip())
     p = float(moc) if moc is not None else float(_CURRENT_COLOR_MOC)
@@ -648,6 +678,21 @@ def color_pct_bg(val, moc=None):
           'background-color:#e9d8fd !important;color:#553c9a !important;'
           'font-weight:700 !important;'
       )
+  except Exception:
+    return ''
+
+
+def color_pct_class(val, moc=None):
+  """Class CSS cho cột % (tránh bị zebra đè)."""
+  try:
+    v = float(str(val).replace('%', '').strip())
+    p = float(moc) if moc is not None else float(_CURRENT_COLOR_MOC)
+    if v < p:
+      return 'pct-red'
+    elif v <= p + 5:
+      return 'pct-green'
+    else:
+      return 'pct-purple'
   except Exception:
     return ''
 
@@ -679,6 +724,22 @@ def vip_ko_bg(val):
       'background-color:#c53030 !important;color:#ffffff !important;'
       'font-weight:900 !important;'
   )
+
+
+def vip_ko_class(val):
+  try:
+    v = int(float(str(val).strip()))
+  except Exception:
+    return ''
+  if v <= 0:
+    return ''
+  if v <= 2:
+    return 'vip-1'
+  if v <= 5:
+    return 'vip-2'
+  if v <= 9:
+    return 'vip-3'
+  return 'vip-4'
 
 
 def format_number_vn(x):
@@ -4289,7 +4350,8 @@ def _perf_table_html(df, section='call'):
       # Total: nền xanh đậm
       row_bg = 'background-color:#1a365d !important;color:#ffffff !important;'
 
-    html.append('<tr>')
+    tr_cls = ' class="row-total"' if is_tot else ''
+    html.append(f'<tr{tr_cls}>')
     for c in all_cols:
       val = row.get(c, '')
       if pd.isna(val):
@@ -4306,30 +4368,26 @@ def _perf_table_html(df, section='call'):
 
       is_pct = isinstance(val, str) and '%' in str(val)
       is_vip_col = c == 'VIP KO ĐH'
-      # Canh giữa: mọi cột số liệu + STT/Mã (kể cả Total)
-      align = 'center' if c in _center_cols or is_pct or is_vip_col else (
-          'center' if is_tot else ('left' if c == 'Tên NVBH' else 'center')
-      )
-      # Tên NVBH dòng Total cũng canh giữa
-      if is_tot:
-        align = 'center'
 
       if is_pct:
+        cls = color_pct_class(val)
         html.append(
-            f'<td align="center" style="{td}{color_pct_bg(val)}'
-            f'text-align:center !important;font-weight:700 !important;">'
-            f'{val}</td>'
+            f'<td align="center" data-colored="1" class="{cls}" '
+            f'style="{td}{color_pct_bg(val)}text-align:center !important;">{val}</td>'
         )
       elif is_vip_col:
+        cls = vip_ko_class(val)
+        attr = ' data-colored="1"' if cls else ''
+        cls_attr = f' class="{cls}"' if cls else ''
         html.append(
-            f'<td align="center" style="{td}{vip_ko_bg(val)}'
-            f'text-align:center !important;">{val}</td>'
+            f'<td align="center"{attr}{cls_attr} '
+            f'style="{td}{vip_ko_bg(val)}text-align:center !important;">{val}</td>'
         )
       elif is_tot:
         html.append(
-            f'<td align="center" style="{td}{row_bg}'
-            f'color:#ffffff !important;font-weight:900 !important;'
-            f'text-align:center !important;">{val}</td>'
+            f'<td align="center" style="{td}'
+            f'background-color:#1a365d !important;color:#ffffff !important;'
+            f'font-weight:900 !important;text-align:center !important;">{val}</td>'
         )
       else:
         html.append(
