@@ -4591,12 +4591,10 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
 
 
 def render_trai_tuyen_html(df):
-  """Bảng chi tiết ĐH Trái Tuyến — header vàng chữ đỏ theo mẫu."""
+  """Bảng chi tiết ĐH Trái Tuyến — header vàng chữ đỏ theo mẫu.
+  Không có data → trả chuỗi rỗng (không lỗi, không dòng chữ)."""
   if df is None or df.empty:
-    return (
-        '<p style="margin:12px 0;color:#718096;font-size:13px;">'
-        'Không có đơn hàng trái tuyến trong ngày.</p>'
-    )
+    return ''
   cols = [
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
       'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'LPPC', 'Check Danh Sách Import',
