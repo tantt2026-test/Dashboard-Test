@@ -6647,6 +6647,7 @@ st.markdown(
     .mbs-summary-scroll,
     .mbs-data-scroll {
       width: 100%;
+      /* Khoảng 25 dòng: vẫn giữ cuộn dọc + cuộn ngang */
       max-height: 700px;
       overflow-x: auto !important;
       overflow-y: auto !important;
@@ -6658,7 +6659,10 @@ st.markdown(
       border-collapse: collapse !important;
       font-size: 11px !important;
       border: 1px solid #9ca3af !important;
-      min-width: 1200px;
+      /* Tự scale theo khung: ít cột thì full khung, nhiều cột thì tự rộng để cuộn ngang */
+      width: max-content !important;
+      min-width: 100% !important;
+      table-layout: auto !important;
       margin: 0 !important;
     }
     .mbs-summary-table thead th,
