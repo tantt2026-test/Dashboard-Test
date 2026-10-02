@@ -5,6 +5,7 @@ import re
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title='TRACKING KPI ĐDKD - SS Trương Thanh Tân ',
@@ -118,6 +119,19 @@ st.markdown(
     
     footer {visibility: hidden;}
     #MainMenu, header {visibility: visible !important;}
+
+    /* Chặn bàn phím ảo mobile trên ô lọc Streamlit */
+    input[inputmode="none"],
+    div[data-baseweb="select"] input,
+    div[data-baseweb="input"] input,
+    .stMultiSelect input,
+    .stSelectbox input,
+    .stTextInput input {
+        inputmode: none !important;
+        -webkit-user-select: none;
+        user-select: none;
+        caret-color: transparent;
+    }
     
     .custom-kpi-table {
         width: 100%;
@@ -3848,11 +3862,38 @@ st.markdown(
 )
 
 # Bộ lọc chính
+# Danh sách Mã KH / Tên KH (từ MCP + RPT) — dùng multiselect tránh bàn phím ảo
+_ma_set, _ten_set = set(), set()
+if mcp is not None and not mcp.empty:
+  _c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'outlet_code'])
+  _c_ten = find_col(
+      mcp,
+      ['Outlet Name', 'Outlet_Name', 'Tên CH', 'Tên khách hàng', 'Customer Name', 'Tên KH'],
+  )
+  if _c_ma:
+    _ma_set.update(mcp[_c_ma].dropna().astype(str).str.strip().tolist())
+  if _c_ten:
+    _ten_set.update(mcp[_c_ten].dropna().astype(str).str.strip().tolist())
+if df is not None and not df.empty:
+  if 'Mã CH' in df.columns:
+    _ma_set.update(df['Mã CH'].dropna().astype(str).str.strip().tolist())
+  _c_ten_rpt = find_col(df, ['Tên CH', 'Tên khách hàng', 'Outlet Name', 'Tên KH'])
+  if _c_ten_rpt:
+    _ten_set.update(df[_c_ten_rpt].dropna().astype(str).str.strip().tolist())
+_bad = {'nan', 'none', '', 'mã ch', 'outlet_code', 'outlet code', 'tên ch'}
+ma_opts = sorted([x for x in _ma_set if x and x.lower() not in _bad])
+ten_opts = sorted([x for x in _ten_set if x and x.lower() not in _bad])
+
 f1, f2, f3 = st.columns([1, 1, 1.3])
 with f1:
-  st.markdown('<p class="filter-label">MONTH</p>', unsafe_allow_html=True)
-  st.selectbox(
-      '', ['Tháng 10/2026'], key='month', label_visibility='collapsed'
+  st.markdown('<p class="filter-label">🆔 Mã Khách Hàng</p>', unsafe_allow_html=True)
+  filter_ma_kh = st.multiselect(
+      '',
+      ma_opts,
+      default=[],
+      key='filter_ma_kh',
+      label_visibility='collapsed',
+      placeholder='Tất cả Mã KH',
   )
 with f2:
   st.markdown('<p class="filter-label">NGÀY</p>', unsafe_allow_html=True)
@@ -3891,9 +3932,14 @@ with f3:
 
 f4, f5, f6 = st.columns([1, 1, 1])
 with f4:
-  st.markdown('<p class="filter-label">SALE SUP</p>', unsafe_allow_html=True)
-  st.selectbox(
-      '', ['Trương Thanh Tân Total'], key='sup', label_visibility='collapsed'
+  st.markdown('<p class="filter-label">🏪 Tên Khách Hàng</p>', unsafe_allow_html=True)
+  filter_ten_kh = st.multiselect(
+      '',
+      ten_opts,
+      default=[],
+      key='filter_ten_kh',
+      label_visibility='collapsed',
+      placeholder='Tất cả Tên KH',
   )
 with f5:
   st.markdown(
@@ -3922,6 +3968,82 @@ with f6:
       placeholder='Tất cả các thứ',
       disabled=(selected_kpi not in ['MBS_CAT', 'MBS_BRAND']),
   )
+
+# Áp dụng lọc Mã KH / Tên KH lên data trước khi chạy báo cáo
+def _apply_kh_filter(df_src, ma_list, ten_list):
+  if df_src is None or df_src.empty:
+    return df_src
+  out = df_src
+  if ma_list:
+    c_ma = find_col(out, ['Mã CH', 'Outlet_code', 'Outlet Code', 'outlet_code'])
+    if c_ma:
+      out = out[out[c_ma].astype(str).str.strip().isin([str(x).strip() for x in ma_list])]
+  if ten_list:
+    c_ten = find_col(
+        out,
+        ['Tên CH', 'Tên khách hàng', 'Outlet Name', 'Outlet_Name', 'Tên KH', 'Customer Name'],
+    )
+    if c_ten:
+      out = out[out[c_ten].astype(str).str.strip().isin([str(x).strip() for x in ten_list])]
+  return out
+
+if filter_ma_kh or filter_ten_kh:
+  df = _apply_kh_filter(df, filter_ma_kh, filter_ten_kh)
+  if mcp is not None and not mcp.empty:
+    mcp = _apply_kh_filter(mcp, filter_ma_kh, filter_ten_kh)
+  if 'df_cat' in dir() and df_cat is not None and not df_cat.empty:
+    df_cat = _apply_kh_filter(df_cat, filter_ma_kh, filter_ten_kh)
+  if 'df_brand' in dir() and df_brand is not None and not df_brand.empty:
+    df_brand = _apply_kh_filter(df_brand, filter_ma_kh, filter_ten_kh)
+
+
+# JS chặn bàn phím ảo mobile — components.html chạy trong iframe parent
+components.html(
+    """
+<script>
+(function() {
+  var doc = window.parent.document;
+  function lockInputs() {
+    try {
+      var nodes = doc.querySelectorAll('input, textarea');
+      nodes.forEach(function(el) {
+        if (el.closest && el.closest('[data-testid="stDateInput"]')) return;
+        el.setAttribute('inputmode', 'none');
+        el.setAttribute('readonly', 'readonly');
+        el.style.caretColor = 'transparent';
+      });
+    } catch (err) {}
+  }
+  lockInputs();
+  var obs = new MutationObserver(function() { lockInputs(); });
+  try {
+    obs.observe(doc.body, { childList: true, subtree: true });
+  } catch (err) {}
+  doc.addEventListener('focusin', function(e) {
+    var el = e.target;
+    if (!el || !el.tagName) return;
+    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
+    if (el.closest && el.closest('[data-testid="stDateInput"]')) return;
+    el.setAttribute('inputmode', 'none');
+    el.setAttribute('readonly', 'readonly');
+    // Mobile: blur ô search select để không bung bàn phím
+    if (window.parent.innerWidth <= 900 && el.closest && el.closest('[data-baseweb="select"]')) {
+      setTimeout(function() { try { el.blur(); } catch (err) {} }, 30);
+    }
+  }, true);
+  doc.addEventListener('touchstart', function(e) {
+    var el = e.target;
+    if (!el || el.tagName !== 'INPUT') return;
+    if (el.closest && el.closest('[data-testid="stDateInput"]')) return;
+    el.setAttribute('inputmode', 'none');
+    el.setAttribute('readonly', 'readonly');
+  }, true);
+})();
+</script>
+""",
+    height=0,
+    width=0,
+)
 
 st.markdown('---')
 
