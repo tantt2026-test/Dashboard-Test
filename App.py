@@ -120,17 +120,9 @@ st.markdown(
     footer {visibility: hidden;}
     #MainMenu, header {visibility: visible !important;}
 
-    /* Chặn bàn phím ảo mobile trên ô lọc Streamlit */
-    input[inputmode="none"],
-    div[data-baseweb="select"] input,
-    div[data-baseweb="input"] input,
-    .stMultiSelect input,
-    .stSelectbox input,
-    .stTextInput input {
-        inputmode: none !important;
-        -webkit-user-select: none;
-        user-select: none;
-        caret-color: transparent;
+    /* Multiselect cho phép gõ tìm — không khóa caret */
+    div[data-baseweb="select"] input {
+        caret-color: auto;
     }
     
     .custom-kpi-table {
@@ -3862,7 +3854,7 @@ st.markdown(
 )
 
 # Bộ lọc chính
-# Danh sách Mã KH / Tên KH (từ MCP + RPT) — dùng multiselect tránh bàn phím ảo
+# Danh sách Mã KH / Tên KH (từ MCP + RPT) — multiselect: gõ tìm + chọn nhiều
 _ma_set, _ten_set = set(), set()
 if mcp is not None and not mcp.empty:
   _c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'outlet_code'])
@@ -3884,18 +3876,9 @@ _bad = {'nan', 'none', '', 'mã ch', 'outlet_code', 'outlet code', 'tên ch'}
 ma_opts = sorted([x for x in _ma_set if x and x.lower() not in _bad])
 ten_opts = sorted([x for x in _ten_set if x and x.lower() not in _bad])
 
-f1, f2, f3 = st.columns([1, 1, 1.3])
+# Hàng 1: Ngày - KPI Name - ĐDKD
+f1, f2, f3 = st.columns([1, 1.3, 1])
 with f1:
-  st.markdown('<p class="filter-label">🆔 Mã Khách Hàng</p>', unsafe_allow_html=True)
-  filter_ma_kh = st.multiselect(
-      '',
-      ma_opts,
-      default=[],
-      key='filter_ma_kh',
-      label_visibility='collapsed',
-      placeholder='Tất cả Mã KH',
-  )
-with f2:
   st.markdown('<p class="filter-label">NGÀY</p>', unsafe_allow_html=True)
   report_date = st.date_input(
       '',
@@ -3906,7 +3889,7 @@ with f2:
       label_visibility='collapsed',
   )
   tot_days, elapsed_days, remain_days, pct_tg = get_timegone_stats(report_date)
-with f3:
+with f2:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
   kpi_map = {
       # ===== 8 KPI THÁNG 10 (theo Công văn 22-011026) =====
@@ -3929,19 +3912,7 @@ with f3:
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
   )
   selected_kpi = kpi_map[selected_name]
-
-f4, f5, f6 = st.columns([1, 1, 1])
-with f4:
-  st.markdown('<p class="filter-label">🏪 Tên Khách Hàng</p>', unsafe_allow_html=True)
-  filter_ten_kh = st.multiselect(
-      '',
-      ten_opts,
-      default=[],
-      key='filter_ten_kh',
-      label_visibility='collapsed',
-      placeholder='Tất cả Tên KH',
-  )
-with f5:
+with f3:
   st.markdown(
       '<p class="filter-label">ĐDKD (Nhân viên - Chọn nhiều)</p>',
       unsafe_allow_html=True,
@@ -3954,7 +3925,10 @@ with f5:
       label_visibility='collapsed',
       placeholder='Tất cả ĐDKD',
   )
-with f6:
+
+# Hàng 2: Thứ VT - Mã Khách Hàng - Tên Khách Hàng
+f4, f5, f6 = st.columns([1, 1, 1])
+with f4:
   st.markdown(
       '<p class="filter-label">📅 Thứ VT (MBS CAT/BRAND)</p>', unsafe_allow_html=True
   )
@@ -3967,6 +3941,26 @@ with f6:
       label_visibility='collapsed',
       placeholder='Tất cả các thứ',
       disabled=(selected_kpi not in ['MBS_CAT', 'MBS_BRAND']),
+  )
+with f5:
+  st.markdown('<p class="filter-label">🆔 Mã Khách Hàng</p>', unsafe_allow_html=True)
+  filter_ma_kh = st.multiselect(
+      '',
+      ma_opts,
+      default=[],
+      key='filter_ma_kh',
+      label_visibility='collapsed',
+      placeholder='Gõ mã KH để tìm & chọn nhiều',
+  )
+with f6:
+  st.markdown('<p class="filter-label">🏪 Tên Khách Hàng</p>', unsafe_allow_html=True)
+  filter_ten_kh = st.multiselect(
+      '',
+      ten_opts,
+      default=[],
+      key='filter_ten_kh',
+      label_visibility='collapsed',
+      placeholder='Gõ tên KH để tìm & chọn nhiều',
   )
 
 # Áp dụng lọc Mã KH / Tên KH lên data trước khi chạy báo cáo
@@ -3997,53 +3991,39 @@ if filter_ma_kh or filter_ten_kh:
     df_brand = _apply_kh_filter(df_brand, filter_ma_kh, filter_ten_kh)
 
 
-# JS chặn bàn phím ảo mobile — components.html chạy trong iframe parent
+# Không khóa readonly nữa — cho phép gõ tìm trong multiselect (Mã KH / Tên KH / ĐDKD)
+# Giữ inputmode=none mặc định nhẹ; khi focus thì cho gõ bình thường
 components.html(
     """
 <script>
 (function() {
   var doc = window.parent.document;
-  function lockInputs() {
+  function softLock() {
     try {
-      var nodes = doc.querySelectorAll('input, textarea');
-      nodes.forEach(function(el) {
-        if (el.closest && el.closest('[data-testid="stDateInput"]')) return;
-        el.setAttribute('inputmode', 'none');
-        el.setAttribute('readonly', 'readonly');
-        el.style.caretColor = 'transparent';
+      doc.querySelectorAll('div[data-baseweb="select"] input').forEach(function(el) {
+        // Cho phép gõ tìm kiếm — chỉ set inputmode text khi focus
+        el.removeAttribute('readonly');
+        if (!el.getAttribute('data-allow-type')) {
+          el.setAttribute('data-allow-type', '1');
+          el.addEventListener('focus', function() {
+            this.removeAttribute('readonly');
+            this.setAttribute('inputmode', 'text');
+            this.style.caretColor = 'auto';
+          });
+        }
       });
     } catch (err) {}
   }
-  lockInputs();
-  var obs = new MutationObserver(function() { lockInputs(); });
-  try {
-    obs.observe(doc.body, { childList: true, subtree: true });
-  } catch (err) {}
-  doc.addEventListener('focusin', function(e) {
-    var el = e.target;
-    if (!el || !el.tagName) return;
-    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
-    if (el.closest && el.closest('[data-testid="stDateInput"]')) return;
-    el.setAttribute('inputmode', 'none');
-    el.setAttribute('readonly', 'readonly');
-    // Mobile: blur ô search select để không bung bàn phím
-    if (window.parent.innerWidth <= 900 && el.closest && el.closest('[data-baseweb="select"]')) {
-      setTimeout(function() { try { el.blur(); } catch (err) {} }, 30);
-    }
-  }, true);
-  doc.addEventListener('touchstart', function(e) {
-    var el = e.target;
-    if (!el || el.tagName !== 'INPUT') return;
-    if (el.closest && el.closest('[data-testid="stDateInput"]')) return;
-    el.setAttribute('inputmode', 'none');
-    el.setAttribute('readonly', 'readonly');
-  }, true);
+  softLock();
+  var obs = new MutationObserver(function() { softLock(); });
+  try { obs.observe(doc.body, { childList: true, subtree: true }); } catch (err) {}
 })();
 </script>
 """,
     height=0,
     width=0,
 )
+
 
 st.markdown('---')
 
