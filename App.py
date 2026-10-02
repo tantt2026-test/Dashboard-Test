@@ -6579,13 +6579,13 @@ def build_mbs_data_summary(df_source, kind='CAT'):
 
 
 def render_mbs_data_table(df_show, selected_cols):
-  """Bảng Data MBS CAT/BRAND dùng cùng style với các bảng KPI."""
+  """Bảng Data MBS CAT/BRAND: cuộn ngang + dọc, khoảng 25 dòng."""
   if df_show is None or df_show.empty or not selected_cols:
     return
 
   html = [
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
-      '<table class="custom-kpi-table" style="min-width:1200px;">',
+      '<div class="mbs-data-scroll">',
+      '<table class="mbs-data-table">',
       '<thead><tr>',
   ]
   for col in selected_cols:
@@ -6601,7 +6601,6 @@ def render_mbs_data_table(df_show, selected_cols):
       sval = str(val)
       col_lower = str(col).lower()
 
-      # Cột phần trăm: dùng đúng màu KPI hiện tại.
       if '%' in str(col):
         cls = color_pct_class(sval)
         style = color_pct_bg(sval)
@@ -6610,9 +6609,10 @@ def render_mbs_data_table(df_show, selected_cols):
             'text-align:center !important;white-space:nowrap;">'
             f'{sval}</td>'
         )
-      # Phân loại OLD/NEW/FOCUS: badge màu nhẹ để nhìn nhanh.
-      elif any(x in col_lower for x in ['phân loại cat', 'phan loai cat', 'loại cat',
-                                         'phân loại brand', 'phan loai brand', 'loại brand']):
+      elif any(x in col_lower for x in [
+          'phân loại cat', 'phan loai cat', 'loại cat',
+          'phân loại brand', 'phan loai brand', 'loại brand'
+      ]):
         t = sval.strip().upper()
         if t == 'OLD':
           style = 'background:#edf2f7 !important;color:#4a5568 !important;font-weight:700 !important;'
@@ -6639,15 +6639,33 @@ def render_mbs_data_table(df_show, selected_cols):
   st.markdown(''.join(html), unsafe_allow_html=True)
 
 
+
 st.markdown(
     """
     <style>
     /* MBS CAT / BRAND: chỉ format màu, giữ nguyên scroll/kích thước */
+    .mbs-summary-scroll,
+    .mbs-data-scroll {
+      width: 100%;
+      max-height: 700px;
+      overflow-x: auto !important;
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch;
+      border: 1px solid #9ca3af;
+    }
     .mbs-summary-table,
     .mbs-data-table {
       border-collapse: collapse !important;
       font-size: 11px !important;
       border: 1px solid #9ca3af !important;
+      min-width: 1200px;
+      margin: 0 !important;
+    }
+    .mbs-summary-table thead th,
+    .mbs-data-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
     }
     .mbs-summary-table th,
     .mbs-data-table th {
@@ -6683,7 +6701,7 @@ st.markdown(
 )
 
 def render_mbs_data_summary(df_summary, title):
-  """Render bảng Summary MBS ngay dưới bảng chi tiết hiện có."""
+  """Render bảng Summary MBS: format màu + cuộn ngang/dọc, khoảng 25 dòng."""
   if df_summary is None or df_summary.empty:
     st.info(f'Không có dữ liệu {title} phù hợp bộ lọc hiện tại.')
     return
@@ -6717,8 +6735,63 @@ def render_mbs_data_summary(df_summary, title):
       '| Doanh số lấy từ RPT_061 đã xử lý theo logic hiện tại.</p>',
       unsafe_allow_html=True,
   )
-  st.dataframe(df_show, use_container_width=True, height=450, hide_index=True)
+
+  # Render HTML để format màu giống bảng KPI, đồng thời giữ cuộn ngang + dọc.
+  html = [
+      '<div class="mbs-summary-scroll">',
+      '<table class="mbs-summary-table">',
+      '<thead><tr>',
+  ]
+  for col in df_show.columns:
+    html.append(f'<th>{col}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for _, row in df_show.iterrows():
+    html.append('<tr>')
+    for col in df_show.columns:
+      val = row.get(col, '')
+      if pd.isna(val):
+        val = ''
+      sval = str(val)
+      col_lower = str(col).lower()
+
+      if '%' in str(col):
+        cls = color_pct_class(sval)
+        style = color_pct_bg(sval)
+        html.append(
+            f'<td data-colored="1" class="{cls}" style="{style}'
+            'text-align:center !important;white-space:nowrap;">'
+            f'{sval}</td>'
+        )
+      elif 'điểm thưởng dự kiến' in col_lower:
+        html.append(
+            '<td style="text-align:center !important;'
+            'background:#fff7ed !important;color:#9a3412 !important;'
+            'font-weight:800 !important;white-space:nowrap;">'
+            f'{sval}</td>'
+        )
+      elif any(x in col_lower for x in ['doanh số', 'doanhso', 'chỉ tiêu']):
+        html.append(
+            '<td style="text-align:right !important;white-space:nowrap;">'
+            f'{sval}</td>'
+        )
+      elif any(x in col_lower for x in ['sm name', 'sm uid', 'outlet name', 'outlet code']):
+        align = 'left' if 'name' in col_lower else 'center'
+        html.append(
+            f'<td style="text-align:{align} !important;white-space:nowrap;">'
+            f'{sval}</td>'
+        )
+      else:
+        html.append(
+            '<td style="text-align:center !important;white-space:nowrap;">'
+            f'{sval}</td>'
+        )
+    html.append('</tr>')
+
+  html.append('</tbody></table></div>')
+  st.markdown(''.join(html), unsafe_allow_html=True)
   st.caption(f'Tổng: {len(df_show):,} cửa hàng | Hiển thị theo bộ lọc hiện tại')
+
 
 # ----- TAB CAT -----
 with tab_cat:
