@@ -3944,41 +3944,62 @@ with f4:
   )
 with f5:
   st.markdown('<p class="filter-label">🆔 Mã Khách Hàng</p>', unsafe_allow_html=True)
-  filter_ma_kh = st.multiselect(
+  filter_ma_kh_raw = st.text_input(
       '',
-      ma_opts,
-      default=[],
+      value='',
       key='filter_ma_kh',
       label_visibility='collapsed',
-      placeholder='Gõ mã KH để tìm & chọn nhiều',
+      placeholder='Nhập mã KH rồi Enter (nhiều mã cách nhau bởi dấu phẩy)',
   )
 with f6:
   st.markdown('<p class="filter-label">🏪 Tên Khách Hàng</p>', unsafe_allow_html=True)
-  filter_ten_kh = st.multiselect(
+  filter_ten_kh_raw = st.text_input(
       '',
-      ten_opts,
-      default=[],
+      value='',
       key='filter_ten_kh',
       label_visibility='collapsed',
-      placeholder='Gõ tên KH để tìm & chọn nhiều',
+      placeholder='Nhập tên KH rồi Enter (nhiều tên cách nhau bởi dấu phẩy)',
   )
+
+# Parse input: hỗ trợ nhiều giá trị cách nhau bởi dấu phẩy / ;
+def _parse_kh_input(raw):
+  if not raw or not str(raw).strip():
+    return []
+  parts = []
+  for p in str(raw).replace(';', ',').split(','):
+    p = p.strip()
+    if p:
+      parts.append(p)
+  return parts
+
+filter_ma_kh = _parse_kh_input(filter_ma_kh_raw)
+filter_ten_kh = _parse_kh_input(filter_ten_kh_raw)
 
 # Áp dụng lọc Mã KH / Tên KH lên data trước khi chạy báo cáo
 def _apply_kh_filter(df_src, ma_list, ten_list):
+  """Lọc theo Mã KH / Tên KH (partial match, không phân biệt hoa thường)."""
   if df_src is None or df_src.empty:
     return df_src
   out = df_src
   if ma_list:
     c_ma = find_col(out, ['Mã CH', 'Outlet_code', 'Outlet Code', 'outlet_code'])
     if c_ma:
-      out = out[out[c_ma].astype(str).str.strip().isin([str(x).strip() for x in ma_list])]
+      s = out[c_ma].astype(str).str.strip().str.lower()
+      mask = False
+      for x in ma_list:
+        mask = mask | s.str.contains(str(x).strip().lower(), na=False, regex=False)
+      out = out[mask]
   if ten_list:
     c_ten = find_col(
         out,
         ['Tên CH', 'Tên khách hàng', 'Outlet Name', 'Outlet_Name', 'Tên KH', 'Customer Name'],
     )
     if c_ten:
-      out = out[out[c_ten].astype(str).str.strip().isin([str(x).strip() for x in ten_list])]
+      s = out[c_ten].astype(str).str.strip().str.lower()
+      mask = False
+      for x in ten_list:
+        mask = mask | s.str.contains(str(x).strip().lower(), na=False, regex=False)
+      out = out[mask]
   return out
 
 if filter_ma_kh or filter_ten_kh:
@@ -4038,7 +4059,29 @@ tab_kpi, tab_mcp, tab_cat, tab_brand, tab_dskh_off, tab_dskh_on = st.tabs([
 
 # ----- TAB KPI -----
 with tab_kpi:
-  if selected_kpi == 'SUMMARY':
+  # Báo cáo hỗ trợ lọc Mã KH / Tên KH (có thông tin cửa hàng)
+  _KPI_SUPPORT_KH = {
+      'MBS_CAT', 'MBS_BRAND', 'VISIT', 'COMBO', 'SUMMARY',
+  }
+  _kh_filter_active = bool(filter_ma_kh or filter_ten_kh)
+  if _kh_filter_active and selected_kpi not in _KPI_SUPPORT_KH:
+    st.markdown(
+        """
+        <div style="background:#fff5f5;border:1px solid #feb2b2;border-radius:10px;
+                    padding:28px 20px;text-align:center;margin:24px 0;">
+          <div style="font-size:18px;font-weight:800;color:#c53030;margin-bottom:8px;">
+            Vui Lòng Chọn Báo Cáo Phù Hợp Với Nội Dung Cần Xem
+          </div>
+          <div style="font-size:13px;color:#4a5568;">
+            Bộ lọc <b>Mã Khách Hàng</b> / <b>Tên Khách Hàng</b> chỉ áp dụng cho:
+            <b>ĐH Combo, Tổng Hợp, Lịch Viếng Thăm, MBS CAT, MBS Brand</b>
+            và các tab MCP / Tracking.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+  elif selected_kpi == 'SUMMARY':
     set_color_moc_for_kpi('SUMMARY')
     saved_sum_thu = st.query_params.get('sum_thu', '')
     default_sum_thu_list = (
