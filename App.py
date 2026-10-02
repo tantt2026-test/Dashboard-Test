@@ -6578,6 +6578,67 @@ def build_mbs_data_summary(df_source, kind='CAT'):
   return out.sort_values(['SM Name', 'Outlet Code'], kind='stable').reset_index(drop=True)
 
 
+def render_mbs_data_table(df_show, selected_cols):
+  """Bảng Data MBS CAT/BRAND dùng cùng style với các bảng KPI."""
+  if df_show is None or df_show.empty or not selected_cols:
+    return
+
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+      '<table class="custom-kpi-table" style="min-width:1200px;">',
+      '<thead><tr>',
+  ]
+  for col in selected_cols:
+    html.append(f'<th>{col}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for _, row in df_show[selected_cols].iterrows():
+    html.append('<tr>')
+    for col in selected_cols:
+      val = row.get(col, '')
+      if pd.isna(val):
+        val = ''
+      sval = str(val)
+      col_lower = str(col).lower()
+
+      # Cột phần trăm: dùng đúng màu KPI hiện tại.
+      if '%' in str(col):
+        cls = color_pct_class(sval)
+        style = color_pct_bg(sval)
+        html.append(
+            f'<td data-colored="1" class="{cls}" style="{style}'
+            'text-align:center !important;white-space:nowrap;">'
+            f'{sval}</td>'
+        )
+      # Phân loại OLD/NEW/FOCUS: badge màu nhẹ để nhìn nhanh.
+      elif any(x in col_lower for x in ['phân loại cat', 'phan loai cat', 'loại cat',
+                                         'phân loại brand', 'phan loai brand', 'loại brand']):
+        t = sval.strip().upper()
+        if t == 'OLD':
+          style = 'background:#edf2f7 !important;color:#4a5568 !important;font-weight:700 !important;'
+        elif t == 'NEW':
+          style = 'background:#fefcbf !important;color:#744210 !important;font-weight:800 !important;'
+        elif t == 'FOCUS':
+          style = 'background:#c6f6d5 !important;color:#22543d !important;font-weight:800 !important;'
+        else:
+          style = ''
+        html.append(
+            f'<td data-colored="1" style="{style}text-align:center !important;white-space:nowrap;">'
+            f'{sval}</td>'
+        )
+      else:
+        align = 'left' if any(x in col_lower for x in ['name', 'tên', 'sm name']) else 'center'
+        if 'doanh số' in col_lower or 'doanhso' in col_lower.replace(' ', '') or 'điểm thưởng' in col_lower:
+          align = 'right'
+        html.append(
+            f'<td style="text-align:{align} !important;white-space:nowrap;">{sval}</td>'
+        )
+    html.append('</tr>')
+
+  html.append('</tbody></table></div>')
+  st.markdown(''.join(html), unsafe_allow_html=True)
+
+
 def render_mbs_data_summary(df_summary, title):
   """Render bảng Summary MBS ngay dưới bảng chi tiết hiện có."""
   if df_summary is None or df_summary.empty:
@@ -6769,9 +6830,7 @@ with tab_cat:
       )
     st.query_params['cat_cols'] = ','.join(selected_cat_cols)
 
-    st.dataframe(
-        df_f[selected_cat_cols], use_container_width=True, height=450, hide_index=True
-    )
+    render_mbs_data_table(df_f, selected_cat_cols)
     st.caption(f'Hiển thị: {len(df_f):,} / {len(df_cat):,} dòng')
 
     render_mbs_data_summary(df_cat_summary, 'DATA_CAT SUMMARY')
@@ -6929,9 +6988,7 @@ with tab_brand:
       )
     st.query_params['brand_cols'] = ','.join(selected_brand_cols)
 
-    st.dataframe(
-        df_f[selected_brand_cols], use_container_width=True, height=450, hide_index=True
-    )
+    render_mbs_data_table(df_f, selected_brand_cols)
     st.caption(f'Hiển thị: {len(df_f):,} / {len(df_brand):,} dòng')
 
     render_mbs_data_summary(df_brand_summary, 'DATA_BRAND SUMMARY')
