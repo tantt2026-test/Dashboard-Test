@@ -98,15 +98,10 @@ st.markdown(
         font-size: 11px !important;
         margin-bottom: 2px;
     }
-    /* Mobile: chặn focus input trong select/date → không mở bàn phím */
+    /* Mobile: ẩn caret, không chặn click (để dropdown/calendar vẫn mở) */
     [data-baseweb="select"] input,
     [data-testid="stSelectbox"] input,
-    [data-testid="stMultiSelect"] input {
-        pointer-events: none !important;
-        caret-color: transparent !important;
-        user-select: none !important;
-        -webkit-user-select: none !important;
-    }
+    [data-testid="stMultiSelect"] input,
     [data-testid="stDateInput"] input {
         caret-color: transparent !important;
         user-select: none !important;
@@ -4958,35 +4953,35 @@ if filter_ma_kh or filter_ten_kh:
     df_brand = _apply_kh_filter(df_brand, filter_ma_kh, filter_ten_kh)
 
 
-# Mobile: chặn bàn phím ảo trên select/multiselect/date — chỉ text_input được gõ
+# Mobile: chặn bàn phím trên select/date — vẫn mở được dropdown/calendar
+# Chỉ text_input (Mã KH / Tên KH) mới cho gõ
 components.html(
     """
 <script>
 (function() {
   var doc = window.parent.document;
 
-  function lockEl(el) {
+  function lockSelectOrDate(el) {
     if (!el) return;
     try {
       el.setAttribute('readonly', 'true');
       el.setAttribute('inputmode', 'none');
       el.setAttribute('autocomplete', 'off');
-      el.setAttribute('enterkeyhint', 'done');
       el.style.caretColor = 'transparent';
-      el.style.pointerEvents = 'none';
-      // iOS: readonly trước khi focus
-      if (!el._kbLocked) {
-        el._kbLocked = true;
-        el.addEventListener('touchstart', function(e) {
+      // KHÔNG pointer-events:none, KHÔNG blur — để dropdown/calendar mở bình thường
+      if (!el._kbLockBound) {
+        el._kbLockBound = true;
+        var keep = function() {
           this.setAttribute('readonly', 'true');
           this.setAttribute('inputmode', 'none');
-        }, true);
-        el.addEventListener('focus', function(e) {
-          this.setAttribute('readonly', 'true');
-          this.setAttribute('inputmode', 'none');
-          // Blur ngay để đóng bàn phím, dropdown Baseweb vẫn mở qua control
-          var self = this;
-          setTimeout(function() { try { self.blur(); } catch (err) {} }, 10);
+          this.style.caretColor = 'transparent';
+        };
+        el.addEventListener('touchstart', keep, true);
+        el.addEventListener('touchend', keep, true);
+        el.addEventListener('focus', keep, true);
+        el.addEventListener('keydown', function(e) {
+          // Chặn gõ phím ảo / hardware trên select-date
+          if (e.key && e.key.length === 1) e.preventDefault();
         }, true);
       }
     } catch (err) {}
@@ -4994,45 +4989,30 @@ components.html(
 
   function apply() {
     try {
-      // Select / Multiselect
       doc.querySelectorAll(
         '[data-baseweb="select"] input, [data-testid="stSelectbox"] input, [data-testid="stMultiSelect"] input'
-      ).forEach(lockEl);
+      ).forEach(lockSelectOrDate);
 
-      // Date input: readonly + inputmode none (giữ calendar, chặn bàn phím)
-      doc.querySelectorAll('[data-testid="stDateInput"] input').forEach(function(el) {
-        el.setAttribute('readonly', 'true');
-        el.setAttribute('inputmode', 'none');
-        el.style.caretColor = 'transparent';
-        if (!el._kbLocked) {
-          el._kbLocked = true;
-          el.addEventListener('touchstart', function() {
-            this.setAttribute('readonly', 'true');
-            this.setAttribute('inputmode', 'none');
-          }, true);
-          el.addEventListener('focus', function() {
-            this.setAttribute('readonly', 'true');
-            this.setAttribute('inputmode', 'none');
-          }, true);
-        }
-      });
+      doc.querySelectorAll('[data-testid="stDateInput"] input').forEach(lockSelectOrDate);
 
-      // Text input: CHO phép bàn phím
+      // Text input: cho gõ
       doc.querySelectorAll('[data-testid="stTextInput"] input').forEach(function(el) {
         el.removeAttribute('readonly');
-        el.setAttribute('inputmode', 'text');
-        el.style.pointerEvents = 'auto';
+        if (el.getAttribute('inputmode') === 'none') {
+          el.setAttribute('inputmode', 'text');
+        }
         el.style.caretColor = 'auto';
       });
     } catch (err) {}
   }
 
   apply();
-  setInterval(apply, 800);
-  var obs = new MutationObserver(function() { apply(); });
-  try { obs.observe(doc.body, { childList: true, subtree: true }); } catch (err) {}
-  doc.addEventListener('touchstart', function() { setTimeout(apply, 30); }, true);
-  doc.addEventListener('click', function() { setTimeout(apply, 30); }, true);
+  setInterval(apply, 600);
+  try {
+    var obs = new MutationObserver(function() { apply(); });
+    obs.observe(doc.body, { childList: true, subtree: true });
+  } catch (err) {}
+  doc.addEventListener('touchstart', function() { setTimeout(apply, 20); }, true);
 })();
 </script>
 """,
