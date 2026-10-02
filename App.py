@@ -6639,6 +6639,49 @@ def render_mbs_data_table(df_show, selected_cols):
   st.markdown(''.join(html), unsafe_allow_html=True)
 
 
+st.markdown(
+    """
+    <style>
+    /* MBS CAT / BRAND: chỉ format màu, giữ nguyên scroll/kích thước */
+    .mbs-summary-table,
+    .mbs-data-table {
+      border-collapse: collapse !important;
+      font-size: 11px !important;
+      border: 1px solid #9ca3af !important;
+    }
+    .mbs-summary-table th,
+    .mbs-data-table th {
+      background: #034ea2 !important;
+      color: #ffffff !important;
+      font-weight: 800 !important;
+      text-align: center !important;
+      border: 1px solid #ffffff !important;
+      padding: 5px 7px !important;
+      white-space: nowrap !important;
+    }
+    .mbs-summary-table td,
+    .mbs-data-table td {
+      border: 1px solid #d1d5db !important;
+      padding: 4px 7px !important;
+      white-space: nowrap !important;
+    }
+    .mbs-summary-table tbody tr:nth-child(even),
+    .mbs-data-table tbody tr:nth-child(even) {
+      background: #f7fbff !important;
+    }
+    .mbs-summary-table tbody tr:nth-child(odd),
+    .mbs-data-table tbody tr:nth-child(odd) {
+      background: #ffffff !important;
+    }
+    .mbs-summary-table tbody tr:hover,
+    .mbs-data-table tbody tr:hover {
+      background: #eaf3ff !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 def render_mbs_data_summary(df_summary, title):
   """Render bảng Summary MBS ngay dưới bảng chi tiết hiện có."""
   if df_summary is None or df_summary.empty:
