@@ -2468,9 +2468,10 @@ def render_visit_html_table(df):
             else ('center' if col in ['STT', 'Mã NVBH'] or is_pct else 'right')
         )
         if is_pct:
+          cls = color_pct_class(val)
           html.append(
-              f'<td style="{style_bg} text-align: center; font-weight: 900'
-              f' !important;">{val}</td>'
+              f'<td align="center" data-colored="1" class="{cls}" '
+              f'style="{style_bg} text-align:center !important;font-weight:900 !important;">{val}</td>'
           )
         else:
           html.append(
@@ -2485,7 +2486,11 @@ def render_visit_html_table(df):
             else ('center' if col in ['STT', 'Mã NVBH'] or is_pct else 'right')
         )
         if is_pct:
-          html.append(f'<td style="{style_bg} text-align: center;">{val}</td>')
+          cls = color_pct_class(val)
+          html.append(
+              f'<td align="center" data-colored="1" class="{cls}" '
+              f'style="{style_bg} text-align:center !important;">{val}</td>'
+          )
         else:
           html.append(
               f'<td style="text-align: {align}; white-space: nowrap;">{val}</td>'
@@ -3308,9 +3313,10 @@ def render_summary_html_table(df, selected_metrics):
               f' white-space: nowrap;">{val}</td>'
           )
         elif is_pct:
+          cls = color_pct_class(val)
           html.append(
-              f'<td style="{style_bg} text-align: center; font-weight: 900'
-              f' !important;">{val}</td>'
+              f'<td align="center" data-colored="1" class="{cls}" '
+              f'style="{style_bg} text-align:center !important;font-weight:900 !important;">{val}</td>'
           )
         else:
           align = 'left' if col == 'Tên NV' else 'center'
@@ -3325,8 +3331,10 @@ def render_summary_html_table(df, selected_metrics):
               f'<td style="text-align: right; white-space: nowrap;">{val}</td>'
           )
         elif is_pct:
+          cls = color_pct_class(val)
           html.append(
-              f'<td style="{style_bg} text-align: center;">{val}</td>'
+              f'<td align="center" data-colored="1" class="{cls}" '
+              f'style="{style_bg} text-align:center !important;">{val}</td>'
           )
         else:
           align = 'left' if col == 'Tên NV' else 'center'
@@ -3361,17 +3369,18 @@ def render_html_table(df):
       if pd.isna(val):
         val = ''
 
-      if col in ['% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON', '% Hoàn Thành', '% TH']:
+      if col in [
+          '% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON',
+          '% Hoàn Thành', '% TH', '% PC/VT OFF', '% PC/Plan ON', '% TH SO',
+          '% TH Xanh', '% TH Vàng', '% Active',
+      ] or (isinstance(col, str) and col.strip().startswith('%')):
         style_bg = color_pct_bg(val)
-        if is_total:
-          html.append(
-              f'<td style="{style_bg} text-align: center; font-weight: 900'
-              f' !important;">{val}</td>'
-          )
-        else:
-          html.append(
-              f'<td style="{style_bg} text-align: center;">{val}</td>'
-          )
+        cls = color_pct_class(val)
+        html.append(
+            f'<td align="center" data-colored="1" class="{cls}" '
+            f'style="{style_bg} text-align:center !important;font-weight:700 !important;">'
+            f'{val}</td>'
+        )
       elif is_total:
         align = (
             'left'
@@ -3906,9 +3915,22 @@ def build_performance_report(
       vis['_plan_date'] = pd.to_datetime(
           vis['Ngày lịch VT'], dayfirst=True, errors='coerce'
       ).dt.date
+    # Ngày VT thực tế (đối chiếu trái tuyến)
+    if 'Ngày VT thực tế' in vis.columns:
+      vis['_actual'] = pd.to_datetime(
+          vis['Ngày VT thực tế'], dayfirst=True, errors='coerce'
+      ).dt.date
+    elif '_vt_dt' in vis.columns:
+      vis['_actual'] = pd.to_datetime(vis['_vt_dt'], errors='coerce').dt.date
+    else:
+      vis['_actual'] = pd.NaT
     if '_plan_date' in vis.columns:
       rd = report_date.date() if hasattr(report_date, 'date') else report_date
-      vis = vis[vis['_plan_date'] == rd].copy()
+      # Giữ dòng: lịch VT = ngày BC  HOẶC  VT thực tế = ngày BC (trái tuyến)
+      mask = vis['_plan_date'] == rd
+      if '_actual' in vis.columns:
+        mask = mask | (vis['_actual'] == rd)
+      vis = vis[mask].copy()
 
   if not vis.empty:
     vis['_ma'] = vis['Mã Cửa hàng'].map(_norm_code)
@@ -3925,6 +3947,15 @@ def build_performance_report(
         if 'VT Trái tuyến' in vis.columns
         else 'NO'
     )
+    # Ngày VT thực tế — đối chiếu PC Trái Tuyến
+    if 'Ngày VT thực tế' in vis.columns:
+      vis['_actual'] = pd.to_datetime(
+          vis['Ngày VT thực tế'], dayfirst=True, errors='coerce'
+      ).dt.date
+    elif '_vt_dt' in vis.columns:
+      vis['_actual'] = pd.to_datetime(vis['_vt_dt'], errors='coerce').dt.date
+    else:
+      vis['_actual'] = pd.NaT
     # Đã VT = đã check-in (không còn "Chờ viếng thăm")
     vis['_da_vt'] = ~vis['_status'].isin(['Chờ viếng thăm', 'nan', '', 'None'])
     # PC = Có đơn hàng trên file lịch VT
@@ -4002,10 +4033,16 @@ def build_performance_report(
     d_nv = df_day[df_day['_nv'] == nv_name] if not df_day.empty else pd.DataFrame()
     d_mid = d_nv[d_nv['_hour'] < 13] if not d_nv.empty else pd.DataFrame()
 
-    # Plan VT = CH trên lịch VT hôm nay (file đã theo tuần chẵn/lẻ ISO)
+    # Plan VT = CH có Ngày lịch VT = ngày BC (không tính dòng chỉ khớp actual)
     plan_off, plan_on = set(), set()
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
     if not v_nv.empty:
-      for ma in v_nv['_ma'].unique():
+      v_plan = (
+          v_nv[v_nv['_plan_date'] == rd]
+          if '_plan_date' in v_nv.columns
+          else v_nv
+      )
+      for ma in v_plan['_ma'].unique():
         if ma:
           (plan_on if _is_on(ma) else plan_off).add(ma)
 
@@ -4040,18 +4077,33 @@ def build_performance_report(
         if _is_vip(ma, r.get('_nhom', '')):
           vip_ko.add(ma)
 
-    # PC Trái Tuyến:
-    # 1) Cờ VT Trái tuyến = YES trên file lịch (đã VT có ĐH ngoài tuyến)
-    # 2) RPT có đơn nhưng Mã CH không nằm lịch VT hôm nay
+    # PC Trái Tuyến (file lịch VT):
+    # - VT Trái tuyến = YES
+    # - Trạng thái = Có đơn hàng
+    # - Đối chiếu Ngày VT thực tế: phải có ngày VT thực tế (đã VT thật)
+    # - Ngày gắn báo cáo: Ngày lịch VT = report_date
+    #   HOẶC date(Ngày VT thực tế) = report_date
     trai_off, trai_on = set(), set()
     if not v_nv.empty:
-      sub_trai = v_nv[(v_nv['_trai'] == 'YES') & (v_nv['_co_dh'])]
+      has_actual = (
+          v_nv['_actual'].notna()
+          if '_actual' in v_nv.columns
+          else pd.Series(True, index=v_nv.index)
+      )
+      rd = report_date.date() if hasattr(report_date, 'date') else report_date
+      on_day = pd.Series(True, index=v_nv.index)
+      if '_plan_date' in v_nv.columns:
+        on_day = v_nv['_plan_date'] == rd
+      if '_actual' in v_nv.columns:
+        on_day = on_day | (v_nv['_actual'] == rd)
+      sub_trai = v_nv[
+          (v_nv['_trai'] == 'YES')
+          & (v_nv['_co_dh'])
+          & has_actual
+          & on_day
+      ]
       for ma in sub_trai['_ma']:
         if ma:
-          (trai_on if _is_on(ma) else trai_off).add(ma)
-    if not d_nv.empty:
-      for ma in d_nv['_ma'].unique():
-        if ma and ma not in plan_set_all:
           (trai_on if _is_on(ma) else trai_off).add(ma)
 
     # LPPC từ RPT: Tổng line ĐH OFF / Tổng số ĐH OFF trong ngày
