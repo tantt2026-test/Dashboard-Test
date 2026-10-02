@@ -6465,7 +6465,8 @@ def build_mbs_data_summary(df_source, kind='CAT'):
   - Số lượng ngành/nhãn hàng: count từng dòng trong Data_Cat/Data_Brand.
   - OLD = Cũ, NEW = Mới, FOCUS = Duy trì.
   - Đã mua = dòng có doanh số thực đạt > 0.
-  - Mới duy trì/mở thành công = FOCUS đã mua + NEW đã mở thêm.
+  - NEW/FOCUS chỉ được tính khi doanh số ngành/nhãn hàng >= 200.000.
+  - Mới duy trì/mở thành công = FOCUS đạt >= 200.000 + NEW đạt >= 200.000.
   """
   if df_source is None or df_source.empty:
     return pd.DataFrame()
@@ -6531,11 +6532,17 @@ def build_mbs_data_summary(df_source, kind='CAT'):
     new_mask = sub['_summary_type'].eq('NEW')
     focus_mask = sub['_summary_type'].eq('FOCUS')
 
+    # NEW và FOCUS chỉ được tính khi doanh số của ngành/nhãn hàng >= 200.000.
+    # OLD giữ nguyên logic hiện tại.
+    mbs_200k = sub['_summary_actual'] >= 200000
+    new_qualified = new_mask & mbs_200k
+    focus_qualified = focus_mask & mbs_200k
+
     old_need = int(old_mask.sum())
     old_bought = int((old_mask & sub['_summary_bought']).sum())
-    focus_need = int(focus_mask.sum())
-    focus_bought = int((focus_mask & sub['_summary_bought']).sum())
-    new_opened = int((new_mask & sub['_summary_bought']).sum())
+    focus_need = int(focus_qualified.sum())
+    focus_bought = int(focus_qualified.sum())
+    new_opened = int(new_qualified.sum())
     successful_new = focus_bought + new_opened
     total_bought = old_bought + focus_bought + new_opened
 
