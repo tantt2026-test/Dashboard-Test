@@ -4128,7 +4128,7 @@ def build_performance_report(
 
 
 def _perf_table_html(df, section='call'):
-  """Format màu giống custom-kpi-table (Tab KPI)."""
+  """Format màu giống custom-kpi-table; merge STT/Mã/Tên với header."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu.</p>'
 
@@ -4157,7 +4157,6 @@ def _perf_table_html(df, section='call'):
             ('LPPC OFF', 'LPPC OFF'),
         ]),
     ]
-    top_label = 'Call Plan'
   else:
     groups = [
         ('SellOut', [
@@ -4182,17 +4181,15 @@ def _perf_table_html(df, section='call'):
             ('Đánh giá Tăng/Giảm', 'Đánh Giá Tăng/Giảm'),
         ]),
     ]
-    top_label = 'Fundamental'
 
   data_cols = [k for _, pairs in groups for k, _ in pairs]
   all_cols = col_info + data_cols
 
-  # Style giống .custom-kpi-table
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:bold !important;text-align:center !important;'
       'border:1px solid #90cdf4 !important;padding:6px 5px;white-space:nowrap;'
-      'font-size:11px;'
+      'font-size:11px;vertical-align:middle;'
   )
   th_top = (
       'background-color:#1a365d !important;color:#ffffff !important;'
@@ -4204,7 +4201,11 @@ def _perf_table_html(df, section='call'):
       'font-weight:700 !important;text-align:center !important;'
       'border:1px solid #90cdf4 !important;padding:5px;font-size:11px;'
   )
-  td = 'border:1px solid #bce2f5 !important;padding:5px 6px;font-size:11px;white-space:nowrap;'
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 6px;'
+      'font-size:11px;white-space:nowrap;'
+  )
+  # Dòng Total: cùng style header (xanh đậm + trắng) cho cột thường
   td_tot = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:900 !important;text-align:center !important;'
@@ -4218,28 +4219,26 @@ def _perf_table_html(df, section='call'):
       '<thead>',
   ]
 
-  if section == 'call':
-    html.append(
-        f'<tr><th colspan="3" style="{th}"></th>'
-        f'<th colspan="{n_data}" style="{th_top}">Call Plan</th></tr>'
-    )
-  else:
-    n_fund, n_dx = 9, 2
-    html.append(
-        f'<tr><th colspan="3" style="{th}"></th>'
-        f'<th colspan="{n_fund}" style="{th_top}">Fundamental</th>'
-        f'<th colspan="{n_dx}" style="{th_top}">Đề xuất &amp; Đánh Giá</th></tr>'
-    )
-
+  # Row 1: STT/Mã/Tên rowspan=3 merged + top group titles
   html.append('<tr>')
-  html.append(f'<th colspan="3" style="{th}"></th>')
+  html.append(f'<th rowspan="3" style="{th}">STT</th>')
+  html.append(f'<th rowspan="3" style="{th}">Mã NVBH</th>')
+  html.append(f'<th rowspan="3" style="{th}">Tên NVBH</th>')
+  if section == 'call':
+    html.append(f'<th colspan="{n_data}" style="{th_top}">Call Plan</th>')
+  else:
+    html.append(f'<th colspan="9" style="{th_top}">Fundamental</th>')
+    html.append(f'<th colspan="2" style="{th_top}">Đề xuất &amp; Đánh Giá</th>')
+  html.append('</tr>')
+
+  # Row 2: sub-groups only (no empty cells for info cols — rowspan covers)
+  html.append('<tr>')
   for gname, pairs in groups:
     html.append(f'<th colspan="{len(pairs)}" style="{th_mid}">{gname}</th>')
   html.append('</tr>')
 
+  # Row 3: leaf headers only
   html.append('<tr>')
-  for c in col_info:
-    html.append(f'<th style="{th}">{c}</th>')
   for _, pairs in groups:
     for _, lab in pairs:
       extra = 'color:#fc8181 !important;' if lab == 'VIP KO ĐH' else ''
@@ -4252,37 +4251,46 @@ def _perf_table_html(df, section='call'):
         or 'TỔNG' in str(row.get('Mã NVBH', '')).upper()
         or 'Total' in str(row.get('Tên NVBH', ''))
     )
-    # xen kẽ giống custom-kpi-table
-    row_bg = (
-        'background-color:#e6f4fc !important;'
-        if (not is_tot and i % 2 == 0)
-        else ('background-color:#ffffff !important;' if not is_tot else '')
-    )
+    row_bg = ''
+    if not is_tot:
+      row_bg = (
+          'background-color:#e6f4fc !important;'
+          if i % 2 == 0
+          else 'background-color:#ffffff !important;'
+      )
     html.append('<tr>')
     for c in all_cols:
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
-      if c in ('TH SO', 'CT Ngày SO') and val != '' and not is_tot:
+      # Format số doanh số
+      if c in ('TH SO', 'CT Ngày SO') and val != '' and val is not None:
         try:
-          val = f'{int(float(val)):,}'.replace(',', '.')
+          _n = int(float(str(val).replace('.', '').replace(',', '')))
+          val = f'{_n:,}'.replace(',', '.')
         except Exception:
-          pass
+          try:
+            val = f'{int(float(val)):,}'.replace(',', '.')
+          except Exception:
+            pass
+
       is_pct = isinstance(val, str) and '%' in str(val)
       is_vip_col = c == 'VIP KO ĐH'
+
       if is_pct:
-        # Cột %: tô màu theo rule KPI — kể cả dòng Total
+        # % tô màu rule KPI — cả dòng Total
         html.append(
             f'<td style="{td}{color_pct_bg(val)}text-align:center;'
             f'font-weight:700;">{val}</td>'
         )
       elif is_vip_col:
-        # VIP KO ĐH: từ 1 tô đỏ, càng lớn càng đậm
         html.append(
             f'<td style="{td}{vip_ko_bg(val)}text-align:center;">{val}</td>'
         )
       elif is_tot:
-        html.append(f'<td style="{td_tot}">{val}</td>')
+        # Total: nền xanh đậm + chữ trắng (đồng nhất)
+        al = 'left' if c == 'Tên NVBH' else 'center'
+        html.append(f'<td style="{td_tot}text-align:{al} !important;">{val}</td>')
       else:
         al = 'left' if c == 'Tên NVBH' else 'center'
         html.append(f'<td style="{td}{row_bg}text-align:{al};">{val}</td>')
