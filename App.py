@@ -640,6 +640,23 @@ def color_pct_bg(val, moc=None):
     return ''
 
 
+def vip_ko_bg(val):
+  """VIP KO ĐH: từ 1 tô đỏ, số càng lớn càng đỏ đậm."""
+  try:
+    v = int(float(str(val).strip()))
+  except Exception:
+    return ''
+  if v <= 0:
+    return ''
+  if v <= 2:
+    return 'background-color:#fed7d7;color:#742a2a;font-weight:700;'
+  if v <= 5:
+    return 'background-color:#feb2b2;color:#822727;font-weight:700;'
+  if v <= 9:
+    return 'background-color:#fc8181;color:#742a2a;font-weight:800;'
+  return 'background-color:#c53030;color:#ffffff;font-weight:900;'
+
+
 def format_number_vn(x):
   try:
     if pd.isnull(x) or str(x).lower() in ['none', 'nan', '']:
@@ -4252,12 +4269,20 @@ def _perf_table_html(df, section='call'):
         except Exception:
           pass
       is_pct = isinstance(val, str) and '%' in str(val)
-      if is_tot:
-        html.append(f'<td style="{td_tot}">{val}</td>')
-      elif is_pct:
+      is_vip_col = c == 'VIP KO ĐH'
+      if is_pct:
+        # Cột %: tô màu theo rule KPI — kể cả dòng Total
         html.append(
-            f'<td style="{td}{row_bg}{color_pct_bg(val)}text-align:center;">{val}</td>'
+            f'<td style="{td}{color_pct_bg(val)}text-align:center;'
+            f'font-weight:700;">{val}</td>'
         )
+      elif is_vip_col:
+        # VIP KO ĐH: từ 1 tô đỏ, càng lớn càng đậm
+        html.append(
+            f'<td style="{td}{vip_ko_bg(val)}text-align:center;">{val}</td>'
+        )
+      elif is_tot:
+        html.append(f'<td style="{td_tot}">{val}</td>')
       else:
         al = 'left' if c == 'Tên NVBH' else 'center'
         html.append(f'<td style="{td}{row_bg}text-align:{al};">{val}</td>')
