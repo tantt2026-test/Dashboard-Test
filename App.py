@@ -3919,8 +3919,9 @@ def build_performance_report(
     pct_pc_vt_off = (
         round(len(pc_off) / len(da_vt_off) * 100, 1) if da_vt_off else 0
     )
+    # ON theo mẫu: % PC/Plan = PC / Plan VT
     pct_pc_vt_on = (
-        round(len(pc_on) / len(da_vt_on) * 100, 1) if da_vt_on else 0
+        round(len(pc_on) / len(plan_on) * 100, 1) if plan_on else 0
     )
 
     # VIP KO ĐH / KO ĐH — đã VT nhưng không có đơn (theo file lịch)
@@ -4023,7 +4024,7 @@ def build_performance_report(
         'Plan VT ON': len(plan_on),
         'Đã VT ON': len(da_vt_on),
         'PC ON': len(pc_on),
-        '% PC/VT ON': f'{pct_pc_vt_on}%',
+        '% PC/Plan ON': f'{pct_pc_vt_on}%',
         'KO ĐH ON': len(ko_dh_on),
         'PC Trái Tuyến ON': len(pc_trai_on),
         'Tổng PC OFF (ĐH)': n_orders_off,
@@ -4091,7 +4092,7 @@ def build_performance_report(
       'Plan VT ON': _sum('Plan VT ON'),
       'Đã VT ON': tot_da_on,
       'PC ON': tot_pc_on,
-      '% PC/VT ON': f'{round(tot_pc_on / tot_da_on * 100, 1) if tot_da_on else 0}%',
+      '% PC/Plan ON': f'{round(tot_pc_on / _sum("Plan VT ON") * 100, 1) if _sum("Plan VT ON") else 0}%',
       'KO ĐH ON': _sum('KO ĐH ON'),
       'PC Trái Tuyến ON': _sum('PC Trái Tuyến ON'),
       'Tổng PC OFF (ĐH)': _sum('Tổng PC OFF (ĐH)'),
@@ -4113,18 +4114,22 @@ def build_performance_report(
 
 
 def render_performance_html(df):
-  """Bảng multi-header giống ảnh mẫu Hiệu Suất Bán Hàng."""
+  """Bảng multi-header đúng format ảnh mẫu Hiệu Suất Bán Hàng."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu hiệu suất.</p>'
 
-  # Cột data theo nhóm
+  # Đổi tên hiển thị % PC/VT ON → % PC/Plan (theo mẫu)
+  df = df.copy()
+  if '% PC/VT ON' in df.columns:
+    df = df.rename(columns={'% PC/VT ON': '% PC/Plan ON'})
+
   col_info = ['STT', 'Mã NVBH', 'Tên NVBH']
   col_off = [
       'Plan VT OFF', 'Đã VT OFF', 'PC OFF', '% PC/VT OFF',
       'VIP KO ĐH', 'KO ĐH OFF', 'PC Trái Tuyến OFF',
   ]
   col_on = [
-      'Plan VT ON', 'Đã VT ON', 'PC ON', '% PC/VT ON',
+      'Plan VT ON', 'Đã VT ON', 'PC ON', '% PC/Plan ON',
       'KO ĐH ON', 'PC Trái Tuyến ON',
   ]
   col_lppc = ['Tổng PC OFF (ĐH)', 'LPPC OFF']
@@ -4133,81 +4138,97 @@ def render_performance_html(df):
   col_vang = ['CT Vàng', 'TH Vàng', '% TH Vàng']
   col_dx = ['Đề xuất cải thiện', 'Đánh giá Tăng/Giảm']
 
-  # Short labels for leaf headers
   leaf = {
+      'STT': 'STT', 'Mã NVBH': 'Mã NVBH', 'Tên NVBH': 'Tên NVBH',
       'Plan VT OFF': 'Plan VT', 'Đã VT OFF': 'Đã VT', 'PC OFF': 'PC',
-      '% PC/VT OFF': '% PC/VT', 'VIP KO ĐH': 'VIP KO ĐH',
+      '% PC/VT OFF': '% PC/ VT', 'VIP KO ĐH': 'VIP KO ĐH',
       'KO ĐH OFF': 'KO ĐH', 'PC Trái Tuyến OFF': 'PC Trái Tuyến',
       'Plan VT ON': 'Plan VT', 'Đã VT ON': 'Đã VT', 'PC ON': 'PC',
-      '% PC/VT ON': '% PC/VT', 'KO ĐH ON': 'KO ĐH',
+      '% PC/Plan ON': '% PC/Plan', 'KO ĐH ON': 'KO ĐH',
       'PC Trái Tuyến ON': 'PC Trái Tuyến',
       'Tổng PC OFF (ĐH)': 'Tổng PC OFF', 'LPPC OFF': 'LPPC OFF',
       'CT Ngày SO': 'CT Ngày', 'TH SO': 'TH', '% TH SO': '% TH',
       'CT Xanh': 'CT Ngày', 'TH Xanh': 'TH', '% TH Xanh': '% TH',
       'CT Vàng': 'CT Ngày', 'TH Vàng': 'TH', '% TH Vàng': '% TH',
       'Đề xuất cải thiện': 'Đề xuất cải thiện',
-      'Đánh giá Tăng/Giảm': 'Đánh giá Tăng/Giảm',
+      'Đánh giá Tăng/Giảm': 'Đánh Giá Tăng/Giảm',
   }
 
   all_cols = (
-      col_info + col_off + col_on + col_lppc + col_so + col_xanh + col_vang + col_dx
+      col_info + col_off + col_on + col_lppc
+      + col_so + col_xanh + col_vang + col_dx
   )
+  # Đảm bảo cột tồn tại
+  for c in all_cols:
+    if c not in df.columns:
+      df[c] = ''
 
-  th = (
-      'background-color:#1a365d;color:#ffffff;font-weight:700;'
-      'text-align:center;border:1px solid #90cdf4;padding:6px 4px;'
+  # Styles
+  th_yellow = (
+      'background-color:#f6e05e;color:#1a202c;font-weight:800;'
+      'text-align:center;border:1px solid #000;padding:6px 5px;'
       'white-space:nowrap;font-size:11px;'
   )
-  th_y = (
-      'background-color:#f6e05e;color:#1a202c;font-weight:800;'
-      'text-align:center;border:1px solid #d69e2e;padding:8px;'
-      'font-size:14px;'
+  th_top = (
+      'background-color:#ffffff;color:#e53e3e;font-weight:800;'
+      'text-align:center;border:1px solid #000;padding:6px;'
+      'font-size:13px;'
   )
-  th_g = (
-      'background-color:#2b6cb0;color:#fff;font-weight:700;'
-      'text-align:center;border:1px solid #90cdf4;padding:5px;'
+  th_mid = (
+      'background-color:#bee3f8;color:#1a365d;font-weight:700;'
+      'text-align:center;border:1px solid #000;padding:5px;'
       'font-size:11px;'
   )
-  th_g2 = (
-      'background-color:#2c5282;color:#fff;font-weight:700;'
-      'text-align:center;border:1px solid #90cdf4;padding:5px;'
-      'font-size:11px;'
+  th_leaf = (
+      'background-color:#ebf8ff;color:#1a202c;font-weight:700;'
+      'text-align:center;border:1px solid #000;padding:5px 3px;'
+      'white-space:nowrap;font-size:10px;'
   )
+  td_base = (
+      'border:1px solid #000;padding:4px 5px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  td_tot = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;text-align:center;'
+      'border:1px solid #000;padding:5px 4px;white-space:nowrap;font-size:11px;'
+  )
+
+  n_call = len(col_off) + len(col_on) + len(col_lppc)
+  n_fund = len(col_so) + len(col_xanh) + len(col_vang)
+  n_dx = len(col_dx)
 
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
-      '<table class="custom-kpi-table" style="min-width:1400px;">',
+      '<table style="border-collapse:collapse;min-width:1500px;width:100%;'
+      'font-family:Arial,sans-serif;background:#fff;">',
       '<thead>',
-      # Row 0: title
-      f'<tr><th colspan="{len(all_cols)}" style="{th_y}">'
-      'Báo Cáo Hiệu Suất Bán Hàng</th></tr>',
-      # Row 1: Call Plan / Fundamental / Đề xuất
+      # ===== Row 1: Call Plan | Fundamental | Đề xuất =====
       '<tr>',
-      f'<th colspan="3" rowspan="2" style="{th}">Thông tin NV</th>',
-      f'<th colspan="{len(col_off)+len(col_on)+len(col_lppc)}" style="{th_g}">'
-      'Call Plan</th>',
-      f'<th colspan="{len(col_so)+len(col_xanh)+len(col_vang)}" style="{th_g}">'
-      'Fundamental</th>',
-      f'<th colspan="{len(col_dx)}" style="{th_g}">Đề xuất &amp; Đánh Giá</th>',
+      f'<th colspan="3" rowspan="2" style="{th_yellow}"></th>',
+      f'<th colspan="{n_call}" style="{th_top}">Call Plan</th>',
+      f'<th colspan="{n_fund}" style="{th_top}">Fundamental</th>',
+      f'<th colspan="{n_dx}" style="{th_top}">Đề xuất &amp; Đánh Giá</th>',
       '</tr>',
-      # Row 2: sub groups
+      # ===== Row 2: sub groups =====
       '<tr>',
-      f'<th colspan="{len(col_off)}" style="{th_g2}">Kênh OFF</th>',
-      f'<th colspan="{len(col_on)}" style="{th_g2}">Kênh ON</th>',
-      f'<th colspan="{len(col_lppc)}" style="{th_g2}">LPPC</th>',
-      f'<th colspan="{len(col_so)}" style="{th_g2}">SellOut</th>',
-      f'<th colspan="{len(col_xanh)}" style="{th_g2}">ASO Focus Trận Xanh TEA</th>',
-      f'<th colspan="{len(col_vang)}" style="{th_g2}">ASO Focus Trận Vàng Homey 2,9kg</th>',
-      f'<th style="{th_g2}">Giữa Ngày</th>',
-      f'<th style="{th_g2}">Cuối Ngày</th>',
+      f'<th colspan="{len(col_off)}" style="{th_mid}">Kênh OFF</th>',
+      f'<th colspan="{len(col_on)}" style="{th_mid}">Kênh ON</th>',
+      f'<th colspan="{len(col_lppc)}" style="{th_mid}">LPPC</th>',
+      f'<th colspan="{len(col_so)}" style="{th_mid}">SellOut</th>',
+      f'<th colspan="{len(col_xanh)}" style="{th_mid}">ASO Focus Trận Xanh TEA</th>',
+      f'<th colspan="{len(col_vang)}" style="{th_mid}">ASO Focus Trận Vàng Homey 2,9kg</th>',
+      f'<th style="{th_mid}">Giữa Ngày</th>',
+      f'<th style="{th_mid}">Cuối Ngày</th>',
       '</tr>',
-      # Row 3: leaf
+      # ===== Row 3: leaf headers =====
       '<tr>',
+      f'<th style="{th_yellow}">STT</th>',
+      f'<th style="{th_yellow}">Mã NVBH</th>',
+      f'<th style="{th_yellow}">Tên NVBH</th>',
   ]
-  for c in all_cols:
-    if c in col_info:
-      continue  # rowspan already
-    html.append(f'<th style="{th}">{leaf.get(c, c)}</th>')
+  for c in col_off + col_on + col_lppc + col_so + col_xanh + col_vang + col_dx:
+    html.append(f'<th style="{th_leaf}">{leaf.get(c, c)}</th>')
   html.append('</tr></thead><tbody>')
 
   for _, row in df.iterrows():
@@ -4221,26 +4242,31 @@ def render_performance_html(df):
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
+      # Format số lớn
+      if c in ('TH SO', 'CT Ngày SO') and not is_tot:
+        try:
+          val = f'{int(float(val)):,}'.replace(',', '.')
+        except Exception:
+          pass
+      if is_tot and c in ('TH SO', 'CT Ngày SO'):
+        try:
+          val = f'{int(float(str(val).replace(".",""))):,}'.replace(',', '.')
+        except Exception:
+          pass
+
       is_pct = isinstance(val, str) and '%' in str(val)
       if is_tot:
-        # Nền xanh đậm + chữ trắng — không để color_pct_bg đè
-        html.append(
-            f'<td style="background-color:#1a365d !important;color:#ffffff '
-            f'!important;font-weight:900 !important;text-align:center;'
-            f'border:1px solid #90cdf4;padding:5px 4px;white-space:nowrap;">'
-            f'{val}</td>'
-        )
+        html.append(f'<td style="{td_tot}">{val}</td>')
       elif is_pct:
         bg = color_pct_bg(val)
         html.append(
-            f'<td style="{bg} text-align:center;border:1px solid #bce2f5;'
-            f'padding:4px;">{val}</td>'
+            f'<td style="{td_base}{bg} text-align:center;">{val}</td>'
         )
       else:
         align = 'left' if c == 'Tên NVBH' else 'center'
+        # xen kẽ dòng
         html.append(
-            f'<td style="text-align:{align};border:1px solid #bce2f5;'
-            f'padding:4px;white-space:nowrap;">{val}</td>'
+            f'<td style="{td_base}text-align:{align};">{val}</td>'
         )
     html.append('</tr>')
   html.append('</tbody></table></div>')
