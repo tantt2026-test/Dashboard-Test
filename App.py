@@ -6456,6 +6456,161 @@ with tab_mcp:
     )
     st.caption(f'Hiển thị: {len(df_f):,} / {len(mcp):,} cửa hàng')
 
+
+# ====================== MBS CAT/BRAND SUMMARY ======================
+def build_mbs_data_summary(df_source, kind='CAT'):
+  """Tạo bảng Summary MBS CAT/BRAND từ Data_MBS đã được tính doanh số từ RPT_061.
+
+  - Doanh số: dùng các cột Doanh số thực đạt đã được process từ RPT_061.
+  - Số lượng ngành/nhãn hàng: count từng dòng trong Data_Cat/Data_Brand.
+  - OLD = Cũ, NEW = Mới, FOCUS = Duy trì.
+  - Đã mua = dòng có doanh số thực đạt > 0.
+  - Mới duy trì/mở thành công = FOCUS đã mua + NEW đã mở thêm.
+  """
+  if df_source is None or df_source.empty:
+    return pd.DataFrame()
+
+  df_s = df_source.copy()
+  kind_u = str(kind).upper().strip()
+  if kind_u == 'BRAND':
+    col_uid = find_col(df_s, ['SM UID'])
+    col_nv = find_col(df_s, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
+    col_code = find_col(df_s, ['Outlet Code', 'Outlet_code', 'Mã CH', 'Mã khách hàng'])
+    col_name = find_col(df_s, ['Outlet Name', 'Outlet_name', 'Tên CH', 'Tên khách hàng'])
+    col_target = find_col(df_s, ['Doanh số nền tảng của OUTLET', 'Doanh so nen tang', 'Target', 'Chỉ tiêu'])
+    col_actual = find_col(df_s, ['Doanh số thực đạt của brand', 'Doanh số thực đạt BRAND'])
+    col_actual_nc = find_col(df_s, [
+        'Doanh số thực đạt của brand (Not Cancel/Pending)',
+        'Doanh số thực đạt của brand(Not Cancel/Pending)',
+    ])
+    col_type = find_col(df_s, ['Phân loại brand', 'Phan loai brand', 'Loại brand'])
+    col_bonus = find_col(df_s, ['Điểm thưởng dự kiến'])
+  else:
+    col_uid = find_col(df_s, ['SM UID'])
+    col_nv = find_col(df_s, ['Tên NVBH', 'SM Name', 'SM name', 'Nhân viên'])
+    col_code = find_col(df_s, ['Outlet Code', 'Outlet_code', 'Mã CH', 'Mã khách hàng'])
+    col_name = find_col(df_s, ['Outlet Name', 'Outlet_name', 'Tên CH', 'Tên khách hàng'])
+    col_target = find_col(df_s, ['Doanh số nền tảng của OUTLET', 'Doanh so nen tang', 'Target', 'Chỉ tiêu'])
+    col_actual = find_col(df_s, ['Doanh số thực đạt của CAT', 'Doanh số thực đạt CAT'])
+    col_actual_nc = find_col(df_s, [
+        'Doanh số thực đạt của CAT(Not Cancel/Pending)',
+        'Doanh số thực đạt của CAT (Not Cancel/Pending)',
+    ])
+    col_type = find_col(df_s, ['Phân loại cat', 'Phan loai cat', 'Loại cat'])
+    col_bonus = find_col(df_s, ['Điểm thưởng dự kiến của OUTLET', 'Điểm thưởng dự kiến'])
+
+  if not col_code:
+    return pd.DataFrame()
+
+  df_s['_summary_code'] = df_s[col_code].astype(str).str.strip()
+  df_s['_summary_actual'] = (
+      pd.to_numeric(df_s[col_actual], errors='coerce').fillna(0.0)
+      if col_actual else 0.0
+  )
+  df_s['_summary_actual_nc'] = (
+      pd.to_numeric(df_s[col_actual_nc], errors='coerce').fillna(0.0)
+      if col_actual_nc else df_s['_summary_actual']
+  )
+  df_s['_summary_target'] = (
+      pd.to_numeric(df_s[col_target], errors='coerce').fillna(0.0)
+      if col_target else 0.0
+  )
+  df_s['_summary_type'] = (
+      df_s[col_type].astype(str).str.strip().str.upper()
+      if col_type else ''
+  )
+  df_s['_summary_bought'] = df_s['_summary_actual'] > 0
+
+  rows = []
+  for code, sub in df_s.groupby('_summary_code', sort=False):
+    if not str(code).strip() or str(code).lower() in ('nan', 'none'):
+      continue
+
+    first = sub.iloc[0]
+    old_mask = sub['_summary_type'].eq('OLD')
+    new_mask = sub['_summary_type'].eq('NEW')
+    focus_mask = sub['_summary_type'].eq('FOCUS')
+
+    old_need = int(old_mask.sum())
+    old_bought = int((old_mask & sub['_summary_bought']).sum())
+    focus_need = int(focus_mask.sum())
+    focus_bought = int((focus_mask & sub['_summary_bought']).sum())
+    new_opened = int((new_mask & sub['_summary_bought']).sum())
+    successful_new = focus_bought + new_opened
+    total_bought = old_bought + focus_bought + new_opened
+
+    target = float(sub['_summary_target'].iloc[0] or 0)
+    actual = float(sub['_summary_actual'].sum() or 0)
+    actual_nc = float(sub['_summary_actual_nc'].sum() or 0)
+    pct = round(actual / target * 100, 1) if target else 0.0
+
+    rows.append({
+        'SM UID': first[col_uid] if col_uid else '',
+        'SM Name': first[col_nv] if col_nv else '',
+        'Outlet Code': code,
+        'Outlet Name': first[col_name] if col_name else '',
+        'Chỉ tiêu doanh số': target,
+        'Doanh số thực hiện (Paid & Invoiced)': actual,
+        'Doanh số thực hiện ( Not Cancel/Pending)': actual_nc,
+        '% Th/CT (Paid & Invoiced)': pct,
+        'SL ngành/nhãn hàng cũ cần mua': old_need,
+        'SL ngành/nhãn hàng cũ đã mua': old_bought,
+        'SL ngành/nhãn hàng mới cần duy trì': focus_need,
+        'SL ngành/nhãn hàng mới cần duy trì đã mua': focus_bought,
+        'SL ngành/nhãn hàng mới đã mở thêm': new_opened,
+        'Tổng SL ngành/nhãn hàng mới duy trì/mở thành công': successful_new,
+        'Tổng SL ngành/nhãn hàng đã mua': total_bought,
+        'Điểm thưởng dự kiến': (
+            float(pd.to_numeric(sub[col_bonus], errors='coerce').dropna().iloc[0])
+            if col_bonus and not pd.to_numeric(sub[col_bonus], errors='coerce').dropna().empty
+            else 0.0
+        ),
+    })
+
+  out = pd.DataFrame(rows)
+  if out.empty:
+    return out
+  return out.sort_values(['SM Name', 'Outlet Code'], kind='stable').reset_index(drop=True)
+
+
+def render_mbs_data_summary(df_summary, title):
+  """Render bảng Summary MBS ngay dưới bảng chi tiết hiện có."""
+  if df_summary is None or df_summary.empty:
+    st.info(f'Không có dữ liệu {title} phù hợp bộ lọc hiện tại.')
+    return
+
+  df_show = df_summary.copy()
+  money_cols = [
+      'Chỉ tiêu doanh số',
+      'Doanh số thực hiện (Paid & Invoiced)',
+      'Doanh số thực hiện ( Not Cancel/Pending)',
+  ]
+  for c in money_cols:
+    if c in df_show.columns:
+      df_show[c] = pd.to_numeric(df_show[c], errors='coerce').fillna(0).apply(format_number_vn)
+  if '% Th/CT (Paid & Invoiced)' in df_show.columns:
+    df_show['% Th/CT (Paid & Invoiced)'] = df_show['% Th/CT (Paid & Invoiced)'].apply(
+        lambda x: f'{float(x):.1f}%'
+    )
+  if 'Điểm thưởng dự kiến' in df_show.columns:
+    df_show['Điểm thưởng dự kiến'] = pd.to_numeric(
+        df_show['Điểm thưởng dự kiến'], errors='coerce'
+    ).fillna(0).apply(lambda x: f'{float(x):,.0f}'.replace(',', '.'))
+
+  st.markdown(
+      f'<p style="font-weight:800; color:#034ea2; margin:14px 0 6px 0;">'
+      f'📊 {title}</p>',
+      unsafe_allow_html=True,
+  )
+  st.markdown(
+      '<p style="font-size:11.5px; color:#4a5568; margin:0 0 6px 0;">'
+      'OLD = Cũ &nbsp;|&nbsp; NEW = Mới &nbsp;|&nbsp; FOCUS = Duy trì '
+      '| Doanh số lấy từ RPT_061 đã xử lý theo logic hiện tại.</p>',
+      unsafe_allow_html=True,
+  )
+  st.dataframe(df_show, use_container_width=True, height=450, hide_index=True)
+  st.caption(f'Tổng: {len(df_show):,} cửa hàng | Hiển thị theo bộ lọc hiện tại')
+
 # ----- TAB CAT -----
 with tab_cat:
   st.markdown(
@@ -6575,6 +6730,7 @@ with tab_cat:
           df_f[col_ten].astype(str).str.contains(f_ten, case=False, na=False)
       ]
     df_f = filter_by_thu_multi(df_f, col_thu, f_thu)
+    df_cat_summary = build_mbs_data_summary(df_f, 'CAT')
     for col in df_f.columns:
       if 'doanh số' in col.lower() or 'doanhso' in col.lower().replace(
           ' ', ''
@@ -6612,6 +6768,8 @@ with tab_cat:
         df_f[selected_cat_cols], use_container_width=True, height=450, hide_index=True
     )
     st.caption(f'Hiển thị: {len(df_f):,} / {len(df_cat):,} dòng')
+
+    render_mbs_data_summary(df_cat_summary, 'DATA_CAT SUMMARY')
 
 # ----- TAB BRAND -----
 with tab_brand:
@@ -6732,6 +6890,7 @@ with tab_brand:
           df_f[col_ten].astype(str).str.contains(f_ten, case=False, na=False)
       ]
     df_f = filter_by_thu_multi(df_f, col_thu, f_thu)
+    df_brand_summary = build_mbs_data_summary(df_f, 'BRAND')
     for col in df_f.columns:
       if 'doanh số' in col.lower() or 'doanhso' in col.lower().replace(
           ' ', ''
@@ -6769,6 +6928,8 @@ with tab_brand:
         df_f[selected_brand_cols], use_container_width=True, height=450, hide_index=True
     )
     st.caption(f'Hiển thị: {len(df_f):,} / {len(df_brand):,} dòng')
+
+    render_mbs_data_summary(df_brand_summary, 'DATA_BRAND SUMMARY')
 
 # ----- TAB DSKH_Combo OFF -----
 with tab_dskh_off:
