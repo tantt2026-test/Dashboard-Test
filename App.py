@@ -4437,6 +4437,209 @@ def _perf_table_html(df, section='call'):
   return ''.join(html)
 
 
+
+def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=None):
+  """Chi tiết ĐH Trái Tuyến theo Ngày VT thực tế = ngày BC + cờ YES + Có đơn.
+
+  Map sang RPT_061 lấy Mã ĐH, Doanh số, LPPC (số line/đơn).
+  """
+  empty = pd.DataFrame(columns=[
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'LPPC', 'Check Danh Sách Import',
+  ])
+  if df_visit is None or df_visit.empty:
+    return empty
+
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  vis = df_visit.copy()
+
+  # Parse dates
+  if '_actual' not in vis.columns:
+    if 'Ngày VT thực tế' in vis.columns:
+      vis['_actual'] = pd.to_datetime(
+          vis['Ngày VT thực tế'], dayfirst=True, errors='coerce'
+      ).dt.date
+    else:
+      return empty
+  if 'VT Trái tuyến' in vis.columns:
+    vis['_trai'] = vis['VT Trái tuyến'].astype(str).str.strip().str.upper()
+  else:
+    vis['_trai'] = 'NO'
+  vis['_status'] = (
+      vis['Trạng thái'].astype(str).str.strip()
+      if 'Trạng thái' in vis.columns
+      else ''
+  )
+  vis['_ma'] = vis['Mã Cửa hàng'].map(
+      lambda x: str(x).strip()[:-2] if str(x).endswith('.0') else str(x).strip()
+  ) if 'Mã Cửa hàng' in vis.columns else ''
+  vis['_nv'] = (
+      vis['Tên NVBH'].astype(str).str.strip()
+      if 'Tên NVBH' in vis.columns
+      else ''
+  )
+
+  # CH trái tuyến đúng ngày: actual == rd + YES + Có đơn hàng
+  trai = vis[
+      (vis['_actual'] == rd)
+      & (vis['_trai'] == 'YES')
+      & (vis['_status'] == 'Có đơn hàng')
+  ].copy()
+  if trai.empty:
+    return empty
+
+  if nv_selected(filter_nv):
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    trai = trai[trai['_nv'].isin(vals)]
+  if trai.empty:
+    return empty
+
+  trai_ma = set(trai['_ma'].tolist())
+  # Map CH -> NV từ lịch
+  ch_nv = dict(zip(trai['_ma'], trai['_nv']))
+
+  # RPT ngày BC + Mã CH thuộc trái tuyến
+  if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
+    return empty
+  d = df_rpt[df_rpt['date'] == rd].copy()
+  if d.empty:
+    return empty
+  d['_ma'] = d['Mã CH'].map(
+      lambda x: str(x).strip()[:-2] if str(x).endswith('.0') else str(x).strip()
+  )
+  d = d[d['_ma'].isin(trai_ma)]
+  if d.empty:
+    # Fallback: vẫn hiện CH trái tuyến dù RPT chưa match mã
+    rows = []
+    for i, (_, r) in enumerate(trai.drop_duplicates('_ma').iterrows(), 1):
+      rows.append({
+          'STT': i,
+          'Tên NVBH': r['_nv'],
+          'Mã KH': r['_ma'],
+          'Tên KH': r.get('Tên Cửa hàng', ''),
+          'Mã ĐH': '',
+          'Giá trị ĐH [Doanh Số]': '',
+          'Ngày ĐH': rd.strftime('%d/%m/%Y'),
+          'LPPC': '',
+          'Check Danh Sách Import': 'YES - Trái tuyến',
+      })
+    return pd.DataFrame(rows) if rows else empty
+
+  val_col = find_col(d, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu']) or 'Thành tiền trước CK'
+  if val_col not in d.columns:
+    d['_sales'] = 0
+  else:
+    d['_sales'] = pd.to_numeric(d[val_col], errors='coerce').fillna(0)
+
+  ten_kh_col = find_col(d, ['Tên CH', 'Tên khách hàng', 'Tên Cửa hàng']) or 'Tên CH'
+  order_col = 'Mã đơn hàng' if 'Mã đơn hàng' in d.columns else None
+
+  rows = []
+  if order_col:
+    for (ma_dh, ma_kh), g in d.groupby([order_col, '_ma']):
+      sales = float(g['_sales'].sum())
+      n_lines = len(g)
+      nv = ch_nv.get(ma_kh, g['Tên NVBH'].iloc[0] if 'Tên NVBH' in g.columns else '')
+      ten_kh = (
+          g[ten_kh_col].iloc[0]
+          if ten_kh_col in g.columns
+          else ''
+      )
+      # Ngày ĐH
+      if 'Ngày tạo đơn hàng' in g.columns:
+        ngay = pd.to_datetime(g['Ngày tạo đơn hàng'].iloc[0], dayfirst=True, errors='coerce')
+        ngay_s = ngay.strftime('%d/%m/%Y %H:%M') if pd.notna(ngay) else str(rd)
+      else:
+        ngay_s = rd.strftime('%d/%m/%Y')
+      rows.append({
+          'STT': 0,
+          'Tên NVBH': nv,
+          'Mã KH': ma_kh,
+          'Tên KH': ten_kh,
+          'Mã ĐH': ma_dh,
+          'Giá trị ĐH [Doanh Số]': int(round(sales, 0)),
+          'Ngày ĐH': ngay_s,
+          'LPPC': n_lines,
+          'Check Danh Sách Import': 'YES - Trái tuyến',
+      })
+  else:
+    for ma_kh, g in d.groupby('_ma'):
+      sales = float(g['_sales'].sum())
+      nv = ch_nv.get(ma_kh, '')
+      ten_kh = g[ten_kh_col].iloc[0] if ten_kh_col in g.columns else ''
+      rows.append({
+          'STT': 0,
+          'Tên NVBH': nv,
+          'Mã KH': ma_kh,
+          'Tên KH': ten_kh,
+          'Mã ĐH': '',
+          'Giá trị ĐH [Doanh Số]': int(round(sales, 0)),
+          'Ngày ĐH': rd.strftime('%d/%m/%Y'),
+          'LPPC': len(g),
+          'Check Danh Sách Import': 'YES - Trái tuyến',
+      })
+
+  if not rows:
+    return empty
+  out = pd.DataFrame(rows).sort_values(['Tên NVBH', 'Mã KH', 'Mã ĐH']).reset_index(drop=True)
+  out['STT'] = range(1, len(out) + 1)
+  # Format doanh số VN
+  out['Giá trị ĐH [Doanh Số]'] = out['Giá trị ĐH [Doanh Số]'].apply(
+      lambda x: f'{int(x):,}'.replace(',', '.') if str(x).replace('.','').isdigit() or isinstance(x, (int, float)) else x
+  )
+  return out
+
+
+def render_trai_tuyen_html(df):
+  """Bảng chi tiết ĐH Trái Tuyến — header vàng chữ đỏ theo mẫu."""
+  if df is None or df.empty:
+    return (
+        '<p style="margin:12px 0;color:#718096;font-size:13px;">'
+        'Không có đơn hàng trái tuyến trong ngày.</p>'
+    )
+  cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'LPPC', 'Check Danh Sách Import',
+  ]
+  for c in cols:
+    if c not in df.columns:
+      df[c] = ''
+
+  th = (
+      'background-color:#f6e05e !important;color:#e53e3e !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #000 !important;padding:8px 6px;font-size:12px;'
+      'white-space:nowrap;'
+  )
+  td = (
+      'border:1px solid #000 !important;padding:6px 5px;font-size:12px;'
+      'text-align:center !important;white-space:nowrap;background:#fff;'
+  )
+  html = [
+      '<div style="margin-top:20px;">',
+      '<h4 style="color:#c53030;font-weight:800;margin:8px 0 6px 0;">'
+      '📋 CHI TIẾT ĐƠN HÀNG TRÁI TUYẾN</h4>',
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+      '<table style="border-collapse:collapse;width:100%;min-width:900px;'
+      'font-family:Arial,sans-serif;">',
+      '<thead><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+  for _, row in df.iterrows():
+    html.append('<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      al = 'left' if c in ('Tên NVBH', 'Tên KH') else 'center'
+      html.append(f'<td style="{td}text-align:{al} !important;">{val}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div></div>')
+  return ''.join(html)
+
+
 def render_performance_html(df):
   if df is None or df.empty:
     return '<p>Không có dữ liệu hiệu suất.</p>'
@@ -5607,13 +5810,29 @@ with tab_kpi:
         st.info('Không có dữ liệu hiệu suất cho ngày này.')
       else:
         st.markdown(render_performance_html(df_perf), unsafe_allow_html=True)
-        st.download_button(
-            '📥 Tải CSV Hiệu Suất',
-            data=df_perf.to_csv(index=False).encode('utf-8-sig'),
-            file_name=f'HieuSuat_{report_date}.csv',
-            mime='text/csv',
-            key='dl_perf',
+        # Chi tiết ĐH Trái Tuyến phía dưới 2 bảng
+        df_trai = build_trai_tuyen_orders(
+            df, df_visit_sched, mcp, report_date, filter_nv
         )
+        st.markdown(render_trai_tuyen_html(df_trai), unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+          st.download_button(
+              '📥 Tải CSV Hiệu Suất',
+              data=df_perf.to_csv(index=False).encode('utf-8-sig'),
+              file_name=f'HieuSuat_{report_date}.csv',
+              mime='text/csv',
+              key='dl_perf',
+          )
+        with c2:
+          if df_trai is not None and not df_trai.empty:
+            st.download_button(
+                '📥 Tải CSV ĐH Trái Tuyến',
+                data=df_trai.to_csv(index=False).encode('utf-8-sig'),
+                file_name=f'DH_TraiTuyen_{report_date}.csv',
+                mime='text/csv',
+                key='dl_trai',
+            )
 
   elif selected_kpi != 'COMBO':
     set_color_moc_for_kpi(selected_kpi)
