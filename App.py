@@ -4045,8 +4045,9 @@ def build_performance_report(
     # ----- Gán theo Ngày VT thực tế / Ngày lịch VT -----
     # Plan VT  : Ngày lịch VT == ngày BC
     # Đã VT    : date(Ngày VT thực tế) == ngày BC
-    # PC       : actual == ngày BC + Có đơn hàng + VT Trái tuyến != YES
-    # PC Trái  : actual == ngày BC + Có đơn hàng + VT Trái tuyến == YES
+    # PC       : actual == ngày BC + Có đơn hàng + CH NẰM TRONG lịch VT ngày BC
+    # PC Trái  : actual == ngày BC + Có đơn hàng + CH KHÔNG nằm trong lịch VT ngày BC
+    #            (hoặc VT Trái tuyến = YES)
     # KO ĐH    : actual == ngày BC + đã VT + không có đơn
     rd = report_date.date() if hasattr(report_date, 'date') else report_date
 
@@ -4055,6 +4056,15 @@ def build_performance_report(
     pc_off, pc_on = set(), set()
     trai_off, trai_on = set(), set()
     vip_ko, ko_off, ko_on = set(), set(), set()
+
+    # Tập CH có trên lịch VT đúng ngày BC
+    plan_set_all = set()
+    if not v_nv.empty and '_plan_date' in v_nv.columns:
+      plan_set_all = set(
+          m for m in v_nv.loc[v_nv['_plan_date'] == rd, '_ma'].tolist() if m
+      )
+    elif not v_nv.empty:
+      plan_set_all = set(m for m in v_nv['_ma'].tolist() if m)
 
     if not v_nv.empty:
       # Plan VT theo lịch
@@ -4077,26 +4087,35 @@ def build_performance_report(
         if not ma:
           continue
         is_on = _is_on(ma)
-        is_trai = str(r.get('_trai', 'NO')).upper() == 'YES'
+        is_trai_flag = str(r.get('_trai', 'NO')).upper() == 'YES'
         co_dh = bool(r.get('_co_dh', False))
         da_vt = bool(r.get('_da_vt', False))
+        on_plan = ma in plan_set_all
 
         # Đã VT (có ngày VT thực tế trong ngày BC)
-        if da_vt or co_dh or is_trai:
+        if da_vt or co_dh or is_trai_flag:
           (da_on if is_on else da_off).add(ma)
 
         if co_dh:
-          if is_trai:
-            # PC Trái Tuyến: YES + Có ĐH + actual == ngày BC
+          # Trái tuyến: không nằm lịch VT ngày BC, hoặc cờ YES
+          if (not on_plan) or is_trai_flag:
             (trai_on if is_on else trai_off).add(ma)
           else:
-            # PC đúng tuyến
+            # PC đúng tuyến: có ĐH + nằm trong lịch VT ngày BC
             (pc_on if is_on else pc_off).add(ma)
         elif da_vt:
-          # Đã VT không có đơn
           (ko_on if is_on else ko_off).add(ma)
           if _is_vip(ma, r.get('_nhom', '')):
             vip_ko.add(ma)
+
+      # Bổ sung từ RPT: CH có đơn ngày BC nhưng không có trên lịch VT ngày BC
+      if not d_nv.empty:
+        for ma in d_nv['_ma'].unique():
+          if not ma:
+            continue
+          if ma not in plan_set_all:
+            is_on = _is_on(ma)
+            (trai_on if is_on else trai_off).add(ma)
 
     pct_off = round(len(pc_off) / len(da_off) * 100, 1) if da_off else 0.0
     pct_on = round(len(pc_on) / len(da_on) * 100, 1) if da_on else 0.0
@@ -4448,9 +4467,13 @@ def _perf_table_html(df, section='call'):
 
 
 def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=None):
-  """Chi tiết ĐH Trái Tuyến theo Ngày VT thực tế = ngày BC + cờ YES + Có đơn.
+  """Chi tiết ĐH Trái Tuyến.
 
-  Map sang RPT_061 lấy Mã ĐH, Doanh số, LPPC (số line/đơn).
+  Rule:
+  1. Lấy CH có Đơn Hàng theo Ngày VT thực tế = ngày BC (file lịch).
+  2. Đối chiếu: CH đó có nằm trong lịch VT (Ngày lịch VT = ngày BC) hay không.
+  3. Không nằm lịch VT ngày BC → ĐH Trái Tuyến.
+  4. Map RPT_061 lấy Mã ĐH, Doanh số, LPPC.
   """
   empty = pd.DataFrame(columns=[
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
@@ -4462,22 +4485,30 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
   rd = report_date.date() if hasattr(report_date, 'date') else report_date
   vis = df_visit.copy()
 
-  # Parse dates
-  if '_actual' not in vis.columns:
-    if 'Ngày VT thực tế' in vis.columns:
-      vis['_actual'] = pd.to_datetime(
-          vis['Ngày VT thực tế'], dayfirst=True, errors='coerce'
-      ).dt.date
-    else:
-      return empty
-  if 'VT Trái tuyến' in vis.columns:
-    vis['_trai'] = vis['VT Trái tuyến'].astype(str).str.strip().str.upper()
-  else:
-    vis['_trai'] = 'NO'
+  # Parse
+  if 'Ngày VT thực tế' in vis.columns:
+    vis['_actual'] = pd.to_datetime(
+        vis['Ngày VT thực tế'], dayfirst=True, errors='coerce'
+    ).dt.date
+  elif '_actual' not in vis.columns:
+    return empty
+
+  if 'Ngày lịch VT' in vis.columns:
+    vis['_plan_date'] = pd.to_datetime(
+        vis['Ngày lịch VT'], dayfirst=True, errors='coerce'
+    ).dt.date
+  elif '_plan_date' not in vis.columns:
+    vis['_plan_date'] = pd.NaT
+
   vis['_status'] = (
       vis['Trạng thái'].astype(str).str.strip()
       if 'Trạng thái' in vis.columns
       else ''
+  )
+  vis['_trai'] = (
+      vis['VT Trái tuyến'].astype(str).str.strip().str.upper()
+      if 'VT Trái tuyến' in vis.columns
+      else 'NO'
   )
   vis['_ma'] = vis['Mã Cửa hàng'].map(
       lambda x: str(x).strip()[:-2] if str(x).endswith('.0') else str(x).strip()
@@ -4488,51 +4519,97 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
       else ''
   )
 
-  # CH trái tuyến đúng ngày: actual == rd + YES + Có đơn hàng
-  trai = vis[
-      (vis['_actual'] == rd)
-      & (vis['_trai'] == 'YES')
-      & (vis['_status'] == 'Có đơn hàng')
+  # Tập CH nằm đúng lịch VT ngày BC
+  plan_set = set(
+      m for m in vis.loc[vis['_plan_date'] == rd, '_ma'].tolist() if m
+  )
+
+  # CH có ĐH theo Ngày VT thực tế = ngày BC
+  co_dh_actual = vis[
+      (vis['_actual'] == rd) & (vis['_status'] == 'Có đơn hàng')
   ].copy()
-  if trai.empty:
-    return empty
+
+  # Trái tuyến = có ĐH (actual=rd) nhưng KHÔNG nằm lịch VT ngày BC
+  # hoặc cờ VT Trái tuyến = YES
+  trai = co_dh_actual[
+      (~co_dh_actual['_ma'].isin(plan_set)) | (co_dh_actual['_trai'] == 'YES')
+  ].copy()
+
+  # Bổ sung từ RPT: CH có đơn ngày BC, không có trên lịch VT ngày BC
+  trai_ma = set(m for m in trai['_ma'].tolist() if m)
+  ch_nv = {}
+  if not trai.empty:
+    ch_nv = dict(zip(trai['_ma'], trai['_nv']))
+  ch_ten = {}
+  if 'Tên Cửa hàng' in vis.columns and not trai.empty:
+    ch_ten = dict(zip(trai['_ma'], trai['Tên Cửa hàng'].astype(str)))
+
+  if df_rpt is not None and not df_rpt.empty and 'date' in df_rpt.columns:
+    d0 = df_rpt[df_rpt['date'] == rd].copy()
+    if not d0.empty and 'Mã CH' in d0.columns:
+      d0['_ma'] = d0['Mã CH'].map(
+          lambda x: str(x).strip()[:-2] if str(x).endswith('.0') else str(x).strip()
+      )
+      for ma in d0['_ma'].unique():
+        if ma and ma not in plan_set:
+          trai_ma.add(ma)
+          if ma not in ch_nv and 'Tên NVBH' in d0.columns:
+            sub = d0[d0['_ma'] == ma]
+            ch_nv[ma] = str(sub['Tên NVBH'].iloc[0]).strip() if len(sub) else ''
 
   if nv_selected(filter_nv):
     vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
-    trai = trai[trai['_nv'].isin(vals)]
-  if trai.empty:
+    # lọc theo NV sau
+    pass
+
+  if not trai_ma:
     return empty
 
-  trai_ma = set(trai['_ma'].tolist())
-  # Map CH -> NV từ lịch
-  ch_nv = dict(zip(trai['_ma'], trai['_nv']))
-
-  # RPT ngày BC + Mã CH thuộc trái tuyến
+  # Chi tiết từ RPT
   if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
-    return empty
+    rows = []
+    for i, ma in enumerate(sorted(trai_ma), 1):
+      rows.append({
+          'STT': i,
+          'Tên NVBH': ch_nv.get(ma, ''),
+          'Mã KH': ma,
+          'Tên KH': ch_ten.get(ma, ''),
+          'Mã ĐH': '',
+          'Giá trị ĐH [Doanh Số]': '',
+          'Ngày ĐH': rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd),
+          'LPPC': '',
+          'Check Danh Sách Import': 'Trái tuyến - Không có trên lịch VT',
+      })
+    out = pd.DataFrame(rows)
+    if nv_selected(filter_nv):
+      vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+      out = out[out['Tên NVBH'].isin(vals)]
+    return out if not out.empty else empty
+
   d = df_rpt[df_rpt['date'] == rd].copy()
-  if d.empty:
-    return empty
   d['_ma'] = d['Mã CH'].map(
       lambda x: str(x).strip()[:-2] if str(x).endswith('.0') else str(x).strip()
   )
   d = d[d['_ma'].isin(trai_ma)]
   if d.empty:
-    # Fallback: vẫn hiện CH trái tuyến dù RPT chưa match mã
     rows = []
-    for i, (_, r) in enumerate(trai.drop_duplicates('_ma').iterrows(), 1):
+    for i, ma in enumerate(sorted(trai_ma), 1):
       rows.append({
           'STT': i,
-          'Tên NVBH': r['_nv'],
-          'Mã KH': r['_ma'],
-          'Tên KH': r.get('Tên Cửa hàng', ''),
+          'Tên NVBH': ch_nv.get(ma, ''),
+          'Mã KH': ma,
+          'Tên KH': ch_ten.get(ma, ''),
           'Mã ĐH': '',
           'Giá trị ĐH [Doanh Số]': '',
-          'Ngày ĐH': rd.strftime('%d/%m/%Y'),
+          'Ngày ĐH': rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd),
           'LPPC': '',
-          'Check Danh Sách Import': 'YES - Trái tuyến',
+          'Check Danh Sách Import': 'Trái tuyến - Không có trên lịch VT',
       })
-    return pd.DataFrame(rows) if rows else empty
+    out = pd.DataFrame(rows)
+    if nv_selected(filter_nv):
+      vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+      out = out[out['Tên NVBH'].isin(vals)]
+    return out if not out.empty else empty
 
   val_col = find_col(d, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu']) or 'Thành tiền trước CK'
   if val_col not in d.columns:
@@ -4549,17 +4626,12 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
       sales = float(g['_sales'].sum())
       n_lines = len(g)
       nv = ch_nv.get(ma_kh, g['Tên NVBH'].iloc[0] if 'Tên NVBH' in g.columns else '')
-      ten_kh = (
-          g[ten_kh_col].iloc[0]
-          if ten_kh_col in g.columns
-          else ''
-      )
-      # Ngày ĐH
+      ten_kh = g[ten_kh_col].iloc[0] if ten_kh_col in g.columns else ch_ten.get(ma_kh, '')
       if 'Ngày tạo đơn hàng' in g.columns:
         ngay = pd.to_datetime(g['Ngày tạo đơn hàng'].iloc[0], dayfirst=True, errors='coerce')
         ngay_s = ngay.strftime('%d/%m/%Y %H:%M') if pd.notna(ngay) else str(rd)
       else:
-        ngay_s = rd.strftime('%d/%m/%Y')
+        ngay_s = rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd)
       rows.append({
           'STT': 0,
           'Tên NVBH': nv,
@@ -4569,13 +4641,13 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
           'Giá trị ĐH [Doanh Số]': int(round(sales, 0)),
           'Ngày ĐH': ngay_s,
           'LPPC': n_lines,
-          'Check Danh Sách Import': 'YES - Trái tuyến',
+          'Check Danh Sách Import': 'Trái tuyến - Không có trên lịch VT',
       })
   else:
     for ma_kh, g in d.groupby('_ma'):
       sales = float(g['_sales'].sum())
       nv = ch_nv.get(ma_kh, '')
-      ten_kh = g[ten_kh_col].iloc[0] if ten_kh_col in g.columns else ''
+      ten_kh = g[ten_kh_col].iloc[0] if ten_kh_col in g.columns else ch_ten.get(ma_kh, '')
       rows.append({
           'STT': 0,
           'Tên NVBH': nv,
@@ -4583,18 +4655,22 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
           'Tên KH': ten_kh,
           'Mã ĐH': '',
           'Giá trị ĐH [Doanh Số]': int(round(sales, 0)),
-          'Ngày ĐH': rd.strftime('%d/%m/%Y'),
+          'Ngày ĐH': rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd),
           'LPPC': len(g),
-          'Check Danh Sách Import': 'YES - Trái tuyến',
+          'Check Danh Sách Import': 'Trái tuyến - Không có trên lịch VT',
       })
 
   if not rows:
     return empty
   out = pd.DataFrame(rows).sort_values(['Tên NVBH', 'Mã KH', 'Mã ĐH']).reset_index(drop=True)
+  if nv_selected(filter_nv):
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    out = out[out['Tên NVBH'].isin(vals)].reset_index(drop=True)
+  if out.empty:
+    return empty
   out['STT'] = range(1, len(out) + 1)
-  # Format doanh số VN
   out['Giá trị ĐH [Doanh Số]'] = out['Giá trị ĐH [Doanh Số]'].apply(
-      lambda x: f'{int(x):,}'.replace(',', '.') if str(x).replace('.','').isdigit() or isinstance(x, (int, float)) else x
+      lambda x: f'{int(x):,}'.replace(',', '.') if isinstance(x, (int, float)) else x
   )
   return out
 
