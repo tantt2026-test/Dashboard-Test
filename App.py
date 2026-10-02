@@ -6582,7 +6582,7 @@ def build_mbs_data_summary(df_source, kind='CAT'):
 
 
 def render_mbs_data_table(df_show, selected_cols):
-  """Bảng Data MBS CAT/BRAND: cuộn ngang + dọc, khoảng 25 dòng."""
+  """Bảng Data MBS CAT/BRAND: cuộn ngang + dọc, tối đa ~15 dòng."""
   if df_show is None or df_show.empty or not selected_cols:
     return
 
@@ -6650,8 +6650,8 @@ st.markdown(
     .mbs-summary-scroll,
     .mbs-data-scroll {
       width: 100%;
-      /* Khoảng 25 dòng: vẫn giữ cuộn dọc + cuộn ngang */
-      max-height: 700px;
+      /* Tối đa ~15 dòng: vẫn giữ cuộn dọc + cuộn ngang */
+      max-height: 480px;
       overflow-x: auto !important;
       overflow-y: auto !important;
       -webkit-overflow-scrolling: touch;
@@ -6708,7 +6708,7 @@ st.markdown(
 )
 
 def render_mbs_data_summary(df_summary, title):
-  """Render bảng Summary MBS: format màu + cuộn ngang/dọc, khoảng 25 dòng."""
+  """Render bảng Summary MBS: format màu + cuộn ngang/dọc, tối đa ~15 dòng."""
   if df_summary is None or df_summary.empty:
     st.info(f'Không có dữ liệu {title} phù hợp bộ lọc hiện tại.')
     return
