@@ -4944,32 +4944,65 @@ if filter_ma_kh or filter_ten_kh:
     df_brand = _apply_kh_filter(df_brand, filter_ma_kh, filter_ten_kh)
 
 
-# Không khóa readonly nữa — cho phép gõ tìm trong multiselect (Mã KH / Tên KH / ĐDKD)
-# Giữ inputmode=none mặc định nhẹ; khi focus thì cho gõ bình thường
+# Mobile: chặn bàn phím ảo trên select/multiselect/date — chỉ text_input được gõ
 components.html(
     """
 <script>
 (function() {
   var doc = window.parent.document;
-  function softLock() {
+
+  function lockNoKeyboard(el) {
+    if (!el || el.getAttribute('data-kb-lock') === '1') return;
+    el.setAttribute('data-kb-lock', '1');
+    el.setAttribute('readonly', 'true');
+    el.setAttribute('inputmode', 'none');
+    el.setAttribute('enterkeyhint', 'done');
+    el.setAttribute('autocomplete', 'off');
+    el.style.caretColor = 'transparent';
+    // Giữ readonly khi focus/touch — chặn bàn phím, vẫn mở được dropdown
+    function keepLock() {
+      this.setAttribute('readonly', 'true');
+      this.setAttribute('inputmode', 'none');
+      this.style.caretColor = 'transparent';
+    }
+    el.addEventListener('focus', keepLock, true);
+    el.addEventListener('touchstart', keepLock, true);
+    el.addEventListener('touchend', keepLock, true);
+  }
+
+  function unlockTextInput(el) {
+    if (!el) return;
+    el.removeAttribute('readonly');
+    el.setAttribute('inputmode', 'text');
+    el.style.caretColor = 'auto';
+    el.removeAttribute('data-kb-lock');
+  }
+
+  function apply() {
     try {
-      doc.querySelectorAll('div[data-baseweb="select"] input').forEach(function(el) {
-        // Cho phép gõ tìm kiếm — chỉ set inputmode text khi focus
-        el.removeAttribute('readonly');
-        if (!el.getAttribute('data-allow-type')) {
-          el.setAttribute('data-allow-type', '1');
-          el.addEventListener('focus', function() {
-            this.removeAttribute('readonly');
-            this.setAttribute('inputmode', 'text');
-            this.style.caretColor = 'auto';
-          });
+      // 1) Select / Multiselect — KHÔNG mở bàn phím
+      doc.querySelectorAll('[data-baseweb="select"] input').forEach(lockNoKeyboard);
+
+      // 2) Date input — KHÔNG mở bàn phím (dùng calendar)
+      doc.querySelectorAll(
+        '[data-testid="stDateInput"] input, [data-baseweb="input"] input[placeholder*="/"]'
+      ).forEach(function(el) {
+        // Chỉ khóa nếu nằm trong date input
+        if (el.closest('[data-testid="stDateInput"]')) {
+          lockNoKeyboard(el);
         }
       });
+
+      // 3) Text input thuần — CHO phép bàn phím (Mã KH, Tên KH, search...)
+      doc.querySelectorAll('[data-testid="stTextInput"] input').forEach(unlockTextInput);
     } catch (err) {}
   }
-  softLock();
-  var obs = new MutationObserver(function() { softLock(); });
+
+  apply();
+  var obs = new MutationObserver(function() { apply(); });
   try { obs.observe(doc.body, { childList: true, subtree: true }); } catch (err) {}
+  // Re-apply sau tương tác
+  doc.addEventListener('click', function() { setTimeout(apply, 50); }, true);
 })();
 </script>
 """,
