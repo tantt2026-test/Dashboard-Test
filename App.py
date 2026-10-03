@@ -4562,19 +4562,20 @@ def _perf_table_html(df, section='call'):
       is_danh_gia = c == 'Đánh giá Tăng/Giảm'
 
       if is_danh_gia and not is_tot:
+        # Tăng so với giữa ngày → xanh; Không tăng hoặc Giảm → đỏ (giống timegone)
         s = str(val)
-        if '↓' in s or 'Giảm' in s:
+        has_up = ('↑' in s) or ('Tăng' in s)
+        has_down = ('↓' in s) or ('Giảm' in s)
+        if has_down or not has_up:
           bg = (
               'background-color:#fed7d7 !important;color:#742a2a !important;'
               'font-weight:800 !important;'
           )
-        elif '↑' in s or 'Tăng' in s:
+        else:
           bg = (
               'background-color:#c6f6d5 !important;color:#22543d !important;'
               'font-weight:800 !important;'
           )
-        else:
-          bg = row_bg
         html.append(
             f'<td align="center" data-colored="1" '
             f'style="{td}{bg}text-align:center !important;">{val}</td>'
@@ -5109,6 +5110,19 @@ def build_performance_comments(df):
   lines.append(
       f"• <b>Top 3 tỷ lệ VT có ĐH theo lịch VT:</b> "
       f"{', '.join(names) if names else 'Không có'}<br/>"
+  )
+
+  # Bottom 3: tỷ lệ VT KHÔNG có ĐH = 100 - % VT có ĐH (cao nhất = kém nhất)
+  d = d.copy()
+  d['_pct_vt_ko_dh'] = (100.0 - d['_pct_vt_dh']).clip(lower=0)
+  bot_vt = d.sort_values('_pct_vt_ko_dh', ascending=False).head(3)
+  bot_names = [
+      f"{r['Tên NVBH']} (KO ĐH {r['_pct_vt_ko_dh']:.1f}%)"
+      for _, r in bot_vt.iterrows()
+  ]
+  lines.append(
+      f"• <b>Bottom 3 tỷ lệ VT không có ĐH theo lịch VT:</b> "
+      f"{', '.join(bot_names) if bot_names else 'Không có'}<br/>"
   )
   lines.append('</div>')
   return ''.join(lines)
