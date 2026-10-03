@@ -4559,33 +4559,33 @@ def _perf_table_html(df, section='call'):
 
       is_pct = isinstance(val, str) and '%' in str(val)
       is_vip_col = c == 'VIP KO ĐH'
-      is_danh_gia = ('đánh giá' in str(c).lower()) or ('tang/giam' in str(c).lower().replace('ă','a').replace('ả','a')) or (c == 'Đánh giá Tăng/Giảm')
+      is_danh_gia = (
+          ('đánh giá' in str(c).lower())
+          or (c == 'Đánh giá Tăng/Giảm')
+      )
+      is_de_xuat = c == 'Đề xuất cải thiện'
 
-      if is_danh_gia:
-        # Rule giống cột % KPI:
-        # - Có Giảm → đỏ
-        # - Chỉ Ổn định / không tăng → đỏ
-        # - Có Tăng (không Giảm) → xanh
+      # Dòng TOTAL: luôn nền xanh đậm + chữ trắng (mọi cột kể cả trống)
+      if is_tot:
+        html.append(
+            f'<td align="center" data-colored="1" '
+            f'style="{td}background-color:#1a365d !important;color:#ffffff !important;'
+            f'font-weight:900 !important;text-align:center !important;">'
+            f'{val if val != "" else "&nbsp;"}</td>'
+        )
+      elif is_danh_gia:
+        # Tăng → xanh; Giảm / Không tăng (Ổn định) → đỏ
         s = str(val)
         has_up = ('↑' in s) or ('Tăng' in s)
         has_down = ('↓' in s) or ('Giảm' in s)
-        has_flat = ('→' in s) or ('Ổn định' in s) or ('On dinh' in s)
-        if is_tot:
-          # Total: giữ nền xanh đậm
-          html.append(
-              f'<td align="center" data-colored="1" '
-              f'style="{td}background-color:#1a365d !important;color:#ffffff !important;'
-              f'font-weight:900 !important;text-align:center !important;">{val}</td>'
-          )
-        elif has_down or (not has_up):
-          # Giảm hoặc không tăng → đỏ
+        has_flat = ('→' in s) or ('Ổn định' in s)
+        if has_down or has_flat or (not has_up):
           html.append(
               f'<td align="center" data-colored="1" class="pct-red" '
               f'style="{td}background-color:#fed7d7 !important;color:#742a2a !important;'
               f'font-weight:800 !important;text-align:center !important;">{val}</td>'
           )
         else:
-          # Tăng → xanh
           html.append(
               f'<td align="center" data-colored="1" class="pct-green" '
               f'style="{td}background-color:#c6f6d5 !important;color:#22543d !important;'
