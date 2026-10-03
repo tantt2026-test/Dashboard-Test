@@ -4348,7 +4348,7 @@ def build_performance_report(
         return '↓Giảm'
       return '→Ổn định'
 
-    # Gom nhóm: Tăng / Ko Tăng / Giảm (không dùng "Ổn định")
+    # Gom nhóm: Tăng (chữ xanh đậm) / Ko Tăng|Giảm (chữ đỏ đậm)
     def _tag3(a, b):
       try:
         a, b = float(a), float(b)
@@ -4372,10 +4372,20 @@ def build_performance_report(
     for _name, _tg in _pairs:
       _grp[_tg].append(_name)
     _parts = []
-    for _lab in ('Tăng', 'Ko Tăng', 'Giảm'):
+    if _grp['Tăng']:
+      _parts.append(
+          '<span style="color:#228b22;font-weight:800;">'
+          + ', '.join(_grp['Tăng']) + ' => Tăng</span>'
+      )
+    for _lab in ('Ko Tăng', 'Giảm'):
       if _grp[_lab]:
-        _parts.append(f"{', '.join(_grp[_lab])} => {_lab}")
-    danh_gia = ' | '.join(_parts) if _parts else 'Ko Tăng'
+        _parts.append(
+            '<span style="color:#c53030;font-weight:800;">'
+            + ', '.join(_grp[_lab]) + f' => {_lab}</span>'
+        )
+    danh_gia = ' | '.join(_parts) if _parts else (
+        '<span style="color:#c53030;font-weight:800;">Ko Tăng</span>'
+    )
     _delta_so = float(th_so) - float(th_so_mid)
     _delta_x = int(aso_x) - int(aso_x_mid)
     _delta_v = int(aso_v) - int(aso_v_mid)
@@ -4686,23 +4696,12 @@ def _perf_table_html(df, section='call'):
             f'{val if val != "" else "&nbsp;"}</td>'
         )
       elif is_danh_gia:
-        # Chỉ xanh khi TẤT CẢ đều Tăng (không có Ko Tăng / Giảm)
-        s = str(val)
-        has_ko = ('Ko Tăng' in s) or ('Không tăng' in s)
-        has_down = ('Giảm' in s)
-        has_up = ('Tăng' in s) and not has_ko
-        if has_ko or has_down or (not has_up):
-          html.append(
-              f'<td align="center" data-colored="1" class="pct-red" '
-              f'style="{td}background-color:#fed7d7 !important;color:#742a2a !important;'
-              f'font-weight:800 !important;text-align:center !important;">{val}</td>'
-          )
-        else:
-          html.append(
-              f'<td align="center" data-colored="1" class="pct-green" '
-              f'style="{td}background-color:#c6f6d5 !important;color:#22543d !important;'
-              f'font-weight:800 !important;text-align:center !important;">{val}</td>'
-          )
+        # Không tô nền ô; màu chữ đã nằm trong HTML (xanh đậm / đỏ đậm)
+        html.append(
+            f'<td align="center" data-colored="1" '
+            f'style="{td}background-color:transparent !important;'
+            f'text-align:center !important;font-size:11px;">{val}</td>'
+        )
       elif is_pct:
         cls = color_pct_class(val)
         html.append(
@@ -5328,7 +5327,7 @@ def render_combo_orders_html(df):
 
 
 def build_performance_comments(df):
-  """Nhận xét: mỗi chỉ số Top 3 / Bottom 3."""
+  """Nhận xét 5 chỉ số: SO, VT KO ĐH, ASO Xanh, ASO Vàng, Trái tuyến & VIP."""
   if df is None or df.empty:
     return ''
   d = df.copy()
@@ -5341,51 +5340,40 @@ def build_performance_comments(df):
   if d.empty:
     return ''
 
-  num_cols = [
-      '_delta_so', '_delta_x', '_delta_v', '_delta_lppc',
-      '_delta_pct_off', '_delta_pct_on',
-      '_n_trai', '_n_vip_ko', '_pct_vt_dh',
-      '_pct_so', '_pct_x', '_pct_v', '_lppc',
-  ]
-  for col in num_cols:
+  for col in ['_delta_so', '_delta_x', '_delta_v', '_n_trai', '_n_vip_ko',
+              '_pct_vt_dh', '_pct_so', '_pct_x', '_pct_v']:
     if col not in d.columns:
       d[col] = 0
     d[col] = pd.to_numeric(d[col], errors='coerce').fillna(0)
 
-  def _top_bot(col, label, fmt='num', higher_better=True, n=3):
-    asc_top = not higher_better
-    top = d.sort_values(col, ascending=asc_top).head(n)
-    bot = d.sort_values(col, ascending=not asc_top).head(n)
+  d['_pct_ko_dh'] = (100.0 - d['_pct_vt_dh']).clip(lower=0)
 
-    def _fmt(r):
+  def _top3(col, fmt='pct', higher_better=True):
+    asc = not higher_better
+    top = d.sort_values(col, ascending=asc).head(3)
+    bot = d.sort_values(col, ascending=not asc).head(3)
+
+    def _f(r):
       v = r[col]
       if fmt == 'pct':
         return f"{r['Tên NVBH']} ({v:.1f}%)"
       if fmt == 'money':
         return f"{r['Tên NVBH']} ({int(v):+,}đ)".replace(',', '.')
-      if fmt == 'lppc':
-        return f"{r['Tên NVBH']} ({v:.2f})"
       if fmt == 'int':
         return f"{r['Tên NVBH']} ({int(v)})"
       return f"{r['Tên NVBH']} ({v})"
 
-    top_s = ', '.join(_fmt(r) for _, r in top.iterrows())
-    bot_s = ', '.join(_fmt(r) for _, r in bot.iterrows())
     return (
-        f"• <b>Top {n} {label}:</b> {top_s or 'Không có'}<br/>"
-        f"• <b>Bottom {n} {label}:</b> {bot_s or 'Không có'}<br/>"
+        ', '.join(_f(r) for _, r in top.iterrows()) or 'Không có',
+        ', '.join(_f(r) for _, r in bot.iterrows()) or 'Không có',
     )
 
   lines = []
   lines.append('<div class="note-box" style="margin-top:14px;">')
-  lines.append('<b>📝 NHẬN XÉT HIỆU SUẤT BÁN HÀNG</b><br/>')
-  lines.append(
-      '<span style="font-size:12px;color:#4a5568;">'
-      'Đánh giá cuối ngày so với giữa ngày (&lt;13h). '
-      'Chỉ số Ko Tăng / Giảm → đỏ; tất cả Tăng → xanh.</span><br/><br/>'
-  )
+  lines.append('<b>📝 NHẬN XÉT HIỆU SUẤT BÁN HÀNG</b><br/><br/>')
 
-  lines.append('<b style="color:#034ea2;">1. Doanh số (SO) & % TH / CT ngày</b><br/>')
+  # 1. Doanh Số
+  lines.append('<b style="color:#034ea2;">1. Doanh Số</b><br/>')
   up = d[d['_delta_so'] > 0].sort_values('_delta_so', ascending=False).head(3)
   down = d[d['_delta_so'] < 0].sort_values('_delta_so', ascending=True).head(3)
   up_s = ', '.join(
@@ -5396,34 +5384,43 @@ def build_performance_comments(df):
       f"{r['Tên NVBH']} ({int(r['_delta_so']):+,}đ)".replace(',', '.')
       for _, r in down.iterrows()
   ) or 'Không có'
+  t3, b3 = _top3('_pct_so', fmt='pct', higher_better=True)
   lines.append(f"• <b>Top 3 tăng SO vs giữa ngày:</b> {up_s}<br/>")
   lines.append(f"• <b>Bottom 3 giảm SO vs giữa ngày:</b> {down_s}<br/>")
-  lines.append(_top_bot('_pct_so', '% TH SO / CT ngày', fmt='pct', higher_better=True))
+  lines.append(f"• <b>Top 3 % TH SO / CT ngày:</b> {t3}<br/>")
+  lines.append(f"• <b>Bottom 3 % TH SO / CT ngày:</b> {b3}<br/>")
 
-  lines.append('<b style="color:#034ea2;">2. Tỷ lệ VT có ĐH / KO ĐH (OFF & ON)</b><br/>')
-  lines.append(_top_bot('_pct_vt_dh', 'tỷ lệ VT có ĐH theo lịch', fmt='pct', higher_better=True))
-  d['_pct_ko_dh'] = (100.0 - d['_pct_vt_dh']).clip(lower=0)
-  lines.append(_top_bot('_pct_ko_dh', 'tỷ lệ VT KO ĐH theo lịch', fmt='pct', higher_better=False))
-  lines.append(_top_bot('_delta_pct_off', 'cải thiện % VT OFF vs giữa ngày', fmt='pct', higher_better=True))
-  lines.append(_top_bot('_delta_pct_on', 'cải thiện % VT ON vs giữa ngày', fmt='pct', higher_better=True))
+  # 2. Tỷ lệ VT không có ĐH
+  lines.append('<b style="color:#034ea2;">2. Tỷ lệ VT không có ĐH</b><br/>')
+  t3, b3 = _top3('_pct_ko_dh', fmt='pct', higher_better=False)
+  # higher_better=False → top = lowest KO ĐH (tốt), bot = highest KO ĐH (xấu)
+  lines.append(f"• <b>Top 3 tỷ lệ VT KO ĐH thấp nhất (tốt):</b> {t3}<br/>")
+  lines.append(f"• <b>Bottom 3 tỷ lệ VT KO ĐH cao nhất:</b> {b3}<br/>")
 
-  lines.append('<b style="color:#034ea2;">3. LPPC (chuẩn ≥ 4.3)</b><br/>')
-  lines.append(_top_bot('_lppc', 'LPPC ngày', fmt='lppc', higher_better=True))
-  under = d[d['_lppc'] < 4.3].sort_values('_lppc', ascending=True)
-  if under.empty:
-    lines.append('• <b>LPPC &lt; 4.3:</b> Không có<br/>')
-  else:
-    names = [f"{r['Tên NVBH']} ({r['_lppc']:.2f})" for _, r in under.iterrows()]
-    lines.append(f"• <b>LPPC &lt; 4.3:</b> {', '.join(names)}<br/>")
-  lines.append(_top_bot('_delta_lppc', 'cải thiện LPPC vs giữa ngày', fmt='lppc', higher_better=True))
+  # 3. ASO Trận Xanh
+  lines.append('<b style="color:#034ea2;">3. ASO Trận Xanh</b><br/>')
+  t3, b3 = _top3('_pct_x', fmt='pct', higher_better=True)
+  lines.append(f"• <b>Top 3 % TH ASO Xanh:</b> {t3}<br/>")
+  lines.append(f"• <b>Bottom 3 % TH ASO Xanh:</b> {b3}<br/>")
+  upx = d[d['_delta_x'] > 0].sort_values('_delta_x', ascending=False).head(3)
+  upx_s = ', '.join(
+      f"{r['Tên NVBH']} (+{int(r['_delta_x'])})" for _, r in upx.iterrows()
+  ) or 'Không có'
+  lines.append(f"• <b>Top 3 tăng ASO Xanh vs giữa ngày:</b> {upx_s}<br/>")
 
-  lines.append('<b style="color:#034ea2;">4. ASO Trận Xanh & Trận Vàng</b><br/>')
-  lines.append(_top_bot('_pct_x', '% TH ASO Xanh / CT', fmt='pct', higher_better=True))
-  lines.append(_top_bot('_pct_v', '% TH ASO Vàng / CT', fmt='pct', higher_better=True))
-  lines.append(_top_bot('_delta_x', 'tăng ASO Xanh vs giữa ngày', fmt='int', higher_better=True))
-  lines.append(_top_bot('_delta_v', 'tăng ASO Vàng vs giữa ngày', fmt='int', higher_better=True))
+  # 4. ASO Trận Vàng
+  lines.append('<b style="color:#034ea2;">4. ASO Trận Vàng</b><br/>')
+  t3, b3 = _top3('_pct_v', fmt='pct', higher_better=True)
+  lines.append(f"• <b>Top 3 % TH ASO Vàng:</b> {t3}<br/>")
+  lines.append(f"• <b>Bottom 3 % TH ASO Vàng:</b> {b3}<br/>")
+  upv = d[d['_delta_v'] > 0].sort_values('_delta_v', ascending=False).head(3)
+  upv_s = ', '.join(
+      f"{r['Tên NVBH']} (+{int(r['_delta_v'])})" for _, r in upv.iterrows()
+  ) or 'Không có'
+  lines.append(f"• <b>Top 3 tăng ASO Vàng vs giữa ngày:</b> {upv_s}<br/>")
 
-  lines.append('<b style="color:#034ea2;">5. Trái tuyến & VIP KO ĐH</b><br/>')
+  # 5. Trái tuyến & VIP KO ĐH
+  lines.append('<b style="color:#034ea2;">5. Trái Tuyến & VIP KO ĐH</b><br/>')
   trai = d[d['_n_trai'] > 0].sort_values('_n_trai', ascending=False)
   if trai.empty:
     lines.append('• <b>Bán trái tuyến:</b> Không có<br/>')
