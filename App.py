@@ -3990,7 +3990,7 @@ def build_performance_report(
     df_rpt, df_mcp, df_visit, report_date, turnover_targets, filter_nv=None
 ):
   """Báo cáo Hiệu suất bán hàng — logic theo công thức cột (Call Plan / Fundamental)."""
-  title = '14. BÁO CÁO HIỆU SUẤT BÁN HÀNG'
+  title = 'BÁO CÁO HIỆU SUẤT BÁN HÀNG'
   empty = pd.DataFrame()
 
   # MCP: L1 + VIP
@@ -4282,10 +4282,26 @@ def build_performance_report(
     def _trend(a, b):
       return 'Tăng' if a > b else ('Giảm' if a < b else 'Ổn định')
 
+    def _trend_tag(a, b):
+      if a > b:
+        return '↑Tăng'
+      if a < b:
+        return '↓Giảm'
+      return '→Ổn định'
+
     danh_gia = (
-        f'SO:{_trend(th_so, th_so_mid)} | '
-        f'Xanh:{_trend(aso_x, aso_x_mid)} | '
-        f'Vàng:{_trend(aso_v, aso_v_mid)}'
+        f'SO:{_trend_tag(th_so, th_so_mid)} | '
+        f'Xanh:{_trend_tag(aso_x, aso_x_mid)} | '
+        f'Vàng:{_trend_tag(aso_v, aso_v_mid)}'
+    )
+    _delta_so = float(th_so) - float(th_so_mid)
+    _delta_x = int(aso_x) - int(aso_x_mid)
+    _delta_v = int(aso_v) - int(aso_v_mid)
+    _n_trai = len(trai_off) + len(trai_on)
+    _n_vip_ko = len(vip_ko)
+    _pct_vt_dh = (
+        round(len(pc_off | pc_on) / max(len(da_off | da_on), 1) * 100, 1)
+        if (da_off or da_on) else 0.0
     )
 
     rows.append({
@@ -4317,6 +4333,12 @@ def build_performance_report(
         '% TH Vàng': f'{round(aso_v / ct_v * 100, 1)}%',
         'Đề xuất cải thiện': de_xuat_str,
         'Đánh giá Tăng/Giảm': danh_gia,
+        '_delta_so': _delta_so,
+        '_delta_x': _delta_x,
+        '_delta_v': _delta_v,
+        '_n_trai': _n_trai,
+        '_n_vip_ko': _n_vip_ko,
+        '_pct_vt_dh': _pct_vt_dh,
         '_sort': pct_so,
     })
 
@@ -4537,8 +4559,27 @@ def _perf_table_html(df, section='call'):
 
       is_pct = isinstance(val, str) and '%' in str(val)
       is_vip_col = c == 'VIP KO ĐH'
+      is_danh_gia = c == 'Đánh giá Tăng/Giảm'
 
-      if is_pct:
+      if is_danh_gia and not is_tot:
+        s = str(val)
+        if '↓' in s or 'Giảm' in s:
+          bg = (
+              'background-color:#fed7d7 !important;color:#742a2a !important;'
+              'font-weight:800 !important;'
+          )
+        elif '↑' in s or 'Tăng' in s:
+          bg = (
+              'background-color:#c6f6d5 !important;color:#22543d !important;'
+              'font-weight:800 !important;'
+          )
+        else:
+          bg = row_bg
+        html.append(
+            f'<td align="center" data-colored="1" '
+            f'style="{td}{bg}text-align:center !important;">{val}</td>'
+        )
+      elif is_pct:
         cls = color_pct_class(val)
         html.append(
             f'<td align="center" data-colored="1" class="{cls}" '
@@ -5001,10 +5042,86 @@ def render_combo_orders_html(df):
   return ''.join(html)
 
 
+
+def build_performance_comments(df):
+  """Nhận xét cuối báo cáo Hiệu suất."""
+  if df is None or df.empty:
+    return ''
+  d = df.copy()
+  mask_tot = d['STT'].astype(str).str.strip().isin(['-', 'TOTAL', ''])
+  if 'Tên NVBH' in d.columns:
+    mask_tot = mask_tot | d['Tên NVBH'].astype(str).str.upper().str.contains(
+        'TỔNG|TOTAL', na=False
+    )
+  d = d[~mask_tot].copy()
+  if d.empty:
+    return ''
+
+  for col in ['_delta_so', '_delta_x', '_delta_v', '_n_trai', '_n_vip_ko', '_pct_vt_dh']:
+    if col not in d.columns:
+      d[col] = 0
+    d[col] = pd.to_numeric(d[col], errors='coerce').fillna(0)
+
+  lines = []
+  lines.append('<div class="note-box" style="margin-top:14px;">')
+  lines.append('<b>📝 NHẬN XÉT HIỆU SUẤT BÁN HÀNG</b><br/>')
+  lines.append(
+      '<span style="font-size:12px;color:#4a5568;">'
+      'Đánh giá cuối ngày so với kết quả giữa ngày (trước 13h). '
+      '↑ Tăng = xanh, ↓ Giảm = đỏ.</span><br/><br/>'
+  )
+
+  top_up = d.sort_values('_delta_so', ascending=False).head(3)
+  top_down = d.sort_values('_delta_so', ascending=True).head(3)
+  up_names = [
+      f"{r['Tên NVBH']} ({int(r['_delta_so']):+,}đ)".replace(',', '.')
+      for _, r in top_up.iterrows() if r['_delta_so'] > 0
+  ]
+  down_names = [
+      f"{r['Tên NVBH']} ({int(r['_delta_so']):+,}đ)".replace(',', '.')
+      for _, r in top_down.iterrows() if r['_delta_so'] < 0
+  ]
+  lines.append(
+      f"• <b>Tăng SO nhiều nhất vs giữa ngày:</b> "
+      f"{', '.join(up_names) if up_names else 'Không có'}<br/>"
+  )
+  lines.append(
+      f"• <b>Giảm SO nhiều nhất vs giữa ngày:</b> "
+      f"{', '.join(down_names) if down_names else 'Không có'}<br/>"
+  )
+
+  trai = d[d['_n_trai'] > 0].sort_values('_n_trai', ascending=False)
+  if trai.empty:
+    lines.append('• <b>Bán trái tuyến:</b> Không có<br/>')
+  else:
+    names = [f"{r['Tên NVBH']} ({int(r['_n_trai'])} CH)" for _, r in trai.iterrows()]
+    lines.append(f"• <b>Bán trái tuyến:</b> {', '.join(names)}<br/>")
+
+  vip = d[d['_n_vip_ko'] > 0].sort_values('_n_vip_ko', ascending=False)
+  if vip.empty:
+    lines.append('• <b>KH VIP không mua hàng:</b> Không có<br/>')
+  else:
+    names = [f"{r['Tên NVBH']} ({int(r['_n_vip_ko'])} VIP)" for _, r in vip.iterrows()]
+    lines.append(f"• <b>KH VIP không mua hàng:</b> {', '.join(names)}<br/>")
+
+  top_vt = d.sort_values('_pct_vt_dh', ascending=False).head(3)
+  names = [f"{r['Tên NVBH']} ({r['_pct_vt_dh']}%)" for _, r in top_vt.iterrows()]
+  lines.append(
+      f"• <b>Top 3 tỷ lệ VT có ĐH theo lịch VT:</b> "
+      f"{', '.join(names) if names else 'Không có'}<br/>"
+  )
+  lines.append('</div>')
+  return ''.join(lines)
+
+
 def render_performance_html(df):
   if df is None or df.empty:
     return '<p>Không có dữ liệu hiệu suất.</p>'
-  return _perf_table_html(df, 'call') + _perf_table_html(df, 'fund')
+  return (
+      _perf_table_html(df, 'call')
+      + _perf_table_html(df, 'fund')
+      + build_performance_comments(df)
+  )
 
 
 # ====================== GIAO DIỆN ======================
@@ -5199,21 +5316,21 @@ with f2:
   }
   kpi_map = {
       # ===== 8 KPI THÁNG 10 (theo Công văn 22-011026) =====
-      'TURNOVER - Tổng doanh số bán ra': 'TURNOVER',
-      'PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)': 'PC_BT',
-      'LPPC - Bình quân line/PC (trừ Meat & Beer)': 'LPPC',
-      'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)': 'ASO_ALL',
-      'ASO_Focus - Trận Xanh (Tea 365)': 'ASO_FOCUS',
-      'ASO_Focus_2 - Trận Vàng (Homey 2.9kg)': 'ASO_FOCUS_2',
-      'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)': 'PC_ON',
-      'LPPC_Meat - Bình quân line/PC (Processed Meats)': 'LPPC_MEAT',
+      '1. TURNOVER - Tổng doanh số bán ra': 'TURNOVER',
+      '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)': 'PC_BT',
+      '3. LPPC - Bình quân line/PC (trừ Meat & Beer)': 'LPPC',
+      '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)': 'ASO_ALL',
+      '5. ASO_Focus - Trận Xanh (Tea 365)': 'ASO_FOCUS',
+      '6. ASO_Focus_2 - Trận Vàng (Homey 2.9kg)': 'ASO_FOCUS_2',
+      '7. PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)': 'PC_ON',
+      '8. LPPC_Meat - Bình quân line/PC (Processed Meats)': 'LPPC_MEAT',
       # ===== Báo cáo giữ logic Tháng 9 =====
-      'BÁO CÁO ĐH COMBO': 'COMBO',
-      'BÁO CÁO TỔNG HỢP': 'SUMMARY',
-      'BÁO CÁO LỊCH VIẾNG THĂM': 'VISIT',
-      'BÁO CÁO MBS CAT': 'MBS_CAT',
-      'BÁO CÁO MBS BRAND': 'MBS_BRAND',
-      'BÁO CÁO HIỆU SUẤT BÁN HÀNG': 'PERFORMANCE',
+      '9. BÁO CÁO ĐH COMBO': 'COMBO',
+      '10. BÁO CÁO TỔNG HỢP': 'SUMMARY',
+      '11. BÁO CÁO LỊCH VIẾNG THĂM': 'VISIT',
+      '12. BÁO CÁO MBS CAT': 'MBS_CAT',
+      '13. BÁO CÁO MBS BRAND': 'MBS_BRAND',
+      '14. BÁO CÁO HIỆU SUẤT BÁN HÀNG': 'PERFORMANCE',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
@@ -6756,9 +6873,7 @@ with tab_mcp:
       )
     st.query_params['mcp_cols'] = ','.join(selected_mcp_cols)
 
-    st.dataframe(
-        df_f[selected_mcp_cols], use_container_width=True, height=450, hide_index=True
-    )
+    render_mbs_data_table(df_f, selected_mcp_cols)
     st.caption(f'Hiển thị: {len(df_f):,} / {len(mcp):,} cửa hàng')
 
 
@@ -7572,9 +7687,7 @@ with tab_dskh_off:
       )
     st.query_params['off_cols'] = ','.join(selected_off_cols)
 
-    st.dataframe(
-        df_off_f[selected_off_cols], use_container_width=True, height=450, hide_index=True
-    )
+    render_mbs_data_table(df_off_f, selected_off_cols)
     st.caption(f'Hiển thị: {len(df_off_f):,} / {len(df_combo_off):,} cửa hàng')
 
 # ----- TAB DSKH_Combo ON -----
@@ -7727,7 +7840,5 @@ with tab_dskh_on:
       )
     st.query_params['on_cols'] = ','.join(selected_on_cols)
 
-    st.dataframe(
-        df_on_f[selected_on_cols], use_container_width=True, height=450, hide_index=True
-    )
+    render_mbs_data_table(df_on_f, selected_on_cols)
     st.caption(f'Hiển thị: {len(df_on_f):,} / {len(df_combo_on):,} cửa hàng')
