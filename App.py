@@ -1728,7 +1728,7 @@ def build_report(
               all_sms.append(k)
         all_sms = sorted(set(all_sms))
 
-    key, title = 'ASO_ALL', '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
+    key, title = 'ASO_ALL', 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
 
   elif report_type == 'PC_BT':
     # L1 OFF, >=4 line đạt MOQ từng SKU, max 1 PC/CH/ngày, Target từ Target_KPI
@@ -1740,7 +1740,7 @@ def build_report(
     ok_day = pick_best_pc_per_outlet_day(ok)
     mtd = ok_day.groupby('Mã NVBH').size()
     ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
-    key, title = 'PC_BT', '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
+    key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
 
   elif report_type == 'PC_ON':
     # L1 ON, >=1 line đạt MOQ, max 1 PC/CH/ngày
@@ -1765,7 +1765,7 @@ def build_report(
         # fallback: 50% * số outlet ON
         outlet_cnt = on_mcp.groupby(c_nv_mcp)[c_ma].nunique().to_dict()
         on_targets = {k: int(v * 0.5) for k, v in outlet_cnt.items()}
-    key, title = 'PC_ON', '7. PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)'
+    key, title = 'PC_ON', 'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)'
 
   elif report_type == 'ASO_FOCUS':
     # Trận Xanh: Trà Búp Non Tea 365 — mặc định target 72
@@ -1775,7 +1775,7 @@ def build_report(
         r'búp non|bup non|tea\s*365|tea365|trà.*365',
         min_qty=1,
     )
-    key, title = 'ASO_FOCUS', '5. ASO_Focus - Trận Xanh (Tea 365)'
+    key, title = 'ASO_FOCUS', 'ASO_Focus - Trận Xanh (Tea 365)'
 
   elif report_type == 'ASO_FOCUS_2':
     # Trận Vàng: Nước giặt xả Homey hương hoa trà Jeju tinh tế túi 2.9kg — target 26
@@ -1784,7 +1784,7 @@ def build_report(
         r'homey.*2\.9|homey.*2,9|giặt xả homey|giat xa homey|homey.*jeju',
         min_qty=1,
     )
-    key, title = 'ASO_FOCUS_2', '6. ASO_Focus_2 - Trận Vàng (Homey 2.9kg)'
+    key, title = 'ASO_FOCUS_2', 'ASO_Focus_2 - Trận Vàng (Homey 2.9kg)'
 
   elif report_type == 'LPPC':
     # Trừ Meat & Beer; line đạt MOQ; PC = đơn ≥4 line MOQ; LPPC = Total line / Tổng PC
@@ -1818,7 +1818,7 @@ def build_report(
       tl = today.groupby('Mã NVBH')['n_moq_lines'].sum()
       tp = today.groupby('Mã NVBH').size()
       ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
-    key, title = 'LPPC', '3. LPPC - Bình quân line/PC (trừ Meat & Beer)'
+    key, title = 'LPPC', 'LPPC - Bình quân line/PC (trừ Meat & Beer)'
 
   elif report_type == 'LPPC_MEAT':
     d = df_mtd.copy()
@@ -1850,7 +1850,7 @@ def build_report(
       tl = today.groupby('Mã NVBH')['n_moq_lines'].sum()
       tp = today.groupby('Mã NVBH').size()
       ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
-    key, title = 'LPPC_MEAT', '8. LPPC_Meat - Bình quân line/PC (Processed Meats)'
+    key, title = 'LPPC_MEAT', 'LPPC_Meat - Bình quân line/PC (Processed Meats)'
 
   else:
     return pd.DataFrame(), 0, ''
@@ -2031,7 +2031,7 @@ def build_report(
 
 
 def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
-  title = '1. TURNOVER - Tổng doanh số bán ra'
+  title = 'TURNOVER - Tổng doanh số bán ra'
   if df is None or df.empty:
     return pd.DataFrame(columns=[
         'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu Doanh Số',
@@ -5082,23 +5082,34 @@ with f1:
   tot_days, elapsed_days, remain_days, pct_tg = get_timegone_stats(report_date)
 with f2:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
+  # Mức lương KPI theo Công văn số 22–011026/INC-KD-MSC-NET-MBD-CDGT, áp dụng T10/2026.
+  KPI_SALARY_LABEL = {
+      'TURNOVER': '95%: 4.508.000đ | 100%: 6.440.000đ',
+      'PC_BT': '100%: 2.400.000đ',
+      'LPPC': 'Mức 1 (4,3): 1.980.000đ | Mức 2 (4,7): 2.200.000đ',
+      'ASO_ALL': '100%: 1.100.000đ',
+      'ASO_FOCUS': '90%: 880.000đ | 100%: 1.100.000đ',
+      'ASO_FOCUS_2': '90%: 720.000đ | 100%: 900.000đ',
+      'PC_ON': '100%: 1.500.000đ',
+      'LPPC_MEAT': '100%: 400.000đ',
+  }
   kpi_map = {
       # ===== 8 KPI THÁNG 10 (theo Công văn 22-011026) =====
-      '1. TURNOVER - Tổng doanh số bán ra': 'TURNOVER',
-      '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)': 'PC_BT',
-      '3. LPPC - Bình quân line/PC (trừ Meat & Beer)': 'LPPC',
-      '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)': 'ASO_ALL',
-      '5. ASO_Focus - Trận Xanh (Tea 365)': 'ASO_FOCUS',
-      '6. ASO_Focus_2 - Trận Vàng (Homey 2.9kg)': 'ASO_FOCUS_2',
-      '7. PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)': 'PC_ON',
-      '8. LPPC_Meat - Bình quân line/PC (Processed Meats)': 'LPPC_MEAT',
+      'TURNOVER - Tổng doanh số bán ra': 'TURNOVER',
+      'PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)': 'PC_BT',
+      'LPPC - Bình quân line/PC (trừ Meat & Beer)': 'LPPC',
+      'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)': 'ASO_ALL',
+      'ASO_Focus - Trận Xanh (Tea 365)': 'ASO_FOCUS',
+      'ASO_Focus_2 - Trận Vàng (Homey 2.9kg)': 'ASO_FOCUS_2',
+      'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)': 'PC_ON',
+      'LPPC_Meat - Bình quân line/PC (Processed Meats)': 'LPPC_MEAT',
       # ===== Báo cáo giữ logic Tháng 9 =====
-      '9. BÁO CÁO ĐH COMBO': 'COMBO',
-      '10. BÁO CÁO TỔNG HỢP': 'SUMMARY',
-      '11. BÁO CÁO LỊCH VIẾNG THĂM': 'VISIT',
-      '12. BÁO CÁO MBS CAT': 'MBS_CAT',
-      '13. BÁO CÁO MBS BRAND': 'MBS_BRAND',
-      '14. BÁO CÁO HIỆU SUẤT BÁN HÀNG': 'PERFORMANCE',
+      'BÁO CÁO ĐH COMBO': 'COMBO',
+      'BÁO CÁO TỔNG HỢP': 'SUMMARY',
+      'BÁO CÁO LỊCH VIẾNG THĂM': 'VISIT',
+      'BÁO CÁO MBS CAT': 'MBS_CAT',
+      'BÁO CÁO MBS BRAND': 'MBS_BRAND',
+      'BÁO CÁO HIỆU SUẤT BÁN HÀNG': 'PERFORMANCE',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
@@ -5411,7 +5422,7 @@ with tab_kpi:
 
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px; text-align: center;">9. BÁO CÁO TỔNG HỢP - THÁNG'
+        f' font-size: 16px; text-align: center;">BÁO CÁO TỔNG HỢP - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
@@ -6014,12 +6025,16 @@ with tab_kpi:
 
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px; text-align: center;">{title} - THÁNG'
+        f' font-size: 16px; text-align: center;">{title} - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
     st.caption(
         f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {nv_label(filter_nv)}"
+    )
+    st.markdown(
+        f'<div style="text-align:center; font-size:12px; color:#7a1f1f; font-weight:700; margin:2px 0 8px;">💰 Mức lương KPI: {KPI_SALARY_LABEL.get("TURNOVER", "")}</div>',
+        unsafe_allow_html=True,
     )
 
     c1, c2, c3, c4 = st.columns(4)
@@ -6138,12 +6153,16 @@ with tab_kpi:
     pct_team = total_row[pct_col]
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px; text-align: center;">{title} - THÁNG'
+        f' font-size: 16px; text-align: center;">{title} - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
     st.caption(
         f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {nv_label(filter_nv)}"
+    )
+    st.markdown(
+        f'<div style="text-align:center; font-size:12px; color:#7a1f1f; font-weight:700; margin:2px 0 8px;">💰 Mức lương KPI: {KPI_SALARY_LABEL.get(selected_kpi, "")}</div>',
+        unsafe_allow_html=True,
     )
     if selected_kpi == 'ASO_ALL':
       c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -6233,7 +6252,7 @@ with tab_kpi:
 
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-        f' font-size: 15px; text-align: center;">7. BÁO CÁO ĐH COMBO (MATRIX OFF/ON) - THÁNG'
+        f' font-size: 16px; text-align: center;">BÁO CÁO ĐH COMBO (MATRIX OFF/ON) - THÁNG'
         f' {report_date.strftime("%m/%Y")}</h3>',
         unsafe_allow_html=True,
     )
