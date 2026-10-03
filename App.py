@@ -539,6 +539,7 @@ def get_turnover_targets():
 _CURRENT_COLOR_MOC = 100.0
 # % Timegone hiện tại của ngày báo cáo; chỉ dùng cho các KPI có lương thưởng.
 _CURRENT_TIMEGONE = 100.0
+_CURRENT_SALARY_KPI = ''
 
 # KPI có lương thưởng theo Công văn T10/2026 và mốc tối thiểu để được tính lương.
 # Khi % KPI đạt mốc tối thiểu này thì được xem là "kịp Timegone" để tô màu.
@@ -687,8 +688,11 @@ def set_color_moc_for_kpi(kpi_key, total_pct=None):
   Gán mốc tô màu theo loại báo cáo.
   Với 8 KPI có lương thưởng: màu % bám theo Timegone; đồng thời
   nếu đạt mốc tối thiểu tính lương thì được xem như đã kịp Timegone.
+  Riêng LPPC/LPPC_Meat, bảng sẽ có thêm màu theo đúng mốc lương tuyệt đối.
   Combo: dùng % MTD dòng Total nếu có.
   """
+  global _CURRENT_SALARY_KPI
+  _CURRENT_SALARY_KPI = str(kpi_key)
   if kpi_key == 'COMBO' and total_pct is not None:
     set_color_moc(total_pct)
     return
@@ -745,6 +749,57 @@ def color_pct_class(val, moc=None):
       return 'pct-purple'
   except Exception:
     return ''
+
+
+def salary_metric_style(kpi_key, col, val):
+  """Màu riêng cho LPPC/LPPC_Meat theo đúng mốc tính lương trong công văn.
+
+  LPPC: <4.3 đỏ; từ 4.3 đến <4.7 xanh (đạt mức 1); >=4.7 tím (đạt/vượt mức 2).
+  LPPC_Meat: <3.8 đỏ; =3.8 xanh (đạt mức); >3.8 tím (vượt mức).
+  Cột % MTD dùng tỷ lệ tương ứng: LPPC 91.5% và 100%; LPPC_Meat 100%.
+  """
+  key = str(kpi_key or '').upper()
+  c = str(col or '').strip().upper()
+  try:
+    v = float(str(val).replace('%', '').replace(',', '').strip())
+  except Exception:
+    return '', ''
+
+  red = 'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:800 !important;'
+  green = 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:800 !important;'
+  purple = 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:800 !important;'
+
+  if key == 'LPPC':
+    if '%' in c:
+      if v < 91.5:
+        return 'pct-red', red
+      if v < 100:
+        return 'pct-green', green
+      return 'pct-purple', purple
+    if c == 'MTD' or c == 'THỰC HIỆN NGÀY' or 'CHỈ TIÊU KPI' in c:
+      if c == 'CHỈ TIÊU KPI':
+        return '', ''
+      if v < 4.3:
+        return 'pct-red', red
+      if v < 4.7:
+        return 'pct-green', green
+      return 'pct-purple', purple
+
+  if key == 'LPPC_MEAT':
+    if '%' in c:
+      if v < 100:
+        return 'pct-red', red
+      if v == 100:
+        return 'pct-green', green
+      return 'pct-purple', purple
+    if c == 'MTD' or c == 'THỰC HIỆN NGÀY':
+      if v < 3.8:
+        return 'pct-red', red
+      if v == 3.8:
+        return 'pct-green', green
+      return 'pct-purple', purple
+
+  return '', ''
 
 
 def vip_ko_bg(val):
@@ -3419,7 +3474,14 @@ def render_html_table(df):
       if pd.isna(val):
         val = ''
 
-      if col in [
+      salary_cls, salary_style = salary_metric_style(_CURRENT_SALARY_KPI, col, val)
+      if salary_cls or salary_style:
+        align_salary = 'center' if ('%' in str(col) or col in ['MTD', 'Thực Hiện Ngày']) else 'right'
+        html.append(
+            f'<td align="{align_salary}" data-colored="1" class="{salary_cls}" '
+            f'style="{salary_style} text-align:{align_salary} !important;">{val}</td>'
+        )
+      elif col in [
           '% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON',
           '% Hoàn Thành', '% TH', '% PC/VT OFF', '% PC/Plan ON', '% TH SO',
           '% TH Xanh', '% TH Vàng', '% Active',
