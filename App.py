@@ -4289,20 +4289,59 @@ def build_performance_report(
     aso_v_mid = _count_aso_dh(d_mid, pat_v)
     ct_x, ct_v = 5, 3
 
-    # Đề xuất giữa ngày < 50% CT
+    # ----- Chỉ số giữa ngày (RPT < 13h) -----
+    d_mid_off = (
+        d_mid[d_mid['_ma'].map(lambda m: not _is_on(m))]
+        if (not d_mid.empty and '_ma' in d_mid.columns) else pd.DataFrame()
+    )
+    d_mid_on = (
+        d_mid[d_mid['_ma'].map(lambda m: _is_on(m))]
+        if (not d_mid.empty and '_ma' in d_mid.columns) else pd.DataFrame()
+    )
+    pc_off_mid = set(d_mid_off['_ma'].unique()) if not d_mid_off.empty else set()
+    pc_on_mid = set(d_mid_on['_ma'].unique()) if not d_mid_on.empty else set()
+    pc_off_mid = pc_off_mid & (plan_off | da_off)
+    pc_on_mid = pc_on_mid & (plan_on | da_on)
+    pct_off_mid = round(len(pc_off_mid) / len(da_off) * 100, 1) if da_off else 0.0
+    pct_on_mid = round(len(pc_on_mid) / len(da_on) * 100, 1) if da_on else 0.0
+    n_dh_off_mid = (
+        int(d_mid_off['Mã đơn hàng'].nunique())
+        if (not d_mid_off.empty and 'Mã đơn hàng' in d_mid_off.columns) else 0
+    )
+    lppc_off_mid = (
+        round(len(d_mid_off) / n_dh_off_mid, 2) if n_dh_off_mid else 0.0
+    )
+    ko_off_mid = max(len(da_off) - len(pc_off_mid), 0) if da_off else 0
+    ko_on_mid = max(len(da_on) - len(pc_on_mid), 0) if da_on else 0
+    pct_x_mid = round(aso_x_mid / ct_x * 100, 1) if ct_x else 0.0
+    pct_v_mid = round(aso_v_mid / ct_v * 100, 1) if ct_v else 0.0
+    pct_x = round(aso_x / ct_x * 100, 1) if ct_x else 0.0
+    pct_v = round(aso_v / ct_v * 100, 1) if ct_v else 0.0
+
     de_xuat = []
     if ct_ngay and pct_so_mid < 50:
       de_xuat.append('SellOut')
-    if aso_x_mid / ct_x * 100 < 50:
+    if pct_x_mid < 50:
       de_xuat.append('ASO Xanh')
-    if aso_v_mid / ct_v * 100 < 50:
+    if pct_v_mid < 50:
       de_xuat.append('ASO Vàng')
+    if da_off and pct_off_mid < 50:
+      de_xuat.append('VT OFF')
+    if da_on and pct_on_mid < 50:
+      de_xuat.append('VT ON')
+    if n_dh_off_mid and lppc_off_mid < 4.3:
+      de_xuat.append('LPPC')
+    if ko_off_mid > 0:
+      de_xuat.append('KO ĐH OFF')
+    if ko_on_mid > 0:
+      de_xuat.append('KO ĐH ON')
     de_xuat_str = ', '.join(de_xuat) if de_xuat else 'OK'
 
-    def _trend(a, b):
-      return 'Tăng' if a > b else ('Giảm' if a < b else 'Ổn định')
-
     def _trend_tag(a, b):
+      try:
+        a, b = float(a), float(b)
+      except Exception:
+        return '→Ổn định'
       if a > b:
         return '↑Tăng'
       if a < b:
@@ -4311,18 +4350,28 @@ def build_performance_report(
 
     danh_gia = (
         f'SO:{_trend_tag(th_so, th_so_mid)} | '
+        f'VT-OFF:{_trend_tag(pct_off, pct_off_mid)} | '
+        f'VT-ON:{_trend_tag(pct_on, pct_on_mid)} | '
+        f'LPPC:{_trend_tag(lppc_off, lppc_off_mid)} | '
         f'Xanh:{_trend_tag(aso_x, aso_x_mid)} | '
         f'Vàng:{_trend_tag(aso_v, aso_v_mid)}'
     )
     _delta_so = float(th_so) - float(th_so_mid)
     _delta_x = int(aso_x) - int(aso_x_mid)
     _delta_v = int(aso_v) - int(aso_v_mid)
+    _delta_lppc = float(lppc_off) - float(lppc_off_mid)
+    _delta_pct_off = float(pct_off) - float(pct_off_mid)
+    _delta_pct_on = float(pct_on) - float(pct_on_mid)
     _n_trai = len(trai_off) + len(trai_on)
     _n_vip_ko = len(vip_ko)
     _pct_vt_dh = (
         round(len(pc_off | pc_on) / max(len(da_off | da_on), 1) * 100, 1)
         if (da_off or da_on) else 0.0
     )
+    _pct_so = pct_so
+    _pct_x = pct_x
+    _pct_v = pct_v
+    _lppc = float(lppc_off)
 
     rows.append({
         'Mã NVBH': sm_code,
@@ -4356,9 +4405,16 @@ def build_performance_report(
         '_delta_so': _delta_so,
         '_delta_x': _delta_x,
         '_delta_v': _delta_v,
+        '_delta_lppc': _delta_lppc,
+        '_delta_pct_off': _delta_pct_off,
+        '_delta_pct_on': _delta_pct_on,
         '_n_trai': _n_trai,
         '_n_vip_ko': _n_vip_ko,
         '_pct_vt_dh': _pct_vt_dh,
+        '_pct_so': _pct_so,
+        '_pct_x': _pct_x,
+        '_pct_v': _pct_v,
+        '_lppc': _lppc,
         '_sort': pct_so,
     })
 
@@ -5249,89 +5305,6 @@ def render_combo_orders_html(df):
   return ''.join(html)
 
 
-
-def build_performance_comments(df):
-  """Nhận xét cuối báo cáo Hiệu suất."""
-  if df is None or df.empty:
-    return ''
-  d = df.copy()
-  mask_tot = d['STT'].astype(str).str.strip().isin(['-', 'TOTAL', ''])
-  if 'Tên NVBH' in d.columns:
-    mask_tot = mask_tot | d['Tên NVBH'].astype(str).str.upper().str.contains(
-        'TỔNG|TOTAL', na=False
-    )
-  d = d[~mask_tot].copy()
-  if d.empty:
-    return ''
-
-  for col in ['_delta_so', '_delta_x', '_delta_v', '_n_trai', '_n_vip_ko', '_pct_vt_dh']:
-    if col not in d.columns:
-      d[col] = 0
-    d[col] = pd.to_numeric(d[col], errors='coerce').fillna(0)
-
-  lines = []
-  lines.append('<div class="note-box" style="margin-top:14px;">')
-  lines.append('<b>📝 NHẬN XÉT HIỆU SUẤT BÁN HÀNG</b><br/>')
-  lines.append(
-      '<span style="font-size:12px;color:#4a5568;">'
-      'Đánh giá cuối ngày so với kết quả giữa ngày (trước 13h). '
-      '↑ Tăng = xanh, ↓ Giảm = đỏ.</span><br/><br/>'
-  )
-
-  top_up = d.sort_values('_delta_so', ascending=False).head(3)
-  top_down = d.sort_values('_delta_so', ascending=True).head(3)
-  up_names = [
-      f"{r['Tên NVBH']} ({int(r['_delta_so']):+,}đ)".replace(',', '.')
-      for _, r in top_up.iterrows() if r['_delta_so'] > 0
-  ]
-  down_names = [
-      f"{r['Tên NVBH']} ({int(r['_delta_so']):+,}đ)".replace(',', '.')
-      for _, r in top_down.iterrows() if r['_delta_so'] < 0
-  ]
-  lines.append(
-      f"• <b>Tăng SO nhiều nhất vs giữa ngày:</b> "
-      f"{', '.join(up_names) if up_names else 'Không có'}<br/>"
-  )
-  lines.append(
-      f"• <b>Giảm SO nhiều nhất vs giữa ngày:</b> "
-      f"{', '.join(down_names) if down_names else 'Không có'}<br/>"
-  )
-
-  trai = d[d['_n_trai'] > 0].sort_values('_n_trai', ascending=False)
-  if trai.empty:
-    lines.append('• <b>Bán trái tuyến:</b> Không có<br/>')
-  else:
-    names = [f"{r['Tên NVBH']} ({int(r['_n_trai'])} CH)" for _, r in trai.iterrows()]
-    lines.append(f"• <b>Bán trái tuyến:</b> {', '.join(names)}<br/>")
-
-  vip = d[d['_n_vip_ko'] > 0].sort_values('_n_vip_ko', ascending=False)
-  if vip.empty:
-    lines.append('• <b>KH VIP không mua hàng:</b> Không có<br/>')
-  else:
-    names = [f"{r['Tên NVBH']} ({int(r['_n_vip_ko'])} VIP)" for _, r in vip.iterrows()]
-    lines.append(f"• <b>KH VIP không mua hàng:</b> {', '.join(names)}<br/>")
-
-  top_vt = d.sort_values('_pct_vt_dh', ascending=False).head(3)
-  names = [f"{r['Tên NVBH']} ({r['_pct_vt_dh']}%)" for _, r in top_vt.iterrows()]
-  lines.append(
-      f"• <b>Top 3 tỷ lệ VT có ĐH theo lịch VT:</b> "
-      f"{', '.join(names) if names else 'Không có'}<br/>"
-  )
-
-  # Bottom 3: tỷ lệ VT KHÔNG có ĐH = 100 - % VT có ĐH (cao nhất = kém nhất)
-  d = d.copy()
-  d['_pct_vt_ko_dh'] = (100.0 - d['_pct_vt_dh']).clip(lower=0)
-  bot_vt = d.sort_values('_pct_vt_ko_dh', ascending=False).head(3)
-  bot_names = [
-      f"{r['Tên NVBH']} (KO ĐH {r['_pct_vt_ko_dh']:.1f}%)"
-      for _, r in bot_vt.iterrows()
-  ]
-  lines.append(
-      f"• <b>Bottom 3 tỷ lệ VT không có ĐH theo lịch VT:</b> "
-      f"{', '.join(bot_names) if bot_names else 'Không có'}<br/>"
-  )
-  lines.append('</div>')
-  return ''.join(lines)
 
 
 def render_performance_html(df):
