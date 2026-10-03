@@ -4559,27 +4559,38 @@ def _perf_table_html(df, section='call'):
 
       is_pct = isinstance(val, str) and '%' in str(val)
       is_vip_col = c == 'VIP KO ĐH'
-      is_danh_gia = c == 'Đánh giá Tăng/Giảm'
+      is_danh_gia = ('đánh giá' in str(c).lower()) or ('tang/giam' in str(c).lower().replace('ă','a').replace('ả','a')) or (c == 'Đánh giá Tăng/Giảm')
 
-      if is_danh_gia and not is_tot:
-        # Tăng so với giữa ngày → xanh; Không tăng hoặc Giảm → đỏ (giống timegone)
+      if is_danh_gia:
+        # Rule giống cột % KPI:
+        # - Có Giảm → đỏ
+        # - Chỉ Ổn định / không tăng → đỏ
+        # - Có Tăng (không Giảm) → xanh
         s = str(val)
         has_up = ('↑' in s) or ('Tăng' in s)
         has_down = ('↓' in s) or ('Giảm' in s)
-        if has_down or not has_up:
-          bg = (
-              'background-color:#fed7d7 !important;color:#742a2a !important;'
-              'font-weight:800 !important;'
+        has_flat = ('→' in s) or ('Ổn định' in s) or ('On dinh' in s)
+        if is_tot:
+          # Total: giữ nền xanh đậm
+          html.append(
+              f'<td align="center" data-colored="1" '
+              f'style="{td}background-color:#1a365d !important;color:#ffffff !important;'
+              f'font-weight:900 !important;text-align:center !important;">{val}</td>'
+          )
+        elif has_down or (not has_up):
+          # Giảm hoặc không tăng → đỏ
+          html.append(
+              f'<td align="center" data-colored="1" class="pct-red" '
+              f'style="{td}background-color:#fed7d7 !important;color:#742a2a !important;'
+              f'font-weight:800 !important;text-align:center !important;">{val}</td>'
           )
         else:
-          bg = (
-              'background-color:#c6f6d5 !important;color:#22543d !important;'
-              'font-weight:800 !important;'
+          # Tăng → xanh
+          html.append(
+              f'<td align="center" data-colored="1" class="pct-green" '
+              f'style="{td}background-color:#c6f6d5 !important;color:#22543d !important;'
+              f'font-weight:800 !important;text-align:center !important;">{val}</td>'
           )
-        html.append(
-            f'<td align="center" data-colored="1" '
-            f'style="{td}{bg}text-align:center !important;">{val}</td>'
-        )
       elif is_pct:
         cls = color_pct_class(val)
         html.append(
