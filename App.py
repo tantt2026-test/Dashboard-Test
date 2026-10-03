@@ -4747,35 +4747,112 @@ def _perf_table_html(df, section='call'):
 
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_dskh_trai_tuyen():
-  """Load sheet F4 & F2 từ DSKH_Trái Tuyến.xlsx."""
+  """Load sheet F4 & F2 từ DSKH_Trái Tuyến.xlsx — tìm file linh hoạt theo tên."""
   empty = pd.DataFrame()
-  path = globals().get('DSKH_TRAI_PATH') or os.path.join(DATA_DIR, 'DSKH_Trái Tuyến.xlsx')
-  # try multiple names
-  candidates = [path]
-  if os.path.isdir(DATA_DIR):
-    for fn in os.listdir(DATA_DIR):
-      low = fn.lower()
-      if 'dskh' in low and ('trai' in low or 'trái' in low or 'tuyen' in low or 'tuyến' in low):
-        candidates.append(os.path.join(DATA_DIR, fn))
   path_use = None
+  # 1) Đường dẫn cố định
+  candidates = [
+      os.path.join(DATA_DIR, 'DSKH_Trái Tuyến.xlsx'),
+      os.path.join(DATA_DIR, 'DSKH_Trai Tuyen.xlsx'),
+      os.path.join(DATA_DIR, 'DSKH_Trái_Tuyến.xlsx'),
+      os.path.join(DATA_DIR, 'DSKH Trai Tuyen.xlsx'),
+  ]
+  # 2) Quét thư mục data: mọi file chứa "dskh"
+  if os.path.isdir(DATA_DIR):
+    try:
+      for fn in os.listdir(DATA_DIR):
+        if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+          continue
+        low = fn.lower()
+        # bỏ dấu để so
+        low_ascii = (
+            low.replace('ế', 'e').replace('é', 'e').replace('è', 'e')
+            .replace('á', 'a').replace('à', 'a').replace('ả', 'a')
+            .replace('ã', 'a').replace('ạ', 'a').replace('ấ', 'a')
+            .replace('ầ', 'a').replace('ẩ', 'a').replace('ẫ', 'a')
+            .replace('ậ', 'a').replace('ắ', 'a').replace('ằ', 'a')
+            .replace('ẳ', 'a').replace('ẵ', 'a').replace('ặ', 'a')
+            .replace('ý', 'y').replace('ỳ', 'y').replace('ỷ', 'y')
+            .replace('ỹ', 'y').replace('ỵ', 'y')
+            .replace('ú', 'u').replace('ù', 'u').replace('ủ', 'u')
+            .replace('ũ', 'u').replace('ụ', 'u').replace('ư', 'u')
+            .replace('ứ', 'u').replace('ừ', 'u').replace('ử', 'u')
+            .replace('ữ', 'u').replace('ự', 'u')
+            .replace('í', 'i').replace('ì', 'i').replace('ỉ', 'i')
+            .replace('ĩ', 'i').replace('ị', 'i')
+            .replace('ó', 'o').replace('ò', 'o').replace('ỏ', 'o')
+            .replace('õ', 'o').replace('ọ', 'o').replace('ô', 'o')
+            .replace('ố', 'o').replace('ồ', 'o').replace('ổ', 'o')
+            .replace('ỗ', 'o').replace('ộ', 'o').replace('ơ', 'o')
+            .replace('ớ', 'o').replace('ờ', 'o').replace('ở', 'o')
+            .replace('ỡ', 'o').replace('ợ', 'o')
+            .replace('đ', 'd')
+        )
+        if 'dskh' in low_ascii and ('trai' in low_ascii or 'tuyen' in low_ascii):
+          candidates.append(os.path.join(DATA_DIR, fn))
+    except Exception:
+      pass
+
   for p in candidates:
-    if os.path.exists(p):
-      path_use = p
-      break
+    try:
+      if os.path.isfile(p):
+        path_use = p
+        break
+    except Exception:
+      continue
+
   if not path_use:
     return empty, empty
+
   try:
-    xl = pd.ExcelFile(path_use)
-    sheets = {s.lower().strip(): s for s in xl.sheet_names}
-    s_f4 = sheets.get('f4') or next((sheets[k] for k in sheets if 'f4' in k), None)
-    s_f2 = sheets.get('f2') or next((sheets[k] for k in sheets if 'f2' in k), None)
-    df_f4 = pd.read_excel(path_use, sheet_name=s_f4) if s_f4 else empty
-    df_f2 = pd.read_excel(path_use, sheet_name=s_f2) if s_f2 else empty
+    xl = pd.ExcelFile(path_use, engine='openpyxl')
+    sheet_names = list(xl.sheet_names)
+    s_f4 = s_f2 = None
+    for s in sheet_names:
+      sl = str(s).strip().lower()
+      if sl == 'f4' or sl.startswith('f4'):
+        s_f4 = s
+      if sl == 'f2' or sl.startswith('f2'):
+        s_f2 = s
+    # fallback: sheet index 0/1 if named differently
+    if s_f4 is None and sheet_names:
+      for s in sheet_names:
+        if '4' in str(s):
+          s_f4 = s
+          break
+    if s_f2 is None and sheet_names:
+      for s in sheet_names:
+        if '2' in str(s) and s != s_f4:
+          s_f2 = s
+          break
+
+    df_f4 = pd.read_excel(path_use, sheet_name=s_f4, engine='openpyxl') if s_f4 else empty
+    df_f2 = pd.read_excel(path_use, sheet_name=s_f2, engine='openpyxl') if s_f2 else empty
+    # Chuẩn hoá tên cột: strip
+    if not df_f4.empty:
+      df_f4.columns = [str(c).strip() for c in df_f4.columns]
+    if not df_f2.empty:
+      df_f2.columns = [str(c).strip() for c in df_f2.columns]
     return df_f4, df_f2
   except Exception:
-    return empty, empty
+    try:
+      # fallback không chỉ định engine
+      xl = pd.ExcelFile(path_use)
+      sheet_names = list(xl.sheet_names)
+      s_f4 = next((s for s in sheet_names if str(s).strip().upper().startswith('F4')), None)
+      s_f2 = next((s for s in sheet_names if str(s).strip().upper().startswith('F2')), None)
+      df_f4 = pd.read_excel(path_use, sheet_name=s_f4) if s_f4 else empty
+      df_f2 = pd.read_excel(path_use, sheet_name=s_f2) if s_f2 else empty
+      if not df_f4.empty:
+        df_f4.columns = [str(c).strip() for c in df_f4.columns]
+      if not df_f2.empty:
+        df_f2.columns = [str(c).strip() for c in df_f2.columns]
+      return df_f4, df_f2
+    except Exception:
+      return empty, empty
+
 
 
 def _norm_ma_kh(x):
@@ -5172,8 +5249,26 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
       lambda x: f'{int(x):,}'.replace(',', '.') if isinstance(x, (int, float)) else x
   )
   # Check Danh Sách bổ sung (F4/F2)
+  # Reload DSKH nếu rules rỗng (tránh cache lỗi lần đầu)
+  if not _dskh_rules:
+    try:
+      load_dskh_trai_tuyen.clear()
+      _df_f4, _df_f2 = load_dskh_trai_tuyen()
+      _dskh_rules = build_dskh_exempt_lookup(_df_f4, _df_f2)
+    except Exception:
+      pass
+
   def _chk_bs(ma):
-    return '✓' if check_dskh_bo_sung(ma, rd, _dskh_rules) else ''
+    if check_dskh_bo_sung(ma, rd, _dskh_rules):
+      return '✓'
+    # thử thêm chuẩn hoá
+    try:
+      ma2 = str(int(float(str(ma).strip())))
+      if check_dskh_bo_sung(ma2, rd, _dskh_rules):
+        return '✓'
+    except Exception:
+      pass
+    return ''
   out['Check Danh Sách bổ sung'] = out['Mã KH'].map(_chk_bs)
   return out
 
