@@ -4749,51 +4749,72 @@ def _perf_table_html(df, section='call'):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_dskh_trai_tuyen():
-  """Load sheet F4 & F2 từ DSKH_Trái Tuyến.xlsx — tìm file linh hoạt theo tên."""
+  """Load F4 & F2 từ DSKH_Trái Tuyến.xlsx — xử lý Unicode NFC/NFD + tìm file linh hoạt."""
+  import unicodedata
   empty = pd.DataFrame()
-  path_use = None
-  # 1) Đường dẫn cố định
-  candidates = [
-      os.path.join(DATA_DIR, 'DSKH_Trái Tuyến.xlsx'),
-      os.path.join(DATA_DIR, 'DSKH_Trai Tuyen.xlsx'),
-      os.path.join(DATA_DIR, 'DSKH_Trái_Tuyến.xlsx'),
-      os.path.join(DATA_DIR, 'DSKH Trai Tuyen.xlsx'),
-  ]
-  # 2) Quét thư mục data: mọi file chứa "dskh"
-  if os.path.isdir(DATA_DIR):
+
+  def _nfc(s):
     try:
-      for fn in os.listdir(DATA_DIR):
-        if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-          continue
-        low = fn.lower()
-        # bỏ dấu để so
-        low_ascii = (
-            low.replace('ế', 'e').replace('é', 'e').replace('è', 'e')
-            .replace('á', 'a').replace('à', 'a').replace('ả', 'a')
-            .replace('ã', 'a').replace('ạ', 'a').replace('ấ', 'a')
-            .replace('ầ', 'a').replace('ẩ', 'a').replace('ẫ', 'a')
-            .replace('ậ', 'a').replace('ắ', 'a').replace('ằ', 'a')
-            .replace('ẳ', 'a').replace('ẵ', 'a').replace('ặ', 'a')
-            .replace('ý', 'y').replace('ỳ', 'y').replace('ỷ', 'y')
-            .replace('ỹ', 'y').replace('ỵ', 'y')
-            .replace('ú', 'u').replace('ù', 'u').replace('ủ', 'u')
-            .replace('ũ', 'u').replace('ụ', 'u').replace('ư', 'u')
-            .replace('ứ', 'u').replace('ừ', 'u').replace('ử', 'u')
-            .replace('ữ', 'u').replace('ự', 'u')
-            .replace('í', 'i').replace('ì', 'i').replace('ỉ', 'i')
-            .replace('ĩ', 'i').replace('ị', 'i')
-            .replace('ó', 'o').replace('ò', 'o').replace('ỏ', 'o')
-            .replace('õ', 'o').replace('ọ', 'o').replace('ô', 'o')
-            .replace('ố', 'o').replace('ồ', 'o').replace('ổ', 'o')
-            .replace('ỗ', 'o').replace('ộ', 'o').replace('ơ', 'o')
-            .replace('ớ', 'o').replace('ờ', 'o').replace('ở', 'o')
-            .replace('ỡ', 'o').replace('ợ', 'o')
-            .replace('đ', 'd')
-        )
-        if 'dskh' in low_ascii and ('trai' in low_ascii or 'tuyen' in low_ascii):
-          candidates.append(os.path.join(DATA_DIR, fn))
+      return unicodedata.normalize('NFC', str(s))
+    except Exception:
+      return str(s)
+
+  def _fold(s):
+    """Bỏ dấu + lower để so tên file."""
+    s = _nfc(s).lower()
+    repl = {
+        'á':'a','à':'a','ả':'a','ã':'a','ạ':'a','ă':'a','ắ':'a','ằ':'a','ẳ':'a','ẵ':'a','ặ':'a',
+        'â':'a','ấ':'a','ầ':'a','ẩ':'a','ẫ':'a','ậ':'a',
+        'é':'e','è':'e','ẻ':'e','ẽ':'e','ẹ':'e','ê':'e','ế':'e','ề':'e','ể':'e','ễ':'e','ệ':'e',
+        'í':'i','ì':'i','ỉ':'i','ĩ':'i','ị':'i',
+        'ó':'o','ò':'o','ỏ':'o','õ':'o','ọ':'o','ô':'o','ố':'o','ồ':'o','ổ':'o','ỗ':'o','ộ':'o',
+        'ơ':'o','ớ':'o','ờ':'o','ở':'o','ỡ':'o','ợ':'o',
+        'ú':'u','ù':'u','ủ':'u','ũ':'u','ụ':'u','ư':'u','ứ':'u','ừ':'u','ử':'u','ữ':'u','ự':'u',
+        'ý':'y','ỳ':'y','ỷ':'y','ỹ':'y','ỵ':'y','đ':'d',
+    }
+    for a, b in repl.items():
+      s = s.replace(a, b)
+    return s
+
+  path_use = None
+  candidates = []
+
+  # Quét data/ — match mọi file có "dskh"
+  search_dirs = []
+  for d in [DATA_DIR, 'data', '.', '/mount/src']:
+    if os.path.isdir(d):
+      search_dirs.append(d)
+    # streamlit cloud đôi khi mount khác
+    try:
+      for root, dirs, files in os.walk(d if os.path.isdir(d) else '.'):
+        if 'data' in dirs:
+          search_dirs.append(os.path.join(root, 'data'))
+        break
     except Exception:
       pass
+
+  seen = set()
+  for d in search_dirs:
+    try:
+      for fn in os.listdir(d):
+        full = os.path.join(d, fn)
+        if full in seen:
+          continue
+        seen.add(full)
+        if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+          continue
+        folded = _fold(fn)
+        if 'dskh' in folded:
+          candidates.append(full)
+    except Exception:
+      continue
+
+  # Thêm path cố định
+  for name in [
+      'DSKH_Trái Tuyến.xlsx', 'DSKH_Trai Tuyen.xlsx',
+      'DSKH_Trái_Tuyến.xlsx', 'DSKH Trai Tuyen.xlsx',
+  ]:
+    candidates.insert(0, os.path.join(DATA_DIR, name))
 
   for p in candidates:
     try:
@@ -4806,50 +4827,29 @@ def load_dskh_trai_tuyen():
   if not path_use:
     return empty, empty
 
-  try:
-    xl = pd.ExcelFile(path_use, engine='openpyxl')
-    sheet_names = list(xl.sheet_names)
+  def _read_sheets(p):
+    xl = pd.ExcelFile(p)
+    names = list(xl.sheet_names)
     s_f4 = s_f2 = None
-    for s in sheet_names:
-      sl = str(s).strip().lower()
-      if sl == 'f4' or sl.startswith('f4'):
+    for s in names:
+      su = str(s).strip().upper()
+      if su == 'F4' or su.startswith('F4'):
         s_f4 = s
-      if sl == 'f2' or sl.startswith('f2'):
+      if su == 'F2' or su.startswith('F2'):
         s_f2 = s
-    # fallback: sheet index 0/1 if named differently
-    if s_f4 is None and sheet_names:
-      for s in sheet_names:
-        if '4' in str(s):
-          s_f4 = s
-          break
-    if s_f2 is None and sheet_names:
-      for s in sheet_names:
-        if '2' in str(s) and s != s_f4:
-          s_f2 = s
-          break
-
-    df_f4 = pd.read_excel(path_use, sheet_name=s_f4, engine='openpyxl') if s_f4 else empty
-    df_f2 = pd.read_excel(path_use, sheet_name=s_f2, engine='openpyxl') if s_f2 else empty
-    # Chuẩn hoá tên cột: strip
+    df_f4 = pd.read_excel(p, sheet_name=s_f4) if s_f4 else empty
+    df_f2 = pd.read_excel(p, sheet_name=s_f2) if s_f2 else empty
     if not df_f4.empty:
       df_f4.columns = [str(c).strip() for c in df_f4.columns]
     if not df_f2.empty:
       df_f2.columns = [str(c).strip() for c in df_f2.columns]
     return df_f4, df_f2
+
+  try:
+    return _read_sheets(path_use)
   except Exception:
     try:
-      # fallback không chỉ định engine
-      xl = pd.ExcelFile(path_use)
-      sheet_names = list(xl.sheet_names)
-      s_f4 = next((s for s in sheet_names if str(s).strip().upper().startswith('F4')), None)
-      s_f2 = next((s for s in sheet_names if str(s).strip().upper().startswith('F2')), None)
-      df_f4 = pd.read_excel(path_use, sheet_name=s_f4) if s_f4 else empty
-      df_f2 = pd.read_excel(path_use, sheet_name=s_f2) if s_f2 else empty
-      if not df_f4.empty:
-        df_f4.columns = [str(c).strip() for c in df_f4.columns]
-      if not df_f2.empty:
-        df_f2.columns = [str(c).strip() for c in df_f2.columns]
-      return df_f4, df_f2
+      return _read_sheets(path_use)
     except Exception:
       return empty, empty
 
@@ -5295,23 +5295,40 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
   out['Giá trị ĐH [Doanh Số]'] = out['Giá trị ĐH [Doanh Số]'].apply(
       lambda x: f'{int(x):,}'.replace(',', '.') if isinstance(x, (int, float)) else x
   )
-  # Check Danh Sách bổ sung (F4/F2)
-  # Reload DSKH nếu rules rỗng (tránh cache lỗi lần đầu)
-  if not _dskh_rules:
+  # Check Danh Sách bổ sung (F4/F2) — luôn reload để tránh cache rỗng
+  try:
     try:
       load_dskh_trai_tuyen.clear()
-      _df_f4, _df_f2 = load_dskh_trai_tuyen()
-      _dskh_rules = build_dskh_exempt_lookup(_df_f4, _df_f2)
     except Exception:
       pass
+    _df_f4, _df_f2 = load_dskh_trai_tuyen()
+    _dskh_rules = build_dskh_exempt_lookup(_df_f4, _df_f2)
+  except Exception:
+    _dskh_rules = _dskh_rules if _dskh_rules else {}
+
+  # Precompute set Mã KH được tick hôm nay (thứ khớp 25/36/47)
+  try:
+    _wd = pd.Timestamp(rd).weekday()  # Mon=0 .. Sat=5
+  except Exception:
+    _wd = -1
+  _tick_mas = set()
+  for _ma, _rules in (_dskh_rules or {}).items():
+    for _r in _rules:
+      if _wd in (_r.get('days') or set()) and _week_ok(_r.get('week'), rd):
+        _tick_mas.add(str(_ma))
+        try:
+          _tick_mas.add(str(int(float(_ma))))
+        except Exception:
+          pass
 
   def _chk_bs(ma):
-    if check_dskh_bo_sung(ma, rd, _dskh_rules):
+    s = str(ma).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    if s in _tick_mas:
       return '✓'
-    # thử thêm chuẩn hoá
     try:
-      ma2 = str(int(float(str(ma).strip())))
-      if check_dskh_bo_sung(ma2, rd, _dskh_rules):
+      if str(int(float(s))) in _tick_mas:
         return '✓'
     except Exception:
       pass
