@@ -772,11 +772,11 @@ def color_pct_class(val, moc=None):
 
 
 def salary_metric_style(kpi_key, col, val):
-  """Màu riêng cho LPPC/LPPC_Meat theo đúng mốc tính lương trong công văn.
+  """Chỉ tô màu cột % MTD cho LPPC / LPPC_Meat.
 
-  LPPC: <4.3 đỏ; từ 4.3 đến <4.7 xanh (đạt mức 1); >=4.7 tím (đạt/vượt mức 2).
-  LPPC_Meat: <3.8 đỏ; =3.8 xanh (đạt mức); >3.8 tím (vượt mức).
-  Cột % MTD dùng tỷ lệ tương ứng: LPPC 91.5% và 100%; LPPC_Meat 100%.
+  LPPC % MTD: <91.5 đỏ; 91.5–<100 xanh; >=100 tím.
+  LPPC_Meat % MTD: <100 đỏ; =100 xanh; >100 tím.
+  Cột Thực Hiện Ngày / MTD: KHÔNG tô màu.
   """
   key = str(kpi_key or '').upper()
   c = str(col or '').strip().upper()
@@ -789,37 +789,26 @@ def salary_metric_style(kpi_key, col, val):
   green = 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:800 !important;'
   purple = 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:800 !important;'
 
+  # Chỉ áp dụng cho cột %
+  if '%' not in c:
+    return '', ''
+
   if key == 'LPPC':
-    if '%' in c:
-      if v < 91.5:
-        return 'pct-red', red
-      if v < 100:
-        return 'pct-green', green
-      return 'pct-purple', purple
-    if c == 'MTD' or c == 'THỰC HIỆN NGÀY' or 'CHỈ TIÊU KPI' in c:
-      if c == 'CHỈ TIÊU KPI':
-        return '', ''
-      if v < 4.3:
-        return 'pct-red', red
-      if v < 4.7:
-        return 'pct-green', green
-      return 'pct-purple', purple
+    if v < 91.5:
+      return 'pct-red', red
+    if v < 100:
+      return 'pct-green', green
+    return 'pct-purple', purple
 
   if key == 'LPPC_MEAT':
-    if '%' in c:
-      if v < 100:
-        return 'pct-red', red
-      if v == 100:
-        return 'pct-green', green
-      return 'pct-purple', purple
-    if c == 'MTD' or c == 'THỰC HIỆN NGÀY':
-      if v < 3.8:
-        return 'pct-red', red
-      if v == 3.8:
-        return 'pct-green', green
-      return 'pct-purple', purple
+    if v < 100:
+      return 'pct-red', red
+    if v == 100:
+      return 'pct-green', green
+    return 'pct-purple', purple
 
   return '', ''
+
 
 
 def vip_ko_bg(val):
@@ -2550,7 +2539,7 @@ def render_visit_html_table(df):
 
   html.append('<tbody>')
   for _, row in df.iterrows():
-    is_total = str(row.get('Tên NVBH', '')).strip() == 'TỔNG CỘNG'
+    is_total = (str(row.get('Tên NVBH', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper())
     html.append('<tr>')
 
     cols_order = [
@@ -2598,7 +2587,7 @@ def render_visit_html_table(df):
           )
         else:
           html.append(
-              f'<td style="background-color: #fff5f5; color: #c53030 !important;'
+              f'<td style="background-color:#1a365d !important; color:#ffffff !important;'
               f' font-weight: 900 !important; text-align: {align}; white-space:'
               f' nowrap;">{val}</td>'
           )
@@ -3390,7 +3379,7 @@ def render_summary_html_table(df, selected_metrics):
 
   html.append('<tbody>')
   for _, row in df.iterrows():
-    is_total = str(row.get('Tên NV', '')).strip() == 'TỔNG CỘNG'
+    is_total = (str(row.get('Tên NV', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NV', '')).upper() or 'TỔNG' in str(row.get('Tên NV', '')).upper())
     html.append('<tr>')
 
     cols_order = ['STT', 'Tên NV']
@@ -3433,7 +3422,7 @@ def render_summary_html_table(df, selected_metrics):
       if is_total:
         if col in ['CT DS (Cat)', 'MTD (Cat)', 'CT DS (Brand)', 'MTD (Brand)']:
           html.append(
-              f'<td style="background-color: #fff5f5; color: #c53030'
+              f'<td style="background-color:#1a365d !important; color:#ffffff'
               ' !important; font-weight: 900 !important; text-align: right;'
               f' white-space: nowrap;">{val}</td>'
           )
@@ -3446,7 +3435,7 @@ def render_summary_html_table(df, selected_metrics):
         else:
           align = 'left' if col == 'Tên NV' else 'center'
           html.append(
-              f'<td style="background-color: #fff5f5; color: #c53030'
+              f'<td style="background-color:#1a365d !important; color:#ffffff'
               ' !important; font-weight: 900 !important; text-align:'
               f' {align}; white-space: nowrap;">{val}</td>'
           )
@@ -3486,8 +3475,8 @@ def render_html_table(df):
   html.append('<tbody>')
   for _, row in df.iterrows():
     is_total = (
-        str(row.get('Tên NVBH', '')).strip() == 'TỔNG CỘNG'
-        or str(row.get('Tên NV', '')).strip() == 'TỔNG CỘNG'
+        (str(row.get('Tên NVBH', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper())
+        or (str(row.get('Tên NV', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NV', '')).upper() or 'TỔNG' in str(row.get('Tên NV', '')).upper())
     )
     html.append('<tr>')
     for col in df.columns:
@@ -3515,20 +3504,28 @@ def render_html_table(df):
             f'{val}</td>'
         )
       elif is_total:
+        # Format giống dòng Tổng Cộng Báo Cáo Hiệu Suất: xanh đậm + chữ trắng
         align = (
             'left'
             if col in ['Tên NVBH', 'Tên NV']
-            else (
-                'center'
-                if col in ['STT']
-                else 'right'
-            )
+            else ('center' if col in ['STT'] or '%' in str(col) else 'right')
         )
-        html.append(
-            f'<td style="background-color: #fff5f5; color: #c53030'
-            ' !important; font-weight: 900 !important; text-align:'
-            f' {align}; white-space: nowrap;">{val}</td>'
-        )
+        # Cột % vẫn tô màu theo rule KPI
+        if '%' in str(col) or (isinstance(val, str) and '%' in str(val)):
+          style_bg = color_pct_bg(val)
+          cls = color_pct_class(val)
+          html.append(
+              f'<td align="center" data-colored="1" class="{cls}" '
+              f'style="{style_bg} font-weight:900 !important;'
+              f'text-align:center !important;">{val}</td>'
+          )
+        else:
+          html.append(
+              f'<td data-colored="1" class="row-total-cell" '
+              f'style="background-color:#1a365d !important;color:#ffffff !important;'
+              f'font-weight:900 !important;text-align:{align} !important;'
+              f'white-space:nowrap;border-color:#2b6cb0 !important;">{val}</td>'
+          )
       elif col in ['Tên NVBH', 'Tên NV']:
         html.append(
             f'<td style="color: #1a365d; text-align: left; white-space:'
