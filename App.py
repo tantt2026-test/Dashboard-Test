@@ -4565,8 +4565,24 @@ def _perf_table_html(df, section='call'):
       )
       is_de_xuat = c == 'Đề xuất cải thiện'
 
-      # Dòng TOTAL: luôn nền xanh đậm + chữ trắng (mọi cột kể cả trống)
-      if is_tot:
+      # Dòng TOTAL: cột thường xanh đậm chữ trắng; cột % vẫn tô màu theo rule KPI
+      if is_tot and is_pct:
+        cls = color_pct_class(val)
+        html.append(
+            f'<td align="center" data-colored="1" class="{cls}" '
+            f'style="{td}{color_pct_bg(val)}font-weight:900 !important;'
+            f'text-align:center !important;">{val}</td>'
+        )
+      elif is_tot and is_vip_col:
+        cls = vip_ko_class(val)
+        attr = ' data-colored="1"' if cls else ''
+        cls_attr = f' class="{cls}"' if cls else ''
+        html.append(
+            f'<td align="center"{attr}{cls_attr} '
+            f'style="{td}{vip_ko_bg(val)}font-weight:900 !important;'
+            f'text-align:center !important;">{val}</td>'
+        )
+      elif is_tot:
         html.append(
             f'<td align="center" data-colored="1" '
             f'style="{td}background-color:#1a365d !important;color:#ffffff !important;'
