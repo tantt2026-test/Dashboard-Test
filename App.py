@@ -2049,13 +2049,13 @@ def build_report(
     # Không có NV / dữ liệu → trả bảng rỗng an toàn
     empty_cols = (
         [
-            'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu MCP', 'Thực Hiện Ngày',
+            'STT', 'Tên NVBH', 'Chỉ Tiêu MCP', 'Thực Hiện Ngày',
             'MTD', '% MTD', 'MCP OFF', 'Thực hiện ngày OFF', 'MTD OFF',
             '% MTD OFF', 'MCP ON', 'Thực hiện ngày ON', 'MTD ON', '% MTD ON',
         ]
         if report_type == 'ASO_ALL'
         else [
-            'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu KPI',
+            'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
             'Thực Hiện Ngày', 'MTD', '% MTD',
         ]
     )
@@ -2150,7 +2150,7 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
   title = 'TURNOVER - Tổng doanh số bán ra'
   if df is None or df.empty:
     return pd.DataFrame(columns=[
-        'STT', 'Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu Doanh Số',
+        'STT', 'Tên NVBH', 'Chỉ Tiêu Doanh Số',
         'Thực Hiện Ngày', 'Doanh Số MTD', '% MTD',
     ]), 0.0, title
 
@@ -2472,6 +2472,8 @@ def build_visit_report(
 
 
 def render_visit_html_table(df):
+  df = df.drop(columns=['Mã NVBH'], errors='ignore')
+
   html = [
       '<div style="overflow-x: auto; -webkit-overflow-scrolling: touch;"><table'
       ' class="custom-kpi-table">'
@@ -2483,10 +2485,7 @@ def render_visit_html_table(df):
       '<th rowspan="2" style="vertical-align: middle; text-align:'
       ' center;">STT</th>'
   )
-  html.append(
-      '<th rowspan="2" style="vertical-align: middle; text-align:'
-      ' center;">Mã NVBH</th>'
-  )
+
   html.append(
       '<th rowspan="2" style="vertical-align: middle; text-align:'
       ' center;">Tên NVBH</th>'
@@ -2556,7 +2555,6 @@ def render_visit_html_table(df):
 
     cols_order = [
         'STT',
-        'Mã NVBH',
         'Tên NVBH',
         'Tổng KH',
         'Đã Mua',
@@ -2590,7 +2588,7 @@ def render_visit_html_table(df):
         align = (
             'left'
             if col == 'Tên NVBH'
-            else ('center' if col in ['STT', 'Mã NVBH'] or is_pct else 'right')
+            else ('center' if col in ['STT'] or is_pct else 'right')
         )
         if is_pct:
           cls = color_pct_class(val)
@@ -2608,7 +2606,7 @@ def render_visit_html_table(df):
         align = (
             'left'
             if col == 'Tên NVBH'
-            else ('center' if col in ['STT', 'Mã NVBH'] or is_pct else 'right')
+            else ('center' if col in ['STT'] or is_pct else 'right')
         )
         if is_pct:
           cls = color_pct_class(val)
@@ -3325,6 +3323,8 @@ def build_summary_report(
 
 
 def render_summary_html_table(df, selected_metrics):
+  df = df.drop(columns=['Mã NVBH'], errors='ignore')
+
   has_vip = 'VIP MCH' in selected_metrics
   has_off = 'KH Combo OFF' in selected_metrics
   has_on = 'KH Combo ON' in selected_metrics
@@ -3473,6 +3473,7 @@ def render_summary_html_table(df, selected_metrics):
 
 
 def render_html_table(df):
+  df = df.drop(columns=['Mã NVBH'], errors='ignore')
   html = [
       '<div style="overflow-x: auto; -webkit-overflow-scrolling:'
       ' touch;"><table class="custom-kpi-table">'
@@ -3519,7 +3520,7 @@ def render_html_table(df):
             if col in ['Tên NVBH', 'Tên NV']
             else (
                 'center'
-                if col in ['STT', 'Mã NVBH']
+                if col in ['STT']
                 else 'right'
             )
         )
@@ -3538,8 +3539,7 @@ def render_html_table(df):
             'center'
             if col in [
                 'STT',
-                'Mã NVBH',
-                'Lịch Viếng Thăm Hôm Nay',
+                                'Lịch Viếng Thăm Hôm Nay',
                 'Nhóm KH VIP3',
                 'Nhóm KH VIP5',
                 'Nhóm KH VIPSI',
@@ -4525,7 +4525,7 @@ def _perf_table_html(df, section='call'):
   if df is None or df.empty:
     return '<p>Không có dữ liệu.</p>'
 
-  col_info = ['STT', 'Mã NVBH', 'Tên NVBH']
+  col_info = ['STT', 'Tên NVBH']
   if section == 'call':
     groups = [
         ('Kênh OFF', [
@@ -4615,7 +4615,6 @@ def _perf_table_html(df, section='call'):
   # Row 1: STT/Mã/Tên rowspan=3 merged + top group titles
   html.append('<tr>')
   html.append(f'<th rowspan="3" style="{th}">STT</th>')
-  html.append(f'<th rowspan="3" style="{th}">Mã NVBH</th>')
   html.append(f'<th rowspan="3" style="{th}">Tên NVBH</th>')
   if section == 'call':
     html.append(f'<th colspan="{n_data}" style="{th_top}">Call Plan</th>')
@@ -4639,7 +4638,7 @@ def _perf_table_html(df, section='call'):
   html.append('</tr></thead><tbody>')
 
   # Cột số liệu cần canh giữa
-  _center_cols = set(data_cols) | {'STT', 'Mã NVBH'}
+  _center_cols = set(data_cols) | {'STT'}
 
   n_rows = len(df)
   for pos, (idx, row) in enumerate(df.iterrows()):
@@ -5310,6 +5309,7 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
 
 
 def render_combo_orders_html(df):
+  df = df.drop(columns=['Mã NVBH'], errors='ignore')
   """Bảng chi tiết ĐH Combo — format giống bảng chi tiết ĐH Trái Tuyến."""
   if df is None or df.empty:
     return ''
