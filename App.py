@@ -4786,12 +4786,18 @@ def _norm_ma_kh(x):
 
 
 def _parse_weekday_codes(raw):
-  """Parse NGÀY KO TÍNH TRÁI TUYẾN → set weekday Python (Mon=0..Sun=6).
+  """Parse NGÀY VT KO TÍNH TRÁI TUYẾN → set weekday Python (Mon=0..Sun=6).
   T2=0 ... T7=5; 25→{0,3}; 36→{1,4}; 47→{2,5}.
   """
   if raw is None or (isinstance(raw, float) and pd.isna(raw)):
     return set()
-  s = str(raw).strip().upper().replace(' ', '')
+  # Excel có thể đọc 25 thành 25.0
+  try:
+    if isinstance(raw, (int, float)) and float(raw) == int(raw):
+      raw = int(raw)
+  except Exception:
+    pass
+  s = str(raw).strip().upper().replace(' ', '').replace('.0', '')
   mapping = {
       'T2': 0, 'T3': 1, 'T4': 2, 'T5': 3, 'T6': 4, 'T7': 5,
       '2': 0, '3': 1, '4': 2, '5': 3, '6': 4, '7': 5,
@@ -4842,7 +4848,11 @@ def build_dskh_exempt_lookup(df_f4, df_f2):
     if df is None or df.empty:
       continue
     c_ma = find_col(df, ['Mã KH', 'Ma KH', 'Outlet Code', 'Mã CH'])
-    c_ngay = find_col(df, ['NGÀY KO TÍNH TRÁI TUYẾN', 'Ngày KO TÍNH TRÁI TUYẾN', 'NGAY KO TINH TRAI TUYEN'])
+    c_ngay = find_col(df, [
+        'NGÀY VT KO TÍNH TRÁI TUYẾN', 'NGÀY KO TÍNH TRÁI TUYẾN',
+        'Ngày VT KO TÍNH TRÁI TUYẾN', 'Ngày KO TÍNH TRÁI TUYẾN',
+        'NGAY VT KO TINH TRAI TUYEN', 'NGAY KO TINH TRAI TUYEN',
+    ])
     c_tuan = find_col(df, ['Tuần hiện tại', 'Tuan hien tai', 'Tuần'])
     c_bo_sung = find_col(df, ['Ngày VT bổ sung T+3', 'Ngay VT bo sung', 'Ngày VT bổ sung'])
     if not c_ma:
@@ -4865,7 +4875,7 @@ def build_dskh_exempt_lookup(df_f4, df_f2):
 
 
 def check_dskh_bo_sung(ma_kh, report_date, rules_lookup):
-  """True nếu CH nằm list F4/F2 và ngày ĐH đúng lịch VT bổ sung (không tính trái tuyến)."""
+  """True nếu Mã KH có trong DSKH F4/F2 và NGÀY VT KO TÍNH TRÁI TUYẾN khớp ngày chọn xem BC → tick."""
   ma = _norm_ma_kh(ma_kh)
   if ma not in rules_lookup:
     return False
