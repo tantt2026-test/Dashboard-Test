@@ -161,6 +161,17 @@ st.markdown(
     .custom-kpi-table tbody tr:nth-child(odd) td:not([data-colored="1"]) {
         background-color: #ffffff !important;
     }
+    .custom-kpi-table tbody tr.row-total td.row-total-cell,
+    .custom-kpi-table tbody tr.row-total td:not([data-colored="1"]) {
+        background-color: #1a365d !important;
+        color: #ffffff !important;
+        font-weight: 900 !important;
+        border-color: #2b6cb0 !important;
+    }
+    .custom-kpi-table tbody tr.row-total td {
+        font-weight: 900 !important;
+    }
+
     .custom-kpi-table td {
         text-align: center !important;
     }
@@ -4632,9 +4643,15 @@ def _perf_table_html(df, section='call'):
 
   n_rows = len(df)
   for pos, (idx, row) in enumerate(df.iterrows()):
-    is_tot = (pos == n_rows - 1) or (
-        'TỔNG' in str(row.get('Mã NVBH', '')).upper()
-        or 'TOTAL' in str(row.get('Tên NVBH', '')).upper()
+    _ma_nv = str(row.get('Mã NVBH', '')).upper()
+    _ten_nv = str(row.get('Tên NVBH', '')).upper()
+    _stt = str(row.get('STT', '')).strip()
+    is_tot = (
+        pos == n_rows - 1
+        or _stt in ('-', 'TOTAL')
+        or 'TỔNG' in _ma_nv
+        or 'TOTAL' in _ten_nv
+        or 'TỔNG CỘNG' in _ma_nv
     )
     row_bg = ''
     if not is_tot:
@@ -4647,8 +4664,12 @@ def _perf_table_html(df, section='call'):
       # Total: nền xanh đậm
       row_bg = 'background-color:#1a365d !important;color:#ffffff !important;'
 
-    tr_cls = ' class="row-total"' if is_tot else ''
-    html.append(f'<tr{tr_cls}>')
+    if is_tot:
+      html.append(
+          '<tr class="row-total" style="background-color:#1a365d !important;">'
+      )
+    else:
+      html.append('<tr>')
     for c in all_cols:
       val = row.get(c, '')
       if pd.isna(val):
@@ -4671,13 +4692,20 @@ def _perf_table_html(df, section='call'):
       )
       is_de_xuat = c == 'Đề xuất cải thiện'
 
-      # Dòng TOTAL: TOÀN BỘ ô nền xanh đậm + chữ trắng (giống header)
-      if is_tot:
+      # Dòng TOTAL: nền xanh đậm + chữ trắng (giống header); cột % vẫn tô màu rule KPI
+      if is_tot and is_pct:
         html.append(
-            f'<td align="center" data-colored="1" '
+            f'<td align="center" data-colored="1" class="{color_pct_class(val)}" '
+            f'style="{td}{color_pct_bg(val)}font-weight:900 !important;'
+            f'text-align:center !important;">{val}</td>'
+        )
+      elif is_tot:
+        html.append(
+            f'<td align="center" data-colored="1" class="row-total-cell" '
             f'style="{td}background-color:#1a365d !important;color:#ffffff !important;'
-            f'font-weight:900 !important;text-align:center !important;">'
-            f'{val if val != "" else "&nbsp;"}</td>'
+            f'font-weight:900 !important;text-align:center !important;'
+            f'border-color:#1a365d !important;">'
+            f'{val if str(val).strip() not in ("", "nan", "None") else "&nbsp;"}</td>'
         )
       elif is_danh_gia:
         # Zebra xanh/trắng như các cột khác; chữ xanh/đỏ đậm trong HTML
