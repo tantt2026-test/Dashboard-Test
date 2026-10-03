@@ -4880,98 +4880,153 @@ def _norm_ma_kh(x):
 
 
 def _parse_weekday_codes(raw):
-  """Parse NGÀY VT KO TÍNH TRÁI TUYẾN → set weekday Python (Mon=0..Sun=6).
+  """
+  Map NGÀY VT KO TÍNH TRÁI TUYẾN → weekday Python (Mon=0 .. Sun=6).
 
-  T2=0 ... T7=5; CN/T8=6
-  25 → {T2, T5} = {0, 3}
-  36 → {T3, T6} = {1, 4}
-  47 → {T4, T7} = {2, 5}
+  Rule cứng theo nghiệp vụ:
+    25 → Thứ 2 & Thứ 5  → {0, 3}
+    36 → Thứ 3 & Thứ 6  → {1, 4}
+    47 → Thứ 4 & Thứ 7  → {2, 5}
+  Ngoài ra: T2..T7, 2..7
   """
   if raw is None or (isinstance(raw, float) and pd.isna(raw)):
     return set()
+  # Excel số 25 / 25.0 / "25"
   try:
-    if isinstance(raw, (int, float)) and float(raw) == int(float(raw)):
-      raw = int(float(raw))
+    if isinstance(raw, (int, float)):
+      n = int(float(raw))
+      if n == 25:
+        return {0, 3}
+      if n == 36:
+        return {1, 4}
+      if n == 47:
+        return {2, 5}
+      if n in (2, 3, 4, 5, 6, 7):
+        return {n - 2}  # T2→0 ... T7→5
   except Exception:
     pass
+
   s = str(raw).strip().upper().replace(' ', '').replace('.0', '')
-  mapping = {
-      'T2': 0, 'T3': 1, 'T4': 2, 'T5': 3, 'T6': 4, 'T7': 5, 'T8': 6, 'CN': 6,
-      '2': 0, '3': 1, '4': 2, '5': 3, '6': 4, '7': 5,
-  }
   if s in ('25', '2&5', '2-5', '2/5'):
     return {0, 3}
   if s in ('36', '3&6', '3-6', '3/6'):
     return {1, 4}
   if s in ('47', '4&7', '4-7', '4/7'):
     return {2, 5}
-  out = set()
+
+  mapping = {
+      'T2': 0, 'T3': 1, 'T4': 2, 'T5': 3, 'T6': 4, 'T7': 5,
+      '2': 0, '3': 1, '4': 2, '5': 3, '6': 4, '7': 5,
+  }
+  if s in mapping:
+    return {mapping[s]}
   import re as _re
-  for m in _re.findall(r'T([2-8])', s):
-    out.add(mapping.get(f'T{m}'))
-  if not out and s in mapping:
-    out.add(mapping[s])
-  if not out and s.isdigit() and s in mapping:
-    out.add(mapping[s])
-  return {x for x in out if x is not None}
+  out = set()
+  for m in _re.findall(r'T([2-7])', s):
+    out.add(int(m) - 2)
+  return out
 
 
 def _week_ok(tuan_hien_tai, report_date):
-  """Even Week / Odd Week / Both."""
+  """Even Week / Odd Week / Both — mặc định True nếu không rõ."""
   if tuan_hien_tai is None or (isinstance(tuan_hien_tai, float) and pd.isna(tuan_hien_tai)):
     return True
   s = str(tuan_hien_tai).strip().lower()
-  if not s or 'both' in s or 'cả' in s or 'ca ' in s:
+  if not s or 'both' in s or 'cả' in s:
     return True
   try:
     iso = report_date.isocalendar()[1]
   except Exception:
-    return True
+    try:
+      iso = pd.Timestamp(report_date).isocalendar()[1]
+    except Exception:
+      return True
   is_even = iso % 2 == 0
   if 'even' in s or 'chẵn' in s or 'chan' in s:
     return is_even
-  if 'odd' in s or 'lẻ' in s or 'le ' in s:
+  if 'odd' in s or 'lẻ' in s:
     return not is_even
   return True
 
 
 def build_dskh_exempt_lookup(df_f4, df_f2):
-  """Map Mã KH → list rules {days:set, week:str, sheet:str}."""
+  """Map Mã KH → list {days, week, sheet}.
+
+  CHỈ lấy cột NGÀY VT KO TÍNH TRÁI TUYẾN (không lấy Ngày VT bổ sung).
+  """
   rules = {}
+
+  def _find_exact(df, *cands):
+    cols = {str(c).strip(): c for c in df.columns}
+    cols_l = {str(c).strip().lower(): c for c in df.columns}
+    for cand in cands:
+      if cand in cols:
+        return cols[cand]
+      cl = cand.lower()
+      if cl in cols_l:
+        return cols_l[cl]
+    # partial: phải chứa đủ cụm "ko tính trái" hoặc "ko tinh trai"
+    for k, orig in cols_l.items():
+      k2 = (
+          k.replace('ế', 'e').replace('é', 'e').replace('á', 'a')
+          .replace('à', 'a').replace('ả', 'a').replace('ã', 'a')
+          .replace('ạ', 'a').replace('í', 'i').replace('ì', 'i')
+          .replace('ỉ', 'i').replace('ĩ', 'i').replace('ị', 'i')
+          .replace('ú', 'u').replace('ù', 'u').replace('ủ', 'u')
+          .replace('ũ', 'u').replace('ụ', 'u').replace('ư', 'u')
+          .replace('ớ', 'o').replace('ờ', 'o').replace('ở', 'o')
+          .replace('ỡ', 'o').replace('ợ', 'o').replace('ố', 'o')
+          .replace('ồ', 'o').replace('ổ', 'o').replace('ỗ', 'o')
+          .replace('ộ', 'o').replace('ó', 'o').replace('ò', 'o')
+          .replace('ỏ', 'o').replace('õ', 'o').replace('ọ', 'o')
+          .replace('đ', 'd')
+      )
+      if 'ko tinh trai' in k2 or 'khong tinh trai' in k2:
+        return orig
+    return None
+
+  def _find_ma(df):
+    for cand in ['Mã KH', 'Ma KH', 'Mã CH', 'Ma CH', 'Outlet Code']:
+      for c in df.columns:
+        if str(c).strip().lower() == cand.lower():
+          return c
+    for c in df.columns:
+      cl = str(c).strip().lower()
+      if 'ma' in cl and ('kh' in cl or 'ch' in cl or 'outlet' in cl):
+        return c
+    return None
+
   for sheet_name, df in [('F4', df_f4), ('F2', df_f2)]:
     if df is None or df.empty:
       continue
-    # chuẩn hoá tên cột để tìm
-    col_map = {str(c).strip().lower(): c for c in df.columns}
-
-    def _find(*cands):
-      for cand in cands:
-        cl = cand.strip().lower()
-        if cl in col_map:
-          return col_map[cl]
-        for k, orig in col_map.items():
-          if cl in k or k in cl:
-            return orig
-      return None
-
-    c_ma = _find('Mã KH', 'Ma KH', 'Outlet Code', 'Mã CH', 'Ma CH')
-    c_ngay = _find(
-        'NGÀY VT KO TÍNH TRÁI TUYẾN', 'NGÀY KO TÍNH TRÁI TUYẾN',
-        'Ngày VT KO TÍNH TRÁI TUYẾN', 'Ngày KO TÍNH TRÁI TUYẾN',
-        'NGAY VT KO TINH TRAI TUYEN', 'NGAY KO TINH TRAI TUYEN',
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    c_ma = _find_ma(df)
+    c_ngay = _find_exact(
+        df,
+        'NGÀY VT KO TÍNH TRÁI TUYẾN',
+        'NGÀY KO TÍNH TRÁI TUYẾN',
+        'Ngày VT KO TÍNH TRÁI TUYẾN',
+        'Ngày KO TÍNH TRÁI TUYẾN',
     )
-    c_tuan = _find('Tuần hiện tại', 'Tuan hien tai', 'Tuần')
-    c_bo_sung = _find('Ngày VT bổ sung T+3', 'Ngay VT bo sung', 'Ngày VT bổ sung')
-    if not c_ma:
+    c_tuan = None
+    for c in df.columns:
+      cl = str(c).strip().lower()
+      if 'tuần hiện tại' in cl or 'tuan hien tai' in cl:
+        c_tuan = c
+        break
+
+    if not c_ma or not c_ngay:
       continue
+
     for _, r in df.iterrows():
       ma = _norm_ma_kh(r[c_ma])
       if not ma:
         continue
-      days = _parse_weekday_codes(r[c_ngay] if c_ngay else None)
-      if not days and c_bo_sung:
-        days = _parse_weekday_codes(r[c_bo_sung])
-      tuan = r[c_tuan] if c_tuan else 'Both'
+      days = _parse_weekday_codes(r[c_ngay])
+      if not days:
+        continue
+      tuan = r[c_tuan] if c_tuan is not None else 'Both'
       rules.setdefault(ma, []).append({
           'days': days,
           'week': tuan,
@@ -4981,48 +5036,40 @@ def build_dskh_exempt_lookup(df_f4, df_f2):
 
 
 def check_dskh_bo_sung(ma_kh, report_date, rules_lookup):
-  """Tick nếu Mã KH trong DSKH F4/F2 và NGÀY VT KO TÍNH TRÁI TUYẾN khớp thứ của ngày BC.
+  """✓ nếu Mã KH trong DSKH và thứ của ngày BC nằm trong NGÀY VT KO TÍNH TRÁI TUYẾN.
 
-  Ví dụ: 47 = T4 & T7; ngày BC là Thứ 7 → khớp → ✓
+  Ví dụ: ngày BC = Thứ 7 → chỉ tick CH có mã 47 (T4 & T7).
   """
   if not rules_lookup:
     return False
   ma = _norm_ma_kh(ma_kh)
   if not ma:
     return False
-  # thử thêm dạng số thuần
   candidates = {ma}
   try:
     candidates.add(str(int(float(ma))))
   except Exception:
     pass
 
-  matched_rules = None
+  matched = None
   for c in candidates:
     if c in rules_lookup:
-      matched_rules = rules_lookup[c]
+      matched = rules_lookup[c]
       break
-  if matched_rules is None:
+  if not matched:
     return False
 
   try:
-    rd = report_date.date() if hasattr(report_date, 'date') and not isinstance(report_date, type(pd.Timestamp.today().date())) else report_date
-    if hasattr(rd, 'weekday'):
-      wd = rd.weekday()
-    else:
-      wd = pd.Timestamp(report_date).weekday()
+    wd = pd.Timestamp(report_date).weekday()  # Mon=0 .. Sat=5
   except Exception:
     return False
 
-  for rule in matched_rules:
+  for rule in matched:
     days = rule.get('days') or set()
-    if not days:
-      continue
-    if wd not in days:
-      continue
-    if not _week_ok(rule.get('week'), report_date if hasattr(report_date, 'isocalendar') else pd.Timestamp(report_date)):
-      continue
-    return True
+    if wd in days:
+      # week: Both / Even / Odd
+      if _week_ok(rule.get('week'), report_date):
+        return True
   return False
 
 
