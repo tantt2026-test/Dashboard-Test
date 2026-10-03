@@ -4671,24 +4671,8 @@ def _perf_table_html(df, section='call'):
       )
       is_de_xuat = c == 'Đề xuất cải thiện'
 
-      # Dòng TOTAL: cột thường xanh đậm chữ trắng; cột % vẫn tô màu theo rule KPI
-      if is_tot and is_pct:
-        cls = color_pct_class(val)
-        html.append(
-            f'<td align="center" data-colored="1" class="{cls}" '
-            f'style="{td}{color_pct_bg(val)}font-weight:900 !important;'
-            f'text-align:center !important;">{val}</td>'
-        )
-      elif is_tot and is_vip_col:
-        cls = vip_ko_class(val)
-        attr = ' data-colored="1"' if cls else ''
-        cls_attr = f' class="{cls}"' if cls else ''
-        html.append(
-            f'<td align="center"{attr}{cls_attr} '
-            f'style="{td}{vip_ko_bg(val)}font-weight:900 !important;'
-            f'text-align:center !important;">{val}</td>'
-        )
-      elif is_tot:
+      # Dòng TOTAL: TOÀN BỘ ô nền xanh đậm + chữ trắng (giống header)
+      if is_tot:
         html.append(
             f'<td align="center" data-colored="1" '
             f'style="{td}background-color:#1a365d !important;color:#ffffff !important;'
@@ -5106,8 +5090,7 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
 
 
 def render_trai_tuyen_html(df):
-  """Bảng chi tiết ĐH Trái Tuyến — header vàng chữ đỏ theo mẫu.
-  Không có data → trả chuỗi rỗng (không lỗi, không dòng chữ)."""
+  """Bảng chi tiết ĐH Trái Tuyến — format giống bảng Hiệu Suất (header xanh đậm, chữ trắng)."""
   if df is None or df.empty:
     return ''
   cols = [
@@ -5120,38 +5103,55 @@ def render_trai_tuyen_html(df):
       df[c] = ''
 
   th = (
-      'background-color:#f6e05e !important;color:#e53e3e !important;'
+      'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
-      'border:1px solid #000 !important;padding:8px 6px;font-size:12px;'
+      'border:1px solid #2b6cb0 !important;padding:8px 6px;font-size:12px;'
       'white-space:nowrap;'
   )
-  td = (
-      'border:1px solid #000 !important;padding:6px 5px;font-size:12px;'
-      'text-align:center !important;white-space:nowrap;background:#fff;'
+  td_base = (
+      'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
+      'text-align:center !important;white-space:nowrap;'
   )
   html = [
       '<div style="margin-top:20px;">',
-      '<h4 style="color:#c53030;font-weight:800;margin:8px 0 6px 0;">'
+      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
       '📋 CHI TIẾT ĐƠN HÀNG TRÁI TUYẾN</h4>',
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
-      '<table style="border-collapse:collapse;width:100%;min-width:900px;'
-      'font-family:Arial,sans-serif;">',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:900px;font-family:Arial,sans-serif;">',
       '<thead><tr>',
   ]
   for c in cols:
     html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
-  for _, row in df.iterrows():
+
+  n = len(df)
+  for pos, (_, row) in enumerate(df.iterrows()):
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     html.append('<tr>')
     for c in cols:
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
-      al = 'left' if c in ('Tên NVBH', 'Tên KH') else 'center'
-      html.append(f'<td style="{td}text-align:{al} !important;">{val}</td>')
+      # Check bổ sung: tick xanh đậm
+      if c == 'Check Danh Sách bổ sung' and str(val).strip() in ('✓', '✔', '☑'):
+        cell = (
+            f'<td style="{td_base}background-color:{bg} !important;'
+            f'color:#228b22 !important;font-weight:900 !important;'
+            f'font-size:16px;">✓</td>'
+        )
+      else:
+        al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Check Danh Sách Import') else 'center'
+        cell = (
+            f'<td style="{td_base}background-color:{bg} !important;'
+            f'text-align:{al} !important;">{val}</td>'
+        )
+      html.append(cell)
     html.append('</tr>')
+
   html.append('</tbody></table></div></div>')
   return ''.join(html)
+
 
 
 def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
