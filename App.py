@@ -537,6 +537,21 @@ def get_turnover_targets():
 
 # Mốc tô màu % theo từng báo cáo Tab KPI
 _CURRENT_COLOR_MOC = 100.0
+# % Timegone hiện tại của ngày báo cáo; chỉ dùng cho các KPI có lương thưởng.
+_CURRENT_TIMEGONE = 100.0
+
+# KPI có lương thưởng theo Công văn T10/2026 và mốc tối thiểu để được tính lương.
+# Khi % KPI đạt mốc tối thiểu này thì được xem là "kịp Timegone" để tô màu.
+KPI_SALARY_MIN_PCT = {
+    'TURNOVER': 95.0,
+    'PC_BT': 100.0,
+    'LPPC': 91.5,         # 4.3 / target 4.7 × 100
+    'ASO_ALL': 100.0,
+    'ASO_FOCUS': 90.0,
+    'ASO_FOCUS_2': 90.0,
+    'PC_ON': 100.0,
+    'LPPC_MEAT': 100.0,
+}
 
 # Mốc mặc định (%). LPPC/LPPC_Meat: mốc tuyệt đối (4.3 / 3.8) — xử lý riêng khi set.
 KPI_COLOR_MOC = {
@@ -658,12 +673,38 @@ def set_color_moc(moc):
     _CURRENT_COLOR_MOC = 100.0
 
 
+def set_timegone_color_context(pct_timegone):
+  """Cập nhật % Timegone của ngày báo cáo để tô màu KPI có lương thưởng."""
+  global _CURRENT_TIMEGONE
+  try:
+    _CURRENT_TIMEGONE = float(pct_timegone)
+  except Exception:
+    _CURRENT_TIMEGONE = 100.0
+
+
 def set_color_moc_for_kpi(kpi_key, total_pct=None):
-  """Gán mốc tô màu theo loại báo cáo. Combo: dùng % MTD dòng Total nếu có."""
+  """
+  Gán mốc tô màu theo loại báo cáo.
+  Với 8 KPI có lương thưởng: màu % bám theo Timegone; đồng thời
+  nếu đạt mốc tối thiểu tính lương thì được xem như đã kịp Timegone.
+  Combo: dùng % MTD dòng Total nếu có.
+  """
   if kpi_key == 'COMBO' and total_pct is not None:
     set_color_moc(total_pct)
     return
-  moc = KPI_COLOR_MOC.get(str(kpi_key), 100.0)
+
+  kpi_key = str(kpi_key)
+  if kpi_key in KPI_SALARY_MIN_PCT:
+    # OR logic: đạt Timegone HOẶC đạt mốc tối thiểu tính lương => được xem là kịp.
+    # Dùng mốc thấp hơn để vùng xanh bắt đầu từ ngưỡng sớm hơn trong hai điều kiện.
+    effective_moc = min(
+        float(_CURRENT_TIMEGONE),
+        float(KPI_SALARY_MIN_PCT[kpi_key]),
+    )
+    set_color_moc(effective_moc)
+    return
+
+  moc = KPI_COLOR_MOC.get(kpi_key, 100.0)
   set_color_moc(moc)
 
 
@@ -5080,6 +5121,7 @@ with f1:
       label_visibility='collapsed',
   )
   tot_days, elapsed_days, remain_days, pct_tg = get_timegone_stats(report_date)
+  set_timegone_color_context(pct_tg)
 with f2:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
   # Mức lương KPI theo Công văn số 22–011026/INC-KD-MSC-NET-MBD-CDGT, áp dụng T10/2026.
