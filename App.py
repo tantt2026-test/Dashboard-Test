@@ -4696,11 +4696,16 @@ def _perf_table_html(df, section='call'):
             f'{val if val != "" else "&nbsp;"}</td>'
         )
       elif is_danh_gia:
-        # Không tô nền ô; màu chữ đã nằm trong HTML (xanh đậm / đỏ đậm)
+        # Zebra xanh/trắng như các cột khác; chữ xanh/đỏ đậm trong HTML
+        # Không dùng data-colored để CSS zebra :not([data-colored]) vẫn áp dụng
+        zebra_bg = '#e6f4fc' if (pos % 2 == 1) else '#ffffff'
+        if is_tot:
+          zebra_bg = '#1a365d'
         html.append(
-            f'<td align="center" data-colored="1" '
-            f'style="{td}background-color:transparent !important;'
-            f'text-align:center !important;font-size:11px;">{val}</td>'
+            f'<td align="center" '
+            f'style="{td}background-color:{zebra_bg} !important;'
+            f'text-align:center !important;font-size:11px;'
+            f'{"color:#fff !important;" if is_tot else ""}">{val}</td>'
         )
       elif is_pct:
         cls = color_pct_class(val)
