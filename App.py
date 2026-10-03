@@ -4723,6 +4723,181 @@ def render_trai_tuyen_html(df):
   return ''.join(html)
 
 
+def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
+  """Danh sách đơn hàng Combo theo đúng ngày báo cáo.
+  Giữ cùng cấu trúc hiển thị với chi tiết ĐH Trái Tuyến của Báo Cáo Hiệu Suất,
+  thay 2 cột cuối thành Loại Hình L1 và Sản Phẩm Khuyến Mãi.
+  """
+  empty = pd.DataFrame(columns=[
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'Loại Hình L1',
+      'Sản Phẩm Khuyến Mãi',
+  ])
+  if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
+    return empty
+
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  d = df_rpt[df_rpt['date'] == rd].copy()
+  if d.empty:
+    return empty
+
+  if nv_selected(filter_nv) and 'Tên NVBH' in d.columns:
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    d = d[d['Tên NVBH'].astype(str).str.strip().isin(vals)].copy()
+  if d.empty:
+    return empty
+
+  # Dùng đúng rule nhận diện Combo đang chạy trong Báo Cáo ĐH Combo.
+  combo = tag_combo_orders_t10(d, mcp_df=mcp_df)
+  if combo is None or combo.empty:
+    return empty
+
+  val_col = find_col(
+      combo, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu']
+  ) or 'Thành tiền trước CK'
+  if val_col in combo.columns:
+    combo['_sales'] = pd.to_numeric(combo[val_col], errors='coerce').fillna(0)
+  else:
+    combo['_sales'] = 0
+
+  if 'Mã đơn hàng' not in combo.columns:
+    return empty
+
+  ma_kh_col = find_col(combo, ['Mã CH', 'Mã KH', 'Outlet_code', 'Outlet Code'])
+  ten_kh_col = find_col(combo, ['Tên CH', 'Tên khách hàng', 'Tên Cửa hàng'])
+  nv_col = find_col(combo, ['Tên NVBH', 'Tên NV', 'SM name', 'Nhân viên'])
+  l1_col = find_col(combo, ['L1', 'Channel', 'Loại Hình Kinh Doanh', 'Loại hình kinh doanh'])
+  km_col = find_col(combo, ['Hàng KM', 'Hang KM', 'Hàng khuyến mãi'])
+  sp_col = find_col(combo, ['Tên sản phẩm', 'Tên SP', 'Sản phẩm'])
+
+  rows = []
+  for ma_dh, g in combo.groupby('Mã đơn hàng', sort=False):
+    g = g.copy()
+    ma_kh = ''
+    if ma_kh_col:
+      vals_kh = g[ma_kh_col].dropna().astype(str).str.strip()
+      if not vals_kh.empty:
+        ma_kh = vals_kh.iloc[0]
+
+    ten_kh = ''
+    if ten_kh_col:
+      vals_ten = g[ten_kh_col].dropna().astype(str).str.strip()
+      if not vals_ten.empty:
+        ten_kh = vals_ten.iloc[0]
+
+    nv = ''
+    if nv_col:
+      vals_nv = g[nv_col].dropna().astype(str).str.strip()
+      if not vals_nv.empty:
+        nv = vals_nv.iloc[0]
+
+    # Ưu tiên L1 thực tế trong RPT (đã map từ Data_MCP); fallback channel ON/OFF.
+    l1 = ''
+    if l1_col:
+      vals_l1 = g[l1_col].dropna().astype(str).str.strip()
+      vals_l1 = vals_l1[~vals_l1.str.lower().isin(['', 'nan', 'none'])]
+      if not vals_l1.empty:
+        l1 = vals_l1.iloc[0]
+    if not l1:
+      vals_ch = g.get('channel', pd.Series(dtype=object)).dropna().astype(str).str.strip()
+      if not vals_ch.empty:
+        l1 = vals_ch.iloc[0]
+
+    # Chỉ lấy các dòng Hàng KM để tạo danh sách Sản Phẩm Khuyến Mãi.
+    promo_names = []
+    if sp_col:
+      if km_col:
+        km_mask = g[km_col].astype(str).str.strip().str.upper().isin(
+            ['Y', 'YES', '1', 'TRUE']
+        )
+        promo_series = g.loc[km_mask, sp_col]
+      else:
+        promo_series = g.loc[g['_line_combo'].fillna(False), sp_col]
+      for x in promo_series.dropna().astype(str).str.strip().tolist():
+        if x and x.lower() not in ('nan', 'none') and x not in promo_names:
+          promo_names.append(x)
+
+    ngay_s = ''
+    if 'Ngày tạo đơn hàng' in g.columns:
+      ngay = pd.to_datetime(g['Ngày tạo đơn hàng'].iloc[0], errors='coerce')
+      if pd.notna(ngay):
+        ngay_s = ngay.strftime('%d/%m/%Y %H:%M')
+    if not ngay_s:
+      ngay_s = rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd)
+
+    rows.append({
+        'STT': 0,
+        'Tên NVBH': nv,
+        'Mã KH': ma_kh,
+        'Tên KH': ten_kh,
+        'Mã ĐH': str(ma_dh).strip(),
+        'Giá trị ĐH [Doanh Số]': int(round(float(g['_sales'].sum()), 0)),
+        'Ngày ĐH': ngay_s,
+        'Loại Hình L1': l1,
+        'Sản Phẩm Khuyến Mãi': ' | '.join(promo_names),
+    })
+
+  if not rows:
+    return empty
+
+  out = pd.DataFrame(rows).sort_values(
+      ['Tên NVBH', 'Mã KH', 'Mã ĐH']
+  ).reset_index(drop=True)
+  out['STT'] = range(1, len(out) + 1)
+  out['Giá trị ĐH [Doanh Số]'] = out['Giá trị ĐH [Doanh Số]'].apply(
+      lambda x: f'{int(x):,}'.replace(',', '.') if isinstance(x, (int, float)) else x
+  )
+  return out
+
+
+def render_combo_orders_html(df):
+  """Bảng chi tiết ĐH Combo — format giống bảng chi tiết ĐH Trái Tuyến."""
+  if df is None or df.empty:
+    return ''
+  cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'Loại Hình L1',
+      'Sản Phẩm Khuyến Mãi',
+  ]
+  for c in cols:
+    if c not in df.columns:
+      df[c] = ''
+
+  th = (
+      'background-color:#f6e05e !important;color:#e53e3e !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #000 !important;padding:8px 6px;font-size:12px;'
+      'white-space:nowrap;'
+  )
+  td = (
+      'border:1px solid #000 !important;padding:6px 5px;font-size:12px;'
+      'text-align:center !important;white-space:nowrap;background:#fff;'
+  )
+  html = [
+      '<div style="margin-top:20px;">',
+      '<h4 style="color:#c53030;font-weight:800;margin:8px 0 6px 0;">'
+      '📋 DANH SÁCH ĐƠN HÀNG COMBO</h4>',
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+      '<table style="border-collapse:collapse;width:100%;min-width:1000px;'
+      'font-family:Arial,sans-serif;">',
+      '<thead><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+  for _, row in df.iterrows():
+    html.append('<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Sản Phẩm Khuyến Mãi') else 'center'
+      html.append(f'<td style="{td}text-align:{al} !important;">{val}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div></div>')
+  return ''.join(html)
+
+
 def render_performance_html(df):
   if df is None or df.empty:
     return '<p>Không có dữ liệu hiệu suất.</p>'
@@ -6104,6 +6279,13 @@ with tab_kpi:
     )
 
     st.markdown(render_html_table(df_combo), unsafe_allow_html=True)
+
+    # Chi tiết đơn hàng Combo phát sinh đúng ngày đang chọn, format giống Báo Cáo Hiệu Suất.
+    df_combo_orders = build_combo_orders_detail(
+        df, report_date, filter_nv, mcp_df=mcp
+    )
+    st.markdown(render_combo_orders_html(df_combo_orders), unsafe_allow_html=True)
+
     st.markdown(
         f"""
         <div class="note-box">
