@@ -5675,13 +5675,17 @@ def render_display_summary_html(df):
   for c in cols:
     html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
+  tot_style = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
+      'padding:5px 4px;font-size:12px;'
+  )
   for pos, (_, row) in enumerate(df.iterrows()):
     is_tot = (
         str(row.get('STT', '')).strip() in ('-', 'TOTAL')
         or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
     )
-    bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
-    fg = '#ffffff' if is_tot else '#1a202c'
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     html.append('<tr>')
     for c in cols:
       val = row.get(c, '')
@@ -5689,14 +5693,14 @@ def render_display_summary_html(df):
         val = ''
       if c.startswith('%'):
         try:
-          v = float(val)
+          v = float(str(val).replace('%', '').strip())
           val_s = f'{v:.1f}%'
         except Exception:
           v, val_s = 0.0, str(val)
         if is_tot:
+          # Giống Báo Cáo 14: dòng total xanh đậm + chữ trắng (kể cả %)
           html.append(
-              f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-              f'font-weight:900;text-align:center;">{val_s}</td>'
+              f'<td style="{tot_style}text-align:center !important;">{val_s}</td>'
           )
         else:
           cls, style_bg = _disp_pct_style(c, v)
@@ -5706,10 +5710,15 @@ def render_display_summary_html(df):
           )
       else:
         al = 'left' if c == 'Tên NVBH' else 'center'
-        html.append(
-            f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-            f'font-weight:{"900" if is_tot else "400"};text-align:{al};">{val}</td>'
-        )
+        if is_tot:
+          html.append(
+              f'<td style="{tot_style}text-align:{al} !important;">{val}</td>'
+          )
+        else:
+          html.append(
+              f'<td style="{td}background:{bg} !important;color:#1a202c !important;'
+              f'font-weight:400;text-align:{al};">{val}</td>'
+          )
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
@@ -5772,26 +5781,40 @@ def render_display_by_program_html(df):
       html.append(f'<th style="{th}">{metric}</th>')
   html.append('</tr></thead><tbody>')
 
+  tot_style = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
+      'padding:4px 3px;font-size:11px;'
+  )
   for pos, (_, row) in enumerate(df.iterrows()):
     is_tot = (
         str(row.get('STT', '')).strip() in ('-', 'TOTAL')
         or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
     )
-    bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
-    fg = '#ffffff' if is_tot else '#1a202c'
-    fw = '900' if is_tot else '400'
-    sticky_bg = bg
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    fg = '#1a202c'
+    fw = '400'
     html.append('<tr>')
-    html.append(
-        f'<td style="{td}{sticky_stt_cell}background:{sticky_bg} !important;'
-        f'color:{fg} !important;text-align:center;font-weight:{fw};">'
-        f'{row.get("STT","")}</td>'
-    )
-    html.append(
-        f'<td style="{td}{sticky_ten_cell}background:{sticky_bg} !important;'
-        f'color:{fg} !important;text-align:left;font-weight:{fw};'
-        f'white-space:nowrap;">{row.get("Tên NVBH","")}</td>'
-    )
+    if is_tot:
+      html.append(
+          f'<td style="{tot_style}{sticky_stt_cell}text-align:center !important;">'
+          f'{row.get("STT","")}</td>'
+      )
+      html.append(
+          f'<td style="{tot_style}{sticky_ten_cell}text-align:left !important;'
+          f'white-space:nowrap;">{row.get("Tên NVBH","")}</td>'
+      )
+    else:
+      html.append(
+          f'<td style="{td}{sticky_stt_cell}background:{bg} !important;'
+          f'color:{fg} !important;text-align:center;font-weight:{fw};">'
+          f'{row.get("STT","")}</td>'
+      )
+      html.append(
+          f'<td style="{td}{sticky_ten_cell}background:{bg} !important;'
+          f'color:{fg} !important;text-align:left;font-weight:{fw};'
+          f'white-space:nowrap;">{row.get("Tên NVBH","")}</td>'
+      )
     for _, metrics in groups.items():
       for col, metric in metrics:
         val = row.get(col, 0)
@@ -5799,14 +5822,13 @@ def render_display_by_program_html(df):
           val = 0
         if metric.startswith('%'):
           try:
-            v = float(val)
+            v = float(str(val).replace('%', '').strip())
             val_s = f'{v:.1f}%'
           except Exception:
             v, val_s = 0.0, str(val)
           if is_tot:
             html.append(
-                f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-                f'text-align:center;font-weight:{fw};">{val_s}</td>'
+                f'<td style="{tot_style}text-align:center !important;">{val_s}</td>'
             )
           else:
             cls, style_bg = _disp_pct_style(metric, v)
@@ -5819,10 +5841,15 @@ def render_display_by_program_html(df):
             val_s = str(int(val))
           except Exception:
             val_s = str(val)
-          html.append(
-              f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-              f'text-align:center;font-weight:{fw};">{val_s}</td>'
-          )
+          if is_tot:
+            html.append(
+                f'<td style="{tot_style}text-align:center !important;">{val_s}</td>'
+            )
+          else:
+            html.append(
+                f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+                f'text-align:center;font-weight:{fw};">{val_s}</td>'
+            )
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
