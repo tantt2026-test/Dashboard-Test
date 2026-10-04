@@ -7669,7 +7669,7 @@ with tab_kpi:
           '<p class="filter-label" style="margin-top:14px;">🔍 Bộ lọc Chi Tiết KH</p>',
           unsafe_allow_html=True,
       )
-      fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+      fc1, fc2, fc3, fc4, fc5, fc6 = st.columns(6)
       progs = sorted([
           p for p in df3['Tên Chương Trình TB'].dropna().unique().tolist()
           if str(p).strip() and str(p).lower() != 'nan'
@@ -7682,6 +7682,9 @@ with tab_kpi:
           p for p in df3['Thứ VT'].dropna().unique().tolist()
           if str(p).strip() and str(p).lower() != 'nan'
       ]) if not df3.empty else []
+      anh_opts = sorted([
+          int(x) for x in df3['Số Bộ Ảnh Đã Chụp'].dropna().unique().tolist()
+      ]) if (not df3.empty and 'Số Bộ Ảnh Đã Chụp' in df3.columns) else []
       with fc1:
         st.markdown('<p class="filter-label">Tên Chương Trình TB</p>', unsafe_allow_html=True)
         f_prog = st.multiselect('', progs, default=[], key='disp_prog', label_visibility='collapsed')
@@ -7697,6 +7700,12 @@ with tab_kpi:
       with fc5:
         st.markdown('<p class="filter-label">Thứ VT</p>', unsafe_allow_html=True)
         f_thu3 = st.multiselect('', thus, default=[], key='disp_thu', label_visibility='collapsed')
+      with fc6:
+        st.markdown('<p class="filter-label">Số Bộ Ảnh</p>', unsafe_allow_html=True)
+        f_anh3 = st.multiselect(
+            '', anh_opts, default=[], key='disp_anh',
+            label_visibility='collapsed', placeholder='Tất cả',
+        )
 
       df3f = df3.copy() if not df3.empty else df3
       if not df3f.empty:
@@ -7710,6 +7719,12 @@ with tab_kpi:
           df3f = df3f[df3f['Tên KH'].astype(str).str.contains(f_ten3.strip(), case=False, na=False)]
         if f_thu3:
           df3f = df3f[df3f['Thứ VT'].astype(str).isin([str(x) for x in f_thu3])]
+        if f_anh3:
+          df3f = df3f[
+              pd.to_numeric(df3f['Số Bộ Ảnh Đã Chụp'], errors='coerce')
+              .fillna(0).astype(int)
+              .isin([int(x) for x in f_anh3])
+          ]
 
       st.markdown(render_display_detail_html(df3f), unsafe_allow_html=True)
       st.caption(f'Hiển thị: {len(df3f):,} / {len(df3):,} dòng')
