@@ -5513,15 +5513,70 @@ def build_display_report(df_disp, df_mcp=None, filter_nv=None):
       tot2[f'{short}|>= 6 BỘ ẢNH'] = a['CH >= 6 BỘ ẢNH']
     df2 = pd.concat([df2, pd.DataFrame([tot2])], ignore_index=True)
 
+  # Map Mã KH (display) ↔ Outlet_code (MCP) → cột Thứ
   thu_map = {}
   if df_mcp is not None and not df_mcp.empty:
-    c_mcp_ma = find_col(df_mcp, ['Outlet Code', 'Mã CH', 'Mã KH', 'Customer Code'])
-    c_mcp_thu = find_col(df_mcp, ['Thứ', 'Thu', 'Day', 'Tần suất'])
+    mcp = df_mcp.copy()
+    mcp.columns = [str(c).strip() for c in mcp.columns]
+    c_mcp_ma = None
+    for cand in [
+        'Outlet_code', 'Outlet Code', 'Outlet code', 'outlet_code',
+        'Mã CH', 'Ma CH', 'Mã KH', 'Ma KH', 'Customer Code',
+    ]:
+      for c in mcp.columns:
+        if str(c).strip().lower().replace(' ', '_') == cand.lower().replace(' ', '_'):
+          c_mcp_ma = c
+          break
+        if str(c).strip().lower() == cand.lower():
+          c_mcp_ma = c
+          break
+      if c_mcp_ma:
+        break
+    if not c_mcp_ma:
+      c_mcp_ma = find_col(mcp, [
+          'Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH', 'Customer Code', 'Outlet'
+      ])
+    c_mcp_thu = None
+    for c in mcp.columns:
+      cl = str(c).strip().lower()
+      if cl in ('thứ', 'thu', 'thu vt', 'thứ vt', 'day'):
+        c_mcp_thu = c
+        break
+    if not c_mcp_thu:
+      c_mcp_thu = find_col(mcp, ['Thứ', 'Thu', 'Day', 'Tần suất', 'Frequency'])
+
     if c_mcp_ma and c_mcp_thu:
-      for _, r in df_mcp.iterrows():
+      for _, r in mcp.iterrows():
         ma = _norm_ma(r[c_mcp_ma])
-        if ma:
-          thu_map[ma] = str(r[c_mcp_thu]).strip()
+        if not ma:
+          continue
+        thu_val = r[c_mcp_thu]
+        if pd.isna(thu_val):
+          continue
+        # giữ nguyên mã 25/36/47 hoặc số 2..7
+        try:
+          if isinstance(thu_val, float) and thu_val == int(thu_val):
+            thu_s = str(int(thu_val))
+          else:
+            thu_s = str(thu_val).strip()
+            if thu_s.endswith('.0'):
+              thu_s = thu_s[:-2]
+        except Exception:
+          thu_s = str(thu_val).strip()
+        thu_map[ma] = thu_s
+        # thêm alias không leading zero / int form
+        try:
+          thu_map[str(int(float(ma)))] = thu_s
+        except Exception:
+          pass
+
+  def _lookup_thu(m):
+    if m in thu_map:
+      return thu_map[m]
+    try:
+      return thu_map.get(str(int(float(m))), '')
+    except Exception:
+      return ''
 
   df3 = pd.DataFrame({
       'Tên NVBH': d['_nv'].values,
@@ -5530,7 +5585,7 @@ def build_display_report(df_disp, df_mcp=None, filter_nv=None):
       'Tên Chương Trình TB': d['_ct'].values,
       'Mức ĐK': d['_muc'].values,
       'Số Bộ Ảnh Đã Chụp': d['_anh'].values,
-      'Thứ VT': d['_ma'].map(lambda m: thu_map.get(m, '')).values,
+      'Thứ VT': d['_ma'].map(_lookup_thu).values,
   })
 
   comments = ''
