@@ -5693,12 +5693,17 @@ def render_display_summary_html(df):
   sticky_stt_c = 'position:sticky;left:0;z-index:2;min-width:44px;max-width:44px;'
   sticky_ten_c = f'position:sticky;left:44px;z-index:2;min-width:{name_w}px;'
 
+  # Sticky group header "THÔNG TIN ĐDKD" spans STT + Tên NVBH
+  sticky_group = (
+      f'{th_g}position:sticky;left:0;z-index:7;'
+      f'min-width:{44 + name_w}px;'
+  )
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
       'width:max-content;min-width:100%;font-family:Arial,sans-serif;">',
       '<thead style="position:sticky;top:0;z-index:5;">',
-      f'<tr><th colspan="2" style="{th_g}">THÔNG TIN ĐDKD</th>'
+      f'<tr><th colspan="2" style="{sticky_group}">THÔNG TIN ĐDKD</th>'
       f'<th colspan="9" style="{th_g}">HIỆU SUẤT TRƯNG BÀY</th></tr>',
       '<tr>',
       f'<th style="{sticky_stt_h}">STT</th>',
