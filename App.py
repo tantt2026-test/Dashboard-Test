@@ -5337,6 +5337,425 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
   return out
 
 
+
+# ====================== 15. BÁO CÁO TRƯNG BÀY ======================
+@st.cache_data(ttl=120, show_spinner=False)
+def load_display_data():
+  """Load DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xlsx"""
+  empty = pd.DataFrame()
+  candidates = [
+      globals().get('DISPLAY_PATH') or os.path.join(
+          DATA_DIR, 'DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xlsx'
+      ),
+  ]
+  if os.path.isdir(DATA_DIR):
+    try:
+      for fn in os.listdir(DATA_DIR):
+        low = fn.lower().replace(' ', '').replace('_', '')
+        if fn.lower().endswith(('.xlsx', '.xls')) and (
+            'trungbay' in low or 'chuongtrinh' in low
+            or 'ketquacuahang' in low or 'danhsachketqua' in low
+        ):
+          candidates.append(os.path.join(DATA_DIR, fn))
+    except Exception:
+      pass
+  path_use = next((p for p in candidates if p and os.path.isfile(p)), None)
+  if not path_use:
+    return empty
+  try:
+    df = pd.read_excel(path_use, header=2)
+    if 'Nhân viên BH' not in df.columns and 'Mã CH' not in df.columns:
+      df = pd.read_excel(path_use, header=0)
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+  except Exception:
+    try:
+      return pd.read_excel(path_use)
+    except Exception:
+      return empty
+
+
+def _short_program_name(name):
+  s = str(name or '').strip()
+  if not s or s.lower() == 'nan':
+    return ''
+  for pref in ('MSC_', 'MSJ_', 'MSC ', 'MSJ '):
+    if s.startswith(pref):
+      s = s[len(pref):]
+  import re as _re
+  s = _re.sub(r'_?HCM_All\d{4}_T\d+', '', s)
+  s = _re.sub(r'_+', ' ', s).strip()
+  if len(s) > 42:
+    s = s[:40] + '…'
+  return s
+
+
+def build_display_report(df_disp, df_mcp=None, filter_nv=None):
+  """(df_summary, df_by_prog, df_detail, comments_html)"""
+  empty = pd.DataFrame()
+  if df_disp is None or df_disp.empty:
+    return empty, empty, empty, ''
+
+  d = df_disp.copy()
+  c_nv = 'Nhân viên BH' if 'Nhân viên BH' in d.columns else find_col(
+      d, ['Nhân viên BH', 'Tên NVBH', 'NVBH']
+  )
+  c_ma = 'Mã CH' if 'Mã CH' in d.columns else find_col(d, ['Mã CH', 'Mã KH'])
+  c_ten = 'Tên cửa hàng' if 'Tên cửa hàng' in d.columns else find_col(
+      d, ['Tên cửa hàng', 'Tên KH', 'Tên CH']
+  )
+  c_ct = 'Tên chương trình' if 'Tên chương trình' in d.columns else find_col(
+      d, ['Tên chương trình', 'Chương trình']
+  )
+  c_muc = 'Mức đăng ký' if 'Mức đăng ký' in d.columns else find_col(
+      d, ['Mức đăng ký', 'Mức ĐK']
+  )
+  c_anh = 'Số bộ ảnh đã chụp' if 'Số bộ ảnh đã chụp' in d.columns else find_col(
+      d, ['Số bộ ảnh đã chụp', 'Số bộ ảnh duyệt']
+  )
+  if not c_nv or not c_ma:
+    return empty, empty, empty, ''
+
+  def _norm_ma(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  d['_nv'] = d[c_nv].astype(str).str.strip()
+  d['_ma'] = d[c_ma].map(_norm_ma)
+  d['_ten'] = d[c_ten].astype(str).str.strip() if c_ten else ''
+  d['_ct'] = d[c_ct].astype(str).str.strip() if c_ct else ''
+  d['_muc'] = d[c_muc].astype(str).str.strip() if c_muc else ''
+  d['_anh'] = (
+      pd.to_numeric(d[c_anh], errors='coerce').fillna(0).astype(int)
+      if c_anh else 0
+  )
+
+  if filter_nv:
+    vals = [
+        str(v).strip()
+        for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])
+        if str(v).strip()
+    ]
+    if vals:
+      d = d[d['_nv'].isin(vals)]
+  if d.empty:
+    return empty, empty, empty, ''
+
+  def _agg(g):
+    n_dk = len(g)
+    n_chup = int((g['_anh'] >= 1).sum())
+    n_chua = int((g['_anh'] < 1).sum())
+    n_ge6 = int((g['_anh'] >= 6).sum())
+    n_lt6 = int((g['_anh'] < 6).sum())
+    return {
+        'CH ĐK': n_dk,
+        'CH ĐÃ CHỤP': n_chup,
+        '% ĐÃ CHỤP': round(n_chup / n_dk * 100, 1) if n_dk else 0.0,
+        'CH CHƯA CHỤP': n_chua,
+        '% CHƯA CHỤP': round(n_chua / n_dk * 100, 1) if n_dk else 0.0,
+        'CH >= 6 BỘ ẢNH': n_ge6,
+        '% CH >= 6 BỘ ẢNH': round(n_ge6 / n_dk * 100, 1) if n_dk else 0.0,
+        'SỐ CH < 6 BỘ ẢNH': n_lt6,
+        '% CH < 6 BỘ ẢNH': round(n_lt6 / n_dk * 100, 1) if n_dk else 0.0,
+    }
+
+  rows = []
+  for nv, g in d.groupby('_nv', sort=False):
+    r = _agg(g)
+    r['Tên NVBH'] = nv
+    rows.append(r)
+  df1 = pd.DataFrame(rows)
+  if not df1.empty:
+    df1 = df1.sort_values('% CHƯA CHỤP', ascending=False).reset_index(drop=True)
+    df1.insert(0, 'STT', range(1, len(df1) + 1))
+    tot = {'STT': '-', 'Tên NVBH': 'TỔNG CỘNG', **_agg(d)}
+    df1 = pd.concat([df1, pd.DataFrame([tot])], ignore_index=True)
+
+  programs = [p for p in d['_ct'].dropna().unique() if p and str(p).lower() != 'nan']
+  rows2 = []
+  for nv, gnv in d.groupby('_nv', sort=False):
+    row = {'Tên NVBH': nv}
+    for prog in programs:
+      gp = gnv[gnv['_ct'] == prog]
+      short = _short_program_name(prog)
+      a = _agg(gp) if not gp.empty else {
+          'CH ĐK': 0, 'CH ĐÃ CHỤP': 0, '% ĐÃ CHỤP': 0.0,
+          'CH CHƯA CHỤP': 0, 'CH >= 6 BỘ ẢNH': 0,
+      }
+      row[f'{short}|CH ĐĂNG KÝ'] = a['CH ĐK']
+      row[f'{short}|CH ĐÃ CHỤP'] = a['CH ĐÃ CHỤP']
+      row[f'{short}|% ĐÃ CHỤP'] = a['% ĐÃ CHỤP']
+      row[f'{short}|CHƯA CHỤP'] = a['CH CHƯA CHỤP']
+      row[f'{short}|>= 6 BỘ ẢNH'] = a['CH >= 6 BỘ ẢNH']
+    rows2.append(row)
+  df2 = pd.DataFrame(rows2)
+  if not df2.empty:
+    df2.insert(0, 'STT', range(1, len(df2) + 1))
+    tot2 = {'STT': '-', 'Tên NVBH': 'TỔNG CỘNG'}
+    for prog in programs:
+      short = _short_program_name(prog)
+      gp = d[d['_ct'] == prog]
+      a = _agg(gp) if not gp.empty else {
+          'CH ĐK': 0, 'CH ĐÃ CHỤP': 0, '% ĐÃ CHỤP': 0.0,
+          'CH CHƯA CHỤP': 0, 'CH >= 6 BỘ ẢNH': 0,
+      }
+      tot2[f'{short}|CH ĐĂNG KÝ'] = a['CH ĐK']
+      tot2[f'{short}|CH ĐÃ CHỤP'] = a['CH ĐÃ CHỤP']
+      tot2[f'{short}|% ĐÃ CHỤP'] = a['% ĐÃ CHỤP']
+      tot2[f'{short}|CHƯA CHỤP'] = a['CH CHƯA CHỤP']
+      tot2[f'{short}|>= 6 BỘ ẢNH'] = a['CH >= 6 BỘ ẢNH']
+    df2 = pd.concat([df2, pd.DataFrame([tot2])], ignore_index=True)
+
+  thu_map = {}
+  if df_mcp is not None and not df_mcp.empty:
+    c_mcp_ma = find_col(df_mcp, ['Outlet Code', 'Mã CH', 'Mã KH', 'Customer Code'])
+    c_mcp_thu = find_col(df_mcp, ['Thứ', 'Thu', 'Day', 'Tần suất'])
+    if c_mcp_ma and c_mcp_thu:
+      for _, r in df_mcp.iterrows():
+        ma = _norm_ma(r[c_mcp_ma])
+        if ma:
+          thu_map[ma] = str(r[c_mcp_thu]).strip()
+
+  df3 = pd.DataFrame({
+      'Tên NVBH': d['_nv'].values,
+      'Mã KH': d['_ma'].values,
+      'Tên KH': d['_ten'].values,
+      'Tên Chương Trình TB': d['_ct'].values,
+      'Mức ĐK': d['_muc'].values,
+      'Số Bộ Ảnh Đã Chụp': d['_anh'].values,
+      'Thứ VT': d['_ma'].map(lambda m: thu_map.get(m, '')).values,
+  })
+
+  comments = ''
+  if not df1.empty:
+    body = df1[df1['STT'].astype(str) != '-'].copy()
+    if not body.empty:
+      b1 = body.sort_values('% CHƯA CHỤP', ascending=False).head(3)
+      b2 = body.sort_values('% CH < 6 BỘ ẢNH', ascending=False).head(3)
+      lines = [
+          '<div class="note-box" style="margin-top:14px;">',
+          '<b>📝 NHẬN XÉT HIỆU SUẤT TRƯNG BÀY</b><br/><br/>',
+          '<b style="color:#034ea2;">1. Bottom 3 % CH chưa chụp cao nhất</b><br/>',
+      ]
+      for _, r in b1.iterrows():
+        lines.append(
+            f"• {r['Tên NVBH']}: <b style='color:#c53030;'>{r['% CHƯA CHỤP']:.1f}%</b> "
+            f"({int(r['CH CHƯA CHỤP'])}/{int(r['CH ĐK'])} CH)<br/>"
+        )
+      lines.append(
+          '<br/><b style="color:#034ea2;">2. Bottom 3 % CH &lt; 6 bộ ảnh cao nhất</b><br/>'
+      )
+      for _, r in b2.iterrows():
+        lines.append(
+            f"• {r['Tên NVBH']}: <b style='color:#c53030;'>{r['% CH < 6 BỘ ẢNH']:.1f}%</b> "
+            f"({int(r['SỐ CH < 6 BỘ ẢNH'])}/{int(r['CH ĐK'])} CH)<br/>"
+        )
+      lines.append('</div>')
+      comments = ''.join(lines)
+
+  return df1, df2, df3, comments
+
+
+def render_display_summary_html(df):
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu trưng bày.</p>'
+  cols = [
+      'STT', 'Tên NVBH', 'CH ĐK', 'CH ĐÃ CHỤP', '% ĐÃ CHỤP',
+      'CH CHƯA CHỤP', '% CHƯA CHỤP', 'CH >= 6 BỘ ẢNH', '% CH >= 6 BỘ ẢNH',
+      'SỐ CH < 6 BỘ ẢNH', '% CH < 6 BỘ ẢNH',
+  ]
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+  )
+  th_g = (
+      'background-color:#f6e05e !important;color:#1a365d !important;'
+      'font-weight:900 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:8px;font-size:13px;'
+  )
+  td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:12px;'
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:980px;font-family:Arial,sans-serif;"><thead>',
+      f'<tr><th colspan="2" style="{th_g}">THÔNG TIN ĐDKD</th>'
+      f'<th colspan="9" style="{th_g}">HIỆU SUẤT TRƯNG BÀY</th></tr><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = (
+        str(row.get('STT', '')).strip() in ('-', 'TOTAL')
+        or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    )
+    bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
+    fg = '#ffffff' if is_tot else '#1a202c'
+    html.append('<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      if c.startswith('%'):
+        try:
+          v = float(val)
+          val_s = f'{v:.1f}%'
+        except Exception:
+          v, val_s = 0, str(val)
+        if is_tot:
+          html.append(
+              f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+              f'font-weight:900;text-align:center;">{val_s}</td>'
+          )
+        else:
+          if 'CHƯA' in c or '< 6' in c:
+            cls_bg, cls_fg = (
+                ('#fed7d7', '#742a2a') if v >= 50
+                else (('#fefcbf', '#744210') if v >= 20 else ('#c6f6d5', '#22543d'))
+            )
+          else:
+            cls_bg, cls_fg = (
+                ('#c6f6d5', '#22543d') if v >= 80
+                else (('#fefcbf', '#744210') if v >= 50 else ('#fed7d7', '#742a2a'))
+            )
+          html.append(
+              f'<td data-colored="1" style="{td}background:{cls_bg} !important;'
+              f'color:{cls_fg} !important;font-weight:700;text-align:center;">{val_s}</td>'
+          )
+      else:
+        al = 'left' if c == 'Tên NVBH' else 'center'
+        html.append(
+            f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+            f'font-weight:{"900" if is_tot else "400"};text-align:{al};">{val}</td>'
+        )
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
+def render_display_by_program_html(df):
+  if df is None or df.empty:
+    return ''
+  prog_cols = [c for c in df.columns if '|' in str(c)]
+  groups = {}
+  for c in prog_cols:
+    prog, metric = str(c).split('|', 1)
+    groups.setdefault(prog, []).append((c, metric))
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:5px 3px;font-size:10px;'
+  )
+  th_y = (
+      'background-color:#f6e05e !important;color:#1a365d !important;'
+      'font-weight:900 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 3px;font-size:11px;'
+  )
+  td = 'border:1px solid #bce2f5 !important;padding:4px 3px;font-size:11px;'
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:16px;">',
+      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
+      '📋 CHI TIẾT THEO TỪNG CHƯƠNG TRÌNH TRƯNG BÀY</h4>',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:1200px;font-family:Arial,sans-serif;"><thead>',
+      f'<tr><th rowspan="2" style="{th}">STT</th>'
+      f'<th rowspan="2" style="{th}">Tên NVBH</th>',
+  ]
+  for prog, metrics in groups.items():
+    html.append(f'<th colspan="{len(metrics)}" style="{th_y}">{prog}</th>')
+  html.append('</tr><tr>')
+  for _, metrics in groups.items():
+    for _, metric in metrics:
+      html.append(f'<th style="{th}">{metric}</th>')
+  html.append('</tr></thead><tbody>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = (
+        str(row.get('STT', '')).strip() in ('-', 'TOTAL')
+        or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    )
+    bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
+    fg = '#ffffff' if is_tot else '#1a202c'
+    fw = '900' if is_tot else '400'
+    html.append('<tr>')
+    html.append(
+        f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+        f'text-align:center;font-weight:{fw};">{row.get("STT","")}</td>'
+    )
+    html.append(
+        f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+        f'text-align:left;font-weight:{fw};">{row.get("Tên NVBH","")}</td>'
+    )
+    for _, metrics in groups.items():
+      for col, metric in metrics:
+        val = row.get(col, 0)
+        if pd.isna(val):
+          val = 0
+        if metric.startswith('%'):
+          try:
+            val_s = f'{float(val):.1f}%'
+          except Exception:
+            val_s = str(val)
+        else:
+          try:
+            val_s = str(int(val))
+          except Exception:
+            val_s = str(val)
+        html.append(
+            f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+            f'text-align:center;font-weight:{fw};">{val_s}</td>'
+        )
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
+def render_display_detail_html(df):
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu chi tiết.</p>'
+  cols = [
+      'Tên NVBH', 'Mã KH', 'Tên KH', 'Tên Chương Trình TB',
+      'Mức ĐK', 'Số Bộ Ảnh Đã Chụp', 'Thứ VT',
+  ]
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+  )
+  td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:16px;">',
+      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
+      '📋 CHI TIẾT TỪNG KH THEO NHÂN VIÊN</h4>',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:900px;font-family:Arial,sans-serif;"><thead><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Tên Chương Trình TB', 'Mức ĐK') else 'center'
+      html.append(
+          f'<td style="{td}background:{bg} !important;text-align:{al};">{val}</td>'
+      )
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
 def render_trai_tuyen_html(df):
   """Bảng chi tiết ĐH Trái Tuyến — format giống bảng Hiệu Suất (header xanh đậm, chữ trắng)."""
   if df is None or df.empty:
@@ -5530,10 +5949,10 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
 
 
 def render_combo_orders_html(df):
-  df = df.drop(columns=['Mã NVBH'], errors='ignore')
-  """Bảng chi tiết ĐH Combo — format giống bảng chi tiết ĐH Trái Tuyến."""
+  """Bảng chi tiết ĐH Combo — format giống Chi Tiết ĐH Trái Tuyến."""
   if df is None or df.empty:
     return ''
+  df = df.drop(columns=['Mã NVBH'], errors='ignore')
   cols = [
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
       'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'Loại Hình L1',
@@ -5542,41 +5961,43 @@ def render_combo_orders_html(df):
   for c in cols:
     if c not in df.columns:
       df[c] = ''
-
   th = (
-      'background-color:#f6e05e !important;color:#e53e3e !important;'
+      'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
-      'border:1px solid #000 !important;padding:8px 6px;font-size:12px;'
+      'border:1px solid #2b6cb0 !important;padding:8px 6px;font-size:12px;'
       'white-space:nowrap;'
   )
-  td = (
-      'border:1px solid #000 !important;padding:6px 5px;font-size:12px;'
-      'text-align:center !important;white-space:nowrap;background:#fff;'
+  td_base = (
+      'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
+      'text-align:center !important;white-space:nowrap;'
   )
   html = [
-      '<div style="margin-top:20px;">',
-      '<h4 style="color:#c53030;font-weight:800;margin:8px 0 6px 0;">'
-      '📋 DANH SÁCH ĐƠN HÀNG COMBO</h4>',
+      '<div style="margin-top:12px;">',
+      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
+      '📋 CHI TIẾT ĐƠN HÀNG COMBO</h4>',
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
-      '<table style="border-collapse:collapse;width:100%;min-width:1000px;'
-      'font-family:Arial,sans-serif;">',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:900px;font-family:Arial,sans-serif;">',
       '<thead><tr>',
   ]
   for c in cols:
     html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
-  for _, row in df.iterrows():
+  for pos, (_, row) in enumerate(df.iterrows()):
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     html.append('<tr>')
     for c in cols:
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
       al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Sản Phẩm Khuyến Mãi') else 'center'
-      html.append(f'<td style="{td}text-align:{al} !important;">{val}</td>')
+      html.append(
+          f'<td style="{td_base}background-color:{bg} !important;'
+          f'text-align:{al} !important;">{val}</td>'
+      )
     html.append('</tr>')
   html.append('</tbody></table></div></div>')
   return ''.join(html)
-
 
 
 
@@ -6941,6 +7362,109 @@ with tab_kpi:
                 mime='text/csv',
                 key='dl_trai',
             )
+
+  elif selected_kpi == 'DISPLAY':
+    st.markdown(
+        '<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
+        '15. BÁO CÁO TRƯNG BÀY</h3>',
+        unsafe_allow_html=True,
+    )
+    df_disp = load_display_data()
+    if df_disp is None or df_disp.empty:
+      st.warning(
+          '⚠️ Chưa có file **DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xlsx** '
+          'trong thư mục `data/`. Upload lên GitHub rồi **Xóa Cache & Reload**.'
+      )
+    else:
+      df1, df2, df3, comments = build_display_report(df_disp, mcp, filter_nv)
+
+      # Bảng 1
+      st.markdown(render_display_summary_html(df1), unsafe_allow_html=True)
+
+      # Bảng 2
+      st.markdown(render_display_by_program_html(df2), unsafe_allow_html=True)
+
+      # Bộ lọc bảng 3
+      st.markdown(
+          '<p class="filter-label" style="margin-top:14px;">🔍 Bộ lọc Chi Tiết KH</p>',
+          unsafe_allow_html=True,
+      )
+      fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+      progs = sorted([
+          p for p in df3['Tên Chương Trình TB'].dropna().unique().tolist()
+          if str(p).strip() and str(p).lower() != 'nan'
+      ]) if not df3.empty else []
+      nvs = sorted([
+          p for p in df3['Tên NVBH'].dropna().unique().tolist()
+          if str(p).strip()
+      ]) if not df3.empty else []
+      thus = sorted([
+          p for p in df3['Thứ VT'].dropna().unique().tolist()
+          if str(p).strip() and str(p).lower() != 'nan'
+      ]) if not df3.empty else []
+      with fc1:
+        st.markdown('<p class="filter-label">Tên Chương Trình TB</p>', unsafe_allow_html=True)
+        f_prog = st.multiselect('', progs, default=[], key='disp_prog', label_visibility='collapsed')
+      with fc2:
+        st.markdown('<p class="filter-label">Tên ĐDKD</p>', unsafe_allow_html=True)
+        f_nv3 = st.multiselect('', nvs, default=[], key='disp_nv', label_visibility='collapsed')
+      with fc3:
+        st.markdown('<p class="filter-label">Mã KH</p>', unsafe_allow_html=True)
+        f_ma3 = st.text_input('', key='disp_ma', label_visibility='collapsed', placeholder='Nhập Mã KH...')
+      with fc4:
+        st.markdown('<p class="filter-label">Tên KH</p>', unsafe_allow_html=True)
+        f_ten3 = st.text_input('', key='disp_ten', label_visibility='collapsed', placeholder='Nhập Tên KH...')
+      with fc5:
+        st.markdown('<p class="filter-label">Thứ VT</p>', unsafe_allow_html=True)
+        f_thu3 = st.multiselect('', thus, default=[], key='disp_thu', label_visibility='collapsed')
+
+      df3f = df3.copy() if not df3.empty else df3
+      if not df3f.empty:
+        if f_prog:
+          df3f = df3f[df3f['Tên Chương Trình TB'].isin(f_prog)]
+        if f_nv3:
+          df3f = df3f[df3f['Tên NVBH'].isin(f_nv3)]
+        if f_ma3:
+          df3f = df3f[df3f['Mã KH'].astype(str).str.contains(f_ma3.strip(), case=False, na=False)]
+        if f_ten3:
+          df3f = df3f[df3f['Tên KH'].astype(str).str.contains(f_ten3.strip(), case=False, na=False)]
+        if f_thu3:
+          df3f = df3f[df3f['Thứ VT'].astype(str).isin([str(x) for x in f_thu3])]
+
+      st.markdown(render_display_detail_html(df3f), unsafe_allow_html=True)
+      st.caption(f'Hiển thị: {len(df3f):,} / {len(df3):,} dòng')
+
+      # Nhận xét
+      st.markdown(comments, unsafe_allow_html=True)
+
+      c1, c2, c3 = st.columns(3)
+      with c1:
+        if not df1.empty:
+          st.download_button(
+              '📥 Tải CSV Tổng Hợp TB',
+              data=df1.to_csv(index=False).encode('utf-8-sig'),
+              file_name='TrungBay_TongHop.csv',
+              mime='text/csv',
+              key='dl_disp1',
+          )
+      with c2:
+        if not df2.empty:
+          st.download_button(
+              '📥 Tải CSV Theo CT',
+              data=df2.to_csv(index=False).encode('utf-8-sig'),
+              file_name='TrungBay_TheoCT.csv',
+              mime='text/csv',
+              key='dl_disp2',
+          )
+      with c3:
+        if not df3f.empty:
+          st.download_button(
+              '📥 Tải CSV Chi Tiết KH',
+              data=df3f.to_csv(index=False).encode('utf-8-sig'),
+              file_name='TrungBay_ChiTietKH.csv',
+              mime='text/csv',
+              key='dl_disp3',
+          )
 
   elif selected_kpi != 'COMBO':
     set_color_moc_for_kpi(selected_kpi)
