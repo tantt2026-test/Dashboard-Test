@@ -7555,8 +7555,37 @@ with tab_kpi:
       # Bảng 1
       st.markdown(render_display_summary_html(df1), unsafe_allow_html=True)
 
+      # Bộ lọc Chương Trình TB cho Bảng 2 (chọn nhiều)
+      prog_names = []
+      if df2 is not None and not df2.empty:
+        for c in df2.columns:
+          if '|' in str(c):
+            prog_names.append(str(c).split('|', 1)[0])
+        # unique giữ thứ tự
+        seen = set()
+        prog_names = [p for p in prog_names if not (p in seen or seen.add(p))]
+      st.markdown(
+          '<p class="filter-label" style="margin-top:12px;">🏷️ Lọc Chương Trình TB (Bảng chi tiết theo CT)</p>',
+          unsafe_allow_html=True,
+      )
+      f_prog_tb2 = st.multiselect(
+          '',
+          options=prog_names,
+          default=[],
+          key='disp_prog_tb2',
+          label_visibility='collapsed',
+          placeholder='Tất cả chương trình (chọn nhiều)',
+      )
+      df2_view = df2
+      if f_prog_tb2 and df2 is not None and not df2.empty:
+        keep = ['STT', 'Tên NVBH']
+        for c in df2.columns:
+          if '|' in str(c) and str(c).split('|', 1)[0] in f_prog_tb2:
+            keep.append(c)
+        df2_view = df2[keep].copy()
+
       # Bảng 2
-      st.markdown(render_display_by_program_html(df2), unsafe_allow_html=True)
+      st.markdown(render_display_by_program_html(df2_view), unsafe_allow_html=True)
 
       # Bộ lọc bảng 3
       st.markdown(
