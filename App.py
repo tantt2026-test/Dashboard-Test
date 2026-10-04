@@ -204,7 +204,14 @@ st.markdown(
     .custom-kpi-table td.vip-4 {
         background-color: #c53030 !important; color: #ffffff !important; font-weight: 900 !important;
     }
-    .custom-kpi-table tbody tr.row-total td:not([data-colored="1"]) {
+    .custom-kpi-table tbody tr.row-total td:not([data-colored="1"]),
+    .custom-kpi-table tbody tr.row-total td.row-total-cell {
+        background-color: #1a365d !important;
+        color: #ffffff !important;
+        font-weight: 900 !important;
+        border-color: #2b6cb0 !important;
+    }
+    .custom-kpi-table tbody tr.row-total td {
         background-color: #1a365d !important;
         color: #ffffff !important;
         font-weight: 900 !important;
@@ -5686,7 +5693,8 @@ def render_display_summary_html(df):
         or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
     )
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
-    html.append('<tr>')
+    tr_cls = ' class="row-total"' if is_tot else ''
+    html.append(f'<tr{tr_cls}>')
     for c in cols:
       val = row.get(c, '')
       if pd.isna(val):
@@ -5698,9 +5706,10 @@ def render_display_summary_html(df):
         except Exception:
           v, val_s = 0.0, str(val)
         if is_tot:
-          # Giống Báo Cáo 14: dòng total xanh đậm + chữ trắng (kể cả %)
+          # class row-total-cell → CSS global tô xanh đậm + chữ trắng
           html.append(
-              f'<td style="{tot_style}text-align:center !important;">{val_s}</td>'
+              f'<td class="row-total-cell" style="{tot_style}'
+              f'text-align:center !important;">{val_s}</td>'
           )
         else:
           cls, style_bg = _disp_pct_style(c, v)
@@ -5712,7 +5721,8 @@ def render_display_summary_html(df):
         al = 'left' if c == 'Tên NVBH' else 'center'
         if is_tot:
           html.append(
-              f'<td style="{tot_style}text-align:{al} !important;">{val}</td>'
+              f'<td class="row-total-cell" style="{tot_style}'
+              f'text-align:{al} !important;">{val}</td>'
           )
         else:
           html.append(
@@ -5794,15 +5804,17 @@ def render_display_by_program_html(df):
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     fg = '#1a202c'
     fw = '400'
-    html.append('<tr>')
+    tr_cls = ' class="row-total"' if is_tot else ''
+    html.append(f'<tr{tr_cls}>')
     if is_tot:
       html.append(
-          f'<td style="{tot_style}{sticky_stt_cell}text-align:center !important;">'
-          f'{row.get("STT","")}</td>'
+          f'<td class="row-total-cell" style="{tot_style}{sticky_stt_cell}'
+          f'text-align:center !important;">{row.get("STT","")}</td>'
       )
       html.append(
-          f'<td style="{tot_style}{sticky_ten_cell}text-align:left !important;'
-          f'white-space:nowrap;">{row.get("Tên NVBH","")}</td>'
+          f'<td class="row-total-cell" style="{tot_style}{sticky_ten_cell}'
+          f'text-align:left !important;white-space:nowrap;">'
+          f'{row.get("Tên NVBH","")}</td>'
       )
     else:
       html.append(
@@ -5828,7 +5840,8 @@ def render_display_by_program_html(df):
             v, val_s = 0.0, str(val)
           if is_tot:
             html.append(
-                f'<td style="{tot_style}text-align:center !important;">{val_s}</td>'
+                f'<td class="row-total-cell" style="{tot_style}'
+                f'text-align:center !important;">{val_s}</td>'
             )
           else:
             cls, style_bg = _disp_pct_style(metric, v)
@@ -5843,7 +5856,8 @@ def render_display_by_program_html(df):
             val_s = str(val)
           if is_tot:
             html.append(
-                f'<td style="{tot_style}text-align:center !important;">{val_s}</td>'
+                f'<td class="row-total-cell" style="{tot_style}'
+                f'text-align:center !important;">{val_s}</td>'
             )
           else:
             html.append(
