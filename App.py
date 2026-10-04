@@ -5563,6 +5563,34 @@ def build_display_report(df_disp, df_mcp=None, filter_nv=None):
   return df1, df2, df3, comments
 
 
+def _disp_pct_style(col_name, v):
+  """Tô màu % trưng bày: đã chụp/>=6 cao=tốt; chưa chụp/<6 cao=xấu.
+  Dùng cùng palette KPI (đỏ/xanh/tím)."""
+  try:
+    v = float(str(v).replace('%', '').strip())
+  except Exception:
+    return '', ''
+  red = 'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:800 !important;'
+  green = 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:800 !important;'
+  purple = 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:800 !important;'
+  c = str(col_name)
+  # Cột xấu khi cao
+  if 'CHƯA' in c or '< 6' in c or 'CHUA' in c.upper():
+    # map: cao % chưa chụp = đỏ. Dùng mốc 100: v cao → đỏ
+    score = 100.0 - v  # thấp score = xấu
+    if score < 50:
+      return 'pct-red', red
+    if score < 80:
+      return 'pct-green', green
+    return 'pct-purple', purple
+  # Cột tốt khi cao (đã chụp, >=6)
+  if v < 50:
+    return 'pct-red', red
+  if v < 80:
+    return 'pct-green', green
+  return 'pct-purple', purple
+
+
 def render_display_summary_html(df):
   if df is None or df.empty:
     return '<p>Không có dữ liệu trưng bày.</p>'
@@ -5609,26 +5637,17 @@ def render_display_summary_html(df):
           v = float(val)
           val_s = f'{v:.1f}%'
         except Exception:
-          v, val_s = 0, str(val)
+          v, val_s = 0.0, str(val)
         if is_tot:
           html.append(
               f'<td style="{td}background:{bg} !important;color:{fg} !important;'
               f'font-weight:900;text-align:center;">{val_s}</td>'
           )
         else:
-          if 'CHƯA' in c or '< 6' in c:
-            cls_bg, cls_fg = (
-                ('#fed7d7', '#742a2a') if v >= 50
-                else (('#fefcbf', '#744210') if v >= 20 else ('#c6f6d5', '#22543d'))
-            )
-          else:
-            cls_bg, cls_fg = (
-                ('#c6f6d5', '#22543d') if v >= 80
-                else (('#fefcbf', '#744210') if v >= 50 else ('#fed7d7', '#742a2a'))
-            )
+          cls, style_bg = _disp_pct_style(c, v)
           html.append(
-              f'<td data-colored="1" style="{td}background:{cls_bg} !important;'
-              f'color:{cls_fg} !important;font-weight:700;text-align:center;">{val_s}</td>'
+              f'<td data-colored="1" class="{cls}" style="{td}{style_bg}'
+              f'text-align:center;">{val_s}</td>'
           )
       else:
         al = 'left' if c == 'Tên NVBH' else 'center'
@@ -5642,6 +5661,7 @@ def render_display_summary_html(df):
 
 
 def render_display_by_program_html(df):
+  """Bảng 2: sticky STT + Tên NVBH + 2 dòng header; chỉ cuộn ngang; % tô màu rule KPI."""
   if df is None or df.empty:
     return ''
   prog_cols = [c for c in df.columns if '|' in str(c)]
@@ -5649,6 +5669,14 @@ def render_display_by_program_html(df):
   for c in prog_cols:
     prog, metric = str(c).split('|', 1)
     groups.setdefault(prog, []).append((c, metric))
+
+  # độ rộng cột tên theo tên dài nhất
+  max_name = 12
+  if 'Tên NVBH' in df.columns:
+    for n in df['Tên NVBH'].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
+
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
@@ -5660,14 +5688,26 @@ def render_display_by_program_html(df):
       'border:1px solid #2b6cb0 !important;padding:6px 3px;font-size:11px;'
   )
   td = 'border:1px solid #bce2f5 !important;padding:4px 3px;font-size:11px;'
+  sticky_base = 'position:sticky;z-index:3;background:#1a365d !important;color:#fff !important;'
+  sticky_stt = sticky_base + 'left:0;min-width:44px;max-width:44px;'
+  sticky_ten_h = sticky_base + f'left:44px;min-width:{name_w}px;z-index:4;'
+  sticky_stt_cell = (
+      f'position:sticky;left:0;z-index:2;min-width:44px;max-width:44px;'
+  )
+  sticky_ten_cell = (
+      f'position:sticky;left:44px;z-index:2;min-width:{name_w}px;'
+  )
+
   html = [
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:16px;">',
+      '<div style="overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;'
+      'margin-top:16px;max-width:100%;">',
       '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
       '📋 CHI TIẾT THEO TỪNG CHƯƠNG TRÌNH TRƯNG BÀY</h4>',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:1200px;font-family:Arial,sans-serif;"><thead>',
-      f'<tr><th rowspan="2" style="{th}">STT</th>'
-      f'<th rowspan="2" style="{th}">Tên NVBH</th>',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;">',
+      '<thead style="position:sticky;top:0;z-index:5;">',
+      f'<tr><th rowspan="2" style="{th}{sticky_stt}">STT</th>'
+      f'<th rowspan="2" style="{th}{sticky_ten_h}">Tên NVBH</th>',
   ]
   for prog, metrics in groups.items():
     html.append(f'<th colspan="{len(metrics)}" style="{th_y}">{prog}</th>')
@@ -5676,6 +5716,7 @@ def render_display_by_program_html(df):
     for _, metric in metrics:
       html.append(f'<th style="{th}">{metric}</th>')
   html.append('</tr></thead><tbody>')
+
   for pos, (_, row) in enumerate(df.iterrows()):
     is_tot = (
         str(row.get('STT', '')).strip() in ('-', 'TOTAL')
@@ -5684,14 +5725,17 @@ def render_display_by_program_html(df):
     bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
     fg = '#ffffff' if is_tot else '#1a202c'
     fw = '900' if is_tot else '400'
+    sticky_bg = bg
     html.append('<tr>')
     html.append(
-        f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-        f'text-align:center;font-weight:{fw};">{row.get("STT","")}</td>'
+        f'<td style="{td}{sticky_stt_cell}background:{sticky_bg} !important;'
+        f'color:{fg} !important;text-align:center;font-weight:{fw};">'
+        f'{row.get("STT","")}</td>'
     )
     html.append(
-        f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-        f'text-align:left;font-weight:{fw};">{row.get("Tên NVBH","")}</td>'
+        f'<td style="{td}{sticky_ten_cell}background:{sticky_bg} !important;'
+        f'color:{fg} !important;text-align:left;font-weight:{fw};'
+        f'white-space:nowrap;">{row.get("Tên NVBH","")}</td>'
     )
     for _, metrics in groups.items():
       for col, metric in metrics:
@@ -5700,24 +5744,37 @@ def render_display_by_program_html(df):
           val = 0
         if metric.startswith('%'):
           try:
-            val_s = f'{float(val):.1f}%'
+            v = float(val)
+            val_s = f'{v:.1f}%'
           except Exception:
-            val_s = str(val)
+            v, val_s = 0.0, str(val)
+          if is_tot:
+            html.append(
+                f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+                f'text-align:center;font-weight:{fw};">{val_s}</td>'
+            )
+          else:
+            cls, style_bg = _disp_pct_style(metric, v)
+            html.append(
+                f'<td data-colored="1" class="{cls}" style="{td}{style_bg}'
+                f'text-align:center;">{val_s}</td>'
+            )
         else:
           try:
             val_s = str(int(val))
           except Exception:
             val_s = str(val)
-        html.append(
-            f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-            f'text-align:center;font-weight:{fw};">{val_s}</td>'
-        )
+          html.append(
+              f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+              f'text-align:center;font-weight:{fw};">{val_s}</td>'
+          )
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
 
 
-def render_display_detail_html(df):
+def render_display_detail_html(df, max_visible=15):
+  """Bảng 3: tối đa ~15 dòng visible, sticky header, cuộn dọc."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu chi tiết.</p>'
   cols = [
@@ -5728,11 +5785,16 @@ def render_display_detail_html(df):
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
       'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+      'position:sticky;top:0;z-index:3;'
   )
   td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
+  # ~15 rows * ~32px + header
+  max_h = 36 + max_visible * 32
   html = [
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:16px;">',
-      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
+      f'<div style="overflow:auto;-webkit-overflow-scrolling:touch;margin-top:16px;'
+      f'max-height:{max_h}px;">',
+      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;'
+      'position:sticky;top:0;background:#fff;z-index:4;padding:4px 0;">'
       '📋 CHI TIẾT TỪNG KH THEO NHÂN VIÊN</h4>',
       '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
       'min-width:900px;font-family:Arial,sans-serif;"><thead><tr>',
@@ -5754,6 +5816,35 @@ def render_display_detail_html(df):
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
+
+
+def _df_display_export(df, kind='summary'):
+  """Chuẩn hoá DataFrame để xuất CSV/Excel — % dạng xx.x%."""
+  if df is None or df.empty:
+    return df
+  out = df.copy()
+  for c in out.columns:
+    if str(c).startswith('%') or (isinstance(c, str) and '|%' in c):
+      out[c] = out[c].apply(
+          lambda x: f'{float(x):.1f}%'
+          if pd.notna(x) and str(x).replace('.', '').replace('-', '').isdigit()
+          or (isinstance(x, (int, float)) and not isinstance(x, bool))
+          else (f'{float(str(x).replace("%","")):.1f}%' if pd.notna(x) and '%' in str(x)
+                else x)
+      )
+      # simpler:
+  for c in out.columns:
+    cs = str(c)
+    if cs.startswith('%') or '|%' in cs or cs.endswith('% ĐÃ CHỤP') or '% ĐÃ CHỤP' in cs:
+      def _fmt(x):
+        if pd.isna(x):
+          return ''
+        try:
+          return f'{float(str(x).replace("%","").strip()):.1f}%'
+        except Exception:
+          return x
+      out[c] = out[c].map(_fmt)
+  return out
 
 
 def render_trai_tuyen_html(df):
@@ -7438,12 +7529,29 @@ with tab_kpi:
       # Nhận xét
       st.markdown(comments, unsafe_allow_html=True)
 
+      def _fmt_pct_cols(df_in):
+        if df_in is None or df_in.empty:
+          return df_in
+        out = df_in.copy()
+        for c in out.columns:
+          cs = str(c)
+          if cs.startswith('%') or '|%' in cs:
+            def _one(x):
+              if pd.isna(x) or str(x).strip() == '':
+                return ''
+              try:
+                return f'{float(str(x).replace("%", "").strip()):.1f}%'
+              except Exception:
+                return x
+            out[c] = out[c].map(_one)
+        return out
+
       c1, c2, c3 = st.columns(3)
       with c1:
         if not df1.empty:
           st.download_button(
               '📥 Tải CSV Tổng Hợp TB',
-              data=df1.to_csv(index=False).encode('utf-8-sig'),
+              data=_fmt_pct_cols(df1).to_csv(index=False).encode('utf-8-sig'),
               file_name='TrungBay_TongHop.csv',
               mime='text/csv',
               key='dl_disp1',
@@ -7452,7 +7560,7 @@ with tab_kpi:
         if not df2.empty:
           st.download_button(
               '📥 Tải CSV Theo CT',
-              data=df2.to_csv(index=False).encode('utf-8-sig'),
+              data=_fmt_pct_cols(df2).to_csv(index=False).encode('utf-8-sig'),
               file_name='TrungBay_TheoCT.csv',
               mime='text/csv',
               key='dl_disp2',
