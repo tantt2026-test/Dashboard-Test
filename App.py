@@ -5654,6 +5654,7 @@ def _disp_pct_style(col_name, v):
 
 
 def render_display_summary_html(df):
+  """Bảng 1: sticky STT + Tên NVBH + header; % tô màu; total row-total."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu trưng bày.</p>'
   cols = [
@@ -5661,6 +5662,12 @@ def render_display_summary_html(df):
       'CH CHƯA CHỤP', '% CHƯA CHỤP', 'CH >= 6 BỘ ẢNH', '% CH >= 6 BỘ ẢNH',
       'SỐ CH < 6 BỘ ẢNH', '% CH < 6 BỘ ẢNH',
   ]
+  max_name = 12
+  if 'Tên NVBH' in df.columns:
+    for n in df['Tên NVBH'].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
+
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
@@ -5672,21 +5679,35 @@ def render_display_summary_html(df):
       'border:1px solid #2b6cb0 !important;padding:8px;font-size:13px;'
   )
   td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:12px;'
-  html = [
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:980px;font-family:Arial,sans-serif;"><thead>',
-      f'<tr><th colspan="2" style="{th_g}">THÔNG TIN ĐDKD</th>'
-      f'<th colspan="9" style="{th_g}">HIỆU SUẤT TRƯNG BÀY</th></tr><tr>',
-  ]
-  for c in cols:
-    html.append(f'<th style="{th}">{c}</th>')
-  html.append('</tr></thead><tbody>')
   tot_style = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
       'padding:5px 4px;font-size:12px;'
   )
+  sticky_stt_h = (
+      f'{th}position:sticky;left:0;z-index:6;min-width:44px;max-width:44px;'
+  )
+  sticky_ten_h = (
+      f'{th}position:sticky;left:44px;z-index:6;min-width:{name_w}px;'
+  )
+  sticky_stt_c = 'position:sticky;left:0;z-index:2;min-width:44px;max-width:44px;'
+  sticky_ten_c = f'position:sticky;left:44px;z-index:2;min-width:{name_w}px;'
+
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;">',
+      '<thead style="position:sticky;top:0;z-index:5;">',
+      f'<tr><th colspan="2" style="{th_g}">THÔNG TIN ĐDKD</th>'
+      f'<th colspan="9" style="{th_g}">HIỆU SUẤT TRƯNG BÀY</th></tr>',
+      '<tr>',
+      f'<th style="{sticky_stt_h}">STT</th>',
+      f'<th style="{sticky_ten_h}">Tên NVBH</th>',
+  ]
+  for c in cols[2:]:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+
   for pos, (_, row) in enumerate(df.iterrows()):
     is_tot = (
         str(row.get('STT', '')).strip() in ('-', 'TOTAL')
@@ -5699,6 +5720,12 @@ def render_display_summary_html(df):
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
+      sticky = ''
+      if c == 'STT':
+        sticky = sticky_stt_c
+      elif c == 'Tên NVBH':
+        sticky = sticky_ten_c
+
       if c.startswith('%'):
         try:
           v = float(str(val).replace('%', '').strip())
@@ -5706,28 +5733,27 @@ def render_display_summary_html(df):
         except Exception:
           v, val_s = 0.0, str(val)
         if is_tot:
-          # class row-total-cell → CSS global tô xanh đậm + chữ trắng
           html.append(
-              f'<td class="row-total-cell" style="{tot_style}'
+              f'<td class="row-total-cell" style="{tot_style}{sticky}'
               f'text-align:center !important;">{val_s}</td>'
           )
         else:
           cls, style_bg = _disp_pct_style(c, v)
           html.append(
-              f'<td data-colored="1" class="{cls}" style="{td}{style_bg}'
+              f'<td data-colored="1" class="{cls}" style="{td}{style_bg}{sticky}'
               f'text-align:center;">{val_s}</td>'
           )
       else:
         al = 'left' if c == 'Tên NVBH' else 'center'
         if is_tot:
           html.append(
-              f'<td class="row-total-cell" style="{tot_style}'
-              f'text-align:{al} !important;">{val}</td>'
+              f'<td class="row-total-cell" style="{tot_style}{sticky}'
+              f'text-align:{al} !important;white-space:nowrap;">{val}</td>'
           )
         else:
           html.append(
-              f'<td style="{td}background:{bg} !important;color:#1a202c !important;'
-              f'font-weight:400;text-align:{al};">{val}</td>'
+              f'<td style="{td}{sticky}background:{bg} !important;color:#1a202c !important;'
+              f'font-weight:400;text-align:{al};white-space:nowrap;">{val}</td>'
           )
     html.append('</tr>')
   html.append('</tbody></table></div>')
@@ -5870,34 +5896,58 @@ def render_display_by_program_html(df):
 
 
 def render_display_detail_html(df, max_visible=15):
-  """Bảng 3: tối đa ~15 dòng visible, sticky header, cuộn dọc."""
+  """Bảng 3: sticky Tên NVBH + Mã KH + Tên KH + header; cuộn dọc ~15 dòng."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu chi tiết.</p>'
   cols = [
       'Tên NVBH', 'Mã KH', 'Tên KH', 'Tên Chương Trình TB',
       'Mức ĐK', 'Số Bộ Ảnh Đã Chụp', 'Thứ VT',
   ]
-  th = (
+  max_nv = 12
+  max_ten = 12
+  if 'Tên NVBH' in df.columns:
+    for n in df['Tên NVBH'].astype(str):
+      max_nv = max(max_nv, len(n))
+  if 'Tên KH' in df.columns:
+    for n in df['Tên KH'].astype(str):
+      max_ten = max(max_ten, min(len(n), 28))
+  w_nv = max(120, min(220, max_nv * 9 + 20))
+  w_ma = 90
+  w_kh = max(120, min(220, max_ten * 8 + 20))
+  left_ma = w_nv
+  left_kh = w_nv + w_ma
+
+  th_base = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
       'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
-      'position:sticky;top:0;z-index:3;'
+      'position:sticky;top:0;z-index:5;'
   )
   td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
-  # ~15 rows * ~32px + header
-  max_h = 36 + max_visible * 32
+  sticky_nv = f'position:sticky;left:0;z-index:3;min-width:{w_nv}px;'
+  sticky_ma = f'position:sticky;left:{left_ma}px;z-index:3;min-width:{w_ma}px;'
+  sticky_kh = f'position:sticky;left:{left_kh}px;z-index:3;min-width:{w_kh}px;'
+  th_nv = th_base + f'left:0;z-index:6;min-width:{w_nv}px;'
+  th_ma = th_base + f'left:{left_ma}px;z-index:6;min-width:{w_ma}px;'
+  th_kh = th_base + f'left:{left_kh}px;z-index:6;min-width:{w_kh}px;'
+
+  max_h = 40 + max_visible * 32
   html = [
       f'<div style="overflow:auto;-webkit-overflow-scrolling:touch;margin-top:16px;'
       f'max-height:{max_h}px;">',
-      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;'
-      'position:sticky;top:0;background:#fff;z-index:4;padding:4px 0;">'
+      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
       '📋 CHI TIẾT TỪNG KH THEO NHÂN VIÊN</h4>',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:900px;font-family:Arial,sans-serif;"><thead><tr>',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;">',
+      '<thead><tr>',
+      f'<th style="{th_nv}">Tên NVBH</th>',
+      f'<th style="{th_ma}">Mã KH</th>',
+      f'<th style="{th_kh}">Tên KH</th>',
   ]
-  for c in cols:
-    html.append(f'<th style="{th}">{c}</th>')
+  for c in cols[3:]:
+    html.append(f'<th style="{th_base}">{c}</th>')
   html.append('</tr></thead><tbody>')
+
   for pos, (_, row) in enumerate(df.iterrows()):
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     html.append('<tr>')
@@ -5905,9 +5955,17 @@ def render_display_detail_html(df, max_visible=15):
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
+      sticky = ''
+      if c == 'Tên NVBH':
+        sticky = sticky_nv
+      elif c == 'Mã KH':
+        sticky = sticky_ma
+      elif c == 'Tên KH':
+        sticky = sticky_kh
       al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Tên Chương Trình TB', 'Mức ĐK') else 'center'
       html.append(
-          f'<td style="{td}background:{bg} !important;text-align:{al};">{val}</td>'
+          f'<td style="{td}{sticky}background:{bg} !important;text-align:{al};'
+          f'white-space:nowrap;">{val}</td>'
       )
     html.append('</tr>')
   html.append('</tbody></table></div>')
