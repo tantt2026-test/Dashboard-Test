@@ -6330,6 +6330,7 @@ with f2:
       '12. BÁO CÁO MBS CAT': 'MBS_CAT',
       '13. BÁO CÁO MBS BRAND': 'MBS_BRAND',
       '14. BÁO CÁO HIỆU SUẤT BÁN HÀNG': 'PERFORMANCE',
+      '15. BÁO CÁO TRƯNG BÀY': 'DISPLAY',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
