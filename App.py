@@ -6114,8 +6114,8 @@ def _df_display_export(df, kind='summary'):
 def build_vip_ko_dh_detail(df_visit, df_mcp, report_date, filter_nv=None):
   """Chi tiết CH VIP đã VT trong ngày BC nhưng KHÔNG có đơn hàng."""
   empty = pd.DataFrame(columns=[
-      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Kênh', 'VIP',
-      'Ngày VT thực tế', 'Trạng thái', 'Tên Nhóm CH',
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP',
+      'Ngày VT thực tế', 'Số Phút Viếng Thăm', 'Trạng thái',
   ])
   if df_visit is None or df_visit.empty:
     return empty
@@ -6154,6 +6154,18 @@ def build_vip_ko_dh_detail(df_visit, df_mcp, report_date, filter_nv=None):
       vis['Tên Nhóm CH'].astype(str).str.strip()
       if 'Tên Nhóm CH' in vis.columns else ''
   )
+  # Số phút viếng thăm
+  _phut_col = None
+  for _c in vis.columns:
+    if str(_c).strip().lower().replace(' ', '') in (
+        'sốphútviếngthăm', 'sophutviengtham', 'sốphútvt', 'sophutvt'
+    ) or 'phút' in str(_c).lower() or 'phut' in str(_c).lower().replace('ú', 'u'):
+      _phut_col = _c
+      break
+  if _phut_col:
+    vis['_phut'] = pd.to_numeric(vis[_phut_col], errors='coerce')
+  else:
+    vis['_phut'] = None
   vis['_ten_kh'] = (
       vis['Tên Cửa hàng'].astype(str).str.strip()
       if 'Tên Cửa hàng' in vis.columns
@@ -6220,17 +6232,24 @@ def build_vip_ko_dh_detail(df_visit, df_mcp, report_date, filter_nv=None):
     vip_label = vip_map.get(ma, '') or str(nhom).upper()
     ten = r.get('_ten_kh', '') or ten_map.get(ma, '')
     ngay = r.get('_actual', rd)
+    phut = r.get('_phut', '')
+    if pd.isna(phut) or phut is None:
+      phut_s = ''
+    else:
+      try:
+        phut_s = int(phut) if float(phut) == int(float(phut)) else round(float(phut), 1)
+      except Exception:
+        phut_s = phut
     rows.append({
         'Tên NVBH': r.get('_nv', ''),
         'Mã KH': ma,
         'Tên KH': ten,
-        'Kênh': _kenh(ma),
         'VIP': vip_label,
         'Ngày VT thực tế': (
             ngay.strftime('%d/%m/%Y') if hasattr(ngay, 'strftime') else str(ngay)
         ),
+        'Số Phút Viếng Thăm': phut_s,
         'Trạng thái': r.get('_status', ''),
-        'Tên Nhóm CH': nhom,
     })
 
   if not rows:
@@ -6258,8 +6277,8 @@ def render_vip_ko_dh_html(df):
   if df is None or df.empty:
     return ''
   cols = [
-      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Kênh', 'VIP',
-      'Ngày VT thực tế', 'Trạng thái', 'Tên Nhóm CH',
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP',
+      'Ngày VT thực tế', 'Số Phút Viếng Thăm', 'Trạng thái',
   ]
   for c in cols:
     if c not in df.columns:
@@ -6293,7 +6312,7 @@ def render_vip_ko_dh_html(df):
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
-      al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Tên Nhóm CH') else 'center'
+      al = 'left' if c in ('Tên NVBH', 'Tên KH') else 'center'
       # VIP: tô đỏ nhạt
       if c == 'VIP' and str(val).strip():
         html.append(
