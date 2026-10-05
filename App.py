@@ -6273,7 +6273,7 @@ def build_vip_ko_dh_detail(df_visit, df_mcp, report_date, filter_nv=None):
 
 
 def render_vip_ko_dh_html(df):
-  """Bảng chi tiết VIP KO ĐH — format giống Chi Tiết ĐH Trái Tuyến."""
+  """Bảng chi tiết VIP KO ĐH — format giống Trái Tuyến + scale mobile."""
   if df is None or df.empty:
     return ''
   cols = [
@@ -6293,13 +6293,35 @@ def render_vip_ko_dh_html(df):
       'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
       'text-align:center !important;white-space:nowrap;'
   )
+  # CSS scale trên mobile: font/padding nhỏ hơn, cuộn ngang mượt
+  mobile_css = (
+      '<style>'
+      '.vip-ko-wrap{margin-top:20px;width:100%;}'
+      '.vip-ko-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;'
+      'width:100%;max-width:100%;}'
+      '.vip-ko-table{border-collapse:collapse;width:100%;min-width:720px;'
+      'font-family:Arial,sans-serif;}'
+      '@media (max-width:768px){'
+      '.vip-ko-table{min-width:640px;font-size:11px !important;}'
+      '.vip-ko-table th,.vip-ko-table td{padding:5px 4px !important;'
+      'font-size:11px !important;}'
+      '.vip-ko-title{font-size:14px !important;}'
+      '}'
+      '@media (max-width:480px){'
+      '.vip-ko-table{min-width:560px;font-size:10px !important;}'
+      '.vip-ko-table th,.vip-ko-table td{padding:4px 3px !important;'
+      'font-size:10px !important;}'
+      '.vip-ko-title{font-size:13px !important;}'
+      '}'
+      '</style>'
+  )
   html = [
-      '<div style="margin-top:20px;">',
-      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
+      mobile_css,
+      '<div class="vip-ko-wrap">',
+      '<h4 class="vip-ko-title" style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
       '📋 CHI TIẾT KH VIP KO ĐƠN HÀNG</h4>',
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:900px;font-family:Arial,sans-serif;">',
+      '<div class="vip-ko-scroll">',
+      '<table class="custom-kpi-table vip-ko-table">',
       '<thead><tr>',
   ]
   for c in cols:
@@ -6352,13 +6374,34 @@ def render_trai_tuyen_html(df):
       'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
       'text-align:center !important;white-space:nowrap;'
   )
+  mobile_css = (
+      '<style>'
+      '.trai-wrap{margin-top:20px;width:100%;}'
+      '.trai-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;'
+      'width:100%;max-width:100%;}'
+      '.trai-table{border-collapse:collapse;width:100%;min-width:860px;'
+      'font-family:Arial,sans-serif;}'
+      '@media (max-width:768px){'
+      '.trai-table{min-width:720px;font-size:11px !important;}'
+      '.trai-table th,.trai-table td{padding:5px 4px !important;'
+      'font-size:11px !important;}'
+      '.trai-title{font-size:14px !important;}'
+      '}'
+      '@media (max-width:480px){'
+      '.trai-table{min-width:640px;font-size:10px !important;}'
+      '.trai-table th,.trai-table td{padding:4px 3px !important;'
+      'font-size:10px !important;}'
+      '.trai-title{font-size:13px !important;}'
+      '}'
+      '</style>'
+  )
   html = [
-      '<div style="margin-top:20px;">',
-      '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
+      mobile_css,
+      '<div class="trai-wrap">',
+      '<h4 class="trai-title" style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
       '📋 CHI TIẾT ĐƠN HÀNG TRÁI TUYẾN</h4>',
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:900px;font-family:Arial,sans-serif;">',
+      '<div class="trai-scroll">',
+      '<table class="custom-kpi-table trai-table">',
       '<thead><tr>',
   ]
   for c in cols:
