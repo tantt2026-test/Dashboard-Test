@@ -315,7 +315,37 @@ def render_metric_card(label, value):
 
 # ====================== ĐƯỜNG DẪN ======================
 DATA_DIR = 'data'
-RPT_PATH = os.path.join(DATA_DIR, 'RPT_061.xlsx')
+
+def _resolve_rpt_path():
+  """Tìm file data bán hàng: DanhSachChiTietDonHang / RPT_061 / biến thể."""
+  preferred = [
+      'DanhSachChiTietDonHang.xlsx',
+      'DanhSachChiTietDonHang.xls',
+      'RPT_061.xlsx',
+      'RPT_061.xls',
+  ]
+  for name in preferred:
+    p = os.path.join(DATA_DIR, name)
+    if os.path.isfile(p):
+      return p
+  if os.path.isdir(DATA_DIR):
+    try:
+      for fn in os.listdir(DATA_DIR):
+        low = fn.lower().replace(' ', '').replace('_', '')
+        if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+          continue
+        if (
+            'chitietdonhang' in low
+            or 'danhsachchitiet' in low
+            or 'rpt061' in low
+            or 'lineitem' in low
+        ):
+          return os.path.join(DATA_DIR, fn)
+    except Exception:
+      pass
+  return os.path.join(DATA_DIR, 'DanhSachChiTietDonHang.xlsx')
+
+RPT_PATH = _resolve_rpt_path()
 MCP_PATH = os.path.join(DATA_DIR, 'Data_MCP.xlsx')
 KPI_PATH = os.path.join(DATA_DIR, 'Target_KPI.xlsx')
 CAT_PATH = 'Data_Cat.xlsx'
@@ -346,25 +376,99 @@ COMBO_ON_PATH = (
 
 
 # ====================== LOAD ======================
+def _read_sales_excel(path):
+  """Đọc file chi tiết đơn hàng / RPT — tự tìm dòng header.
+
+  Format mới (DanhSachChiTietDonHang):
+    row0 title, row1 date range, row2 blank, row3 = header thật
+  Format cũ RPT_061: header ở row 0.
+  """
+  raw = pd.read_excel(path, header=None, dtype=object)
+  header_row = None
+  markers = (
+      'mã nvbh', 'ma nvbh', 'ngày tạo đơn hàng', 'ngay tao don hang',
+      'mã ch', 'ma ch', 'ship-to npp',
+  )
+  for i in range(min(15, len(raw))):
+    vals = [str(x).strip().lower() for x in raw.iloc[i].tolist() if pd.notna(x)]
+    joined = ' | '.join(vals)
+    if any(m in joined for m in markers) and len(vals) >= 8:
+      header_row = i
+      break
+  if header_row is None:
+    header_row = 0
+  cols = [
+      str(c).strip() if pd.notna(c) else f'Col_{i}'
+      for i, c in enumerate(raw.iloc[header_row].tolist())
+  ]
+  df = raw.iloc[header_row + 1:].copy()
+  df.columns = cols
+  df = df.dropna(how='all')
+  if 'Mã NVBH' in df.columns:
+    bad = df['Mã NVBH'].astype(str).str.strip().str.lower()
+    df = df[~bad.isin(['mã nvbh', 'ma nvbh', 'nan', ''])]
+  return df.reset_index(drop=True)
+
+
 @st.cache_data(ttl=600)
 def load_main_data():
-  if not os.path.exists(RPT_PATH) or not os.path.exists(MCP_PATH):
+  rpt_path = _resolve_rpt_path()
+  if not os.path.exists(rpt_path) or not os.path.exists(MCP_PATH):
     st.error(
-        f"Thiếu file RPT_061.xlsx hoặc Data_MCP.xlsx trong thư mục '{DATA_DIR}'"
+        f"Thiếu file **DanhSachChiTietDonHang.xlsx** (hoặc RPT_061.xlsx) "
+        f"hoặc **Data_MCP.xlsx** trong thư mục `{DATA_DIR}`"
     )
     st.stop()
-  df = pd.read_excel(RPT_PATH)
+  df = _read_sales_excel(rpt_path)
   mcp = pd.read_excel(MCP_PATH)
-  df = df[df['Tình trạng đơn hàng'] != 'Đã hủy'].copy()
-  df['Ngày tạo đơn hàng'] = pd.to_datetime(
-      df['Ngày tạo đơn hàng'], format='%d/%m/%Y %H:%M:%S', errors='coerce'
-  )
-  df['date'] = df['Ngày tạo đơn hàng'].dt.date
-  mcp_map = mcp[['Outlet_code', 'L1']].drop_duplicates('Outlet_code')
-  mcp_map['Outlet_code'] = mcp_map['Outlet_code'].astype(str)
-  df['Mã CH'] = df['Mã CH'].astype(str)
-  df = df.merge(mcp_map, left_on='Mã CH', right_on='Outlet_code', how='left')
-  df['Tên SP lower'] = df['Tên sản phẩm'].astype(str).str.lower()
+
+  rename = {}
+  for c in df.columns:
+    cl = str(c).strip().lower()
+    if cl in ('mã ch', 'ma ch', 'outlet code', 'outlet_code') and 'Mã CH' not in df.columns:
+      rename[c] = 'Mã CH'
+    if (
+        cl in ('tên sản phẩm', 'ten san pham', 'product name')
+        and 'Tên sản phẩm' not in df.columns
+    ):
+      rename[c] = 'Tên sản phẩm'
+  if rename:
+    df = df.rename(columns=rename)
+
+  if 'Tình trạng đơn hàng' in df.columns:
+    df = df[df['Tình trạng đơn hàng'].astype(str).str.strip() != 'Đã hủy'].copy()
+
+  if 'Ngày tạo đơn hàng' in df.columns:
+    df['Ngày tạo đơn hàng'] = pd.to_datetime(
+        df['Ngày tạo đơn hàng'], dayfirst=True, errors='coerce'
+    )
+    df['date'] = df['Ngày tạo đơn hàng'].dt.date
+  else:
+    df['date'] = pd.NaT
+
+  c_out = 'Outlet_code' if 'Outlet_code' in mcp.columns else None
+  if not c_out:
+    for c in mcp.columns:
+      if str(c).strip().lower().replace(' ', '_') in ('outlet_code', 'outletcode'):
+        c_out = c
+        break
+  c_l1 = 'L1' if 'L1' in mcp.columns else None
+  if c_out and c_l1:
+    mcp_map = mcp[[c_out, c_l1]].drop_duplicates(c_out).copy()
+    mcp_map[c_out] = mcp_map[c_out].astype(str).str.replace(r'\.0$', '', regex=True)
+    mcp_map = mcp_map.rename(columns={c_out: 'Outlet_code', c_l1: 'L1'})
+  else:
+    mcp_map = pd.DataFrame(columns=['Outlet_code', 'L1'])
+
+  if 'Mã CH' in df.columns:
+    df['Mã CH'] = (
+        df['Mã CH'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    )
+    df = df.merge(mcp_map, left_on='Mã CH', right_on='Outlet_code', how='left')
+  if 'Tên sản phẩm' in df.columns:
+    df['Tên SP lower'] = df['Tên sản phẩm'].astype(str).str.lower()
+  else:
+    df['Tên SP lower'] = ''
   return df, mcp
 
 
