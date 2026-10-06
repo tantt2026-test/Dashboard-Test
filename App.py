@@ -361,17 +361,25 @@ if not os.path.exists(DSKH_TRAI_PATH):
       break
 
 
-combo_off_files = [f for f in os.listdir(DATA_DIR) if 'Combo' in f and 'OFF' in f]
-combo_on_files = [f for f in os.listdir(DATA_DIR) if 'Combo' in f and 'On' in f]
+def _list_data_dir():
+  if not os.path.isdir(DATA_DIR):
+    return []
+  try:
+    return os.listdir(DATA_DIR)
+  except Exception:
+    return []
+
+combo_off_files = [f for f in _list_data_dir() if 'Combo' in f and 'OFF' in f]
+combo_on_files = [f for f in _list_data_dir() if 'Combo' in f and ('On' in f or 'ON' in f)]
 COMBO_OFF_PATH = (
     os.path.join(DATA_DIR, combo_off_files[0])
     if combo_off_files
-    else os.path.join(DATA_DIR, 'Tân_Combo Kênh OFF.xlsx')
+    else os.path.join(DATA_DIR, 'Combo Kênh OFF.xlsx')
 )
 COMBO_ON_PATH = (
     os.path.join(DATA_DIR, combo_on_files[0])
     if combo_on_files
-    else os.path.join(DATA_DIR, 'Tân_Combo Kênh On.xlsx')
+    else os.path.join(DATA_DIR, 'Combo Kênh On.xlsx')
 )
 
 
@@ -5451,6 +5459,380 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
 
 # ====================== 15. BÁO CÁO TRƯNG BÀY ======================
 @st.cache_data(ttl=120, show_spinner=False)
+# ====================== 16. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON ======================
+def _resolve_raw_tea_path():
+  names = [
+      'RAW DATA.xlsx', 'RAW_DATA.xlsx', 'Raw Data.xlsx',
+      'RAW DATA.xls', 'Data_RAW_TEA.xlsx',
+  ]
+  for n in names:
+    p = os.path.join(DATA_DIR, n)
+    if os.path.isfile(p):
+      return p
+  if os.path.isdir(DATA_DIR):
+    for fn in os.listdir(DATA_DIR):
+      low = fn.lower().replace(' ', '').replace('_', '')
+      if fn.lower().endswith(('.xlsx', '.xls')) and (
+          'rawdata' in low or (low.startswith('raw') and 'data' in low)
+      ):
+        return os.path.join(DATA_DIR, fn)
+  return os.path.join(DATA_DIR, 'RAW DATA.xlsx')
+
+
+def _resolve_dk_tea_path():
+  if not os.path.isdir(DATA_DIR):
+    return None
+  keys = ('tichluy', 'tích lũy', 'dangky', 'đăng ký', 'msc_bev', 'bupnon', 'búp non', 'tea365')
+  for fn in os.listdir(DATA_DIR):
+    if not fn.lower().endswith(('.xlsx', '.xls')):
+      continue
+    low = fn.lower()
+    if any(k in low for k in keys) and 'raw' not in low.replace(' ', ''):
+      return os.path.join(DATA_DIR, fn)
+  return None
+
+
+@st.cache_data(ttl=600)
+def load_raw_tea_data():
+  path = _resolve_raw_tea_path()
+  if not os.path.isfile(path):
+    return pd.DataFrame()
+  raw = pd.read_excel(path, header=None, dtype=object)
+  header_row = None
+  markers = ('outlet code', 'sm_name', 'order date', 'sku desc', 'brand')
+  for i in range(min(10, len(raw))):
+    vals = [str(x).strip().lower() for x in raw.iloc[i].tolist() if pd.notna(x)]
+    joined = ' | '.join(vals)
+    if sum(1 for m in markers if m in joined) >= 3:
+      header_row = i
+      break
+  if header_row is None:
+    header_row = 2
+  cols = [str(c).strip() if pd.notna(c) else f'Col_{i}' for i, c in enumerate(raw.iloc[header_row].tolist())]
+  df = raw.iloc[header_row + 1:].copy()
+  df.columns = cols
+  df = df.dropna(how='all')
+  return df.reset_index(drop=True)
+
+
+@st.cache_data(ttl=600)
+def load_dk_tea_outlets():
+  path = _resolve_dk_tea_path()
+  if not path:
+    return set()
+  try:
+    raw = pd.read_excel(path, header=None, dtype=object)
+    header_row = 0
+    for i in range(min(15, len(raw))):
+      vals = [str(x).strip().lower() for x in raw.iloc[i].tolist() if pd.notna(x)]
+      joined = ' | '.join(vals)
+      if any(k in joined for k in ('mã kh', 'ma kh', 'outlet', 'mã ch', 'ma ch', 'customer')):
+        header_row = i
+        break
+    cols = [str(c).strip() if pd.notna(c) else f'Col_{i}' for i, c in enumerate(raw.iloc[header_row].tolist())]
+    df = raw.iloc[header_row + 1:].copy()
+    df.columns = cols
+    c_ma = None
+    for c in df.columns:
+      cl = str(c).strip().lower()
+      if any(x in cl for x in ('mã kh', 'ma kh', 'outlet', 'mã ch', 'ma ch', 'customer code')):
+        c_ma = c
+        break
+    if not c_ma:
+      return set()
+    out = set()
+    for v in df[c_ma].tolist():
+      if pd.isna(v):
+        continue
+      s = str(v).strip()
+      if s.endswith('.0'):
+        s = s[:-2]
+      if s and s.lower() not in ('nan', 'none', ''):
+        out.add(s)
+    return out
+  except Exception:
+    return set()
+
+
+def _norm_out(x):
+  if pd.isna(x):
+    return ''
+  s = str(x).strip()
+  if s.endswith('.0'):
+    s = s[:-2]
+  try:
+    return str(int(float(s)))
+  except Exception:
+    return s
+
+
+def _is_tea_brand(brand, sku=''):
+  t = f'{brand} {sku}'.lower()
+  return any(
+      k in t
+      for k in (
+          'bupnon', 'búp non', 'bup non', 'tea365', 'tea 365',
+          'trà búp', 'tra bup',
+      )
+  )
+
+
+def build_tea_battle_report(df_raw, df_rpt, df_mcp, report_date, filter_nv=None):
+  empty_cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'L1', 'VIP', 'Thứ VT',
+      'RR BEV [Triệu]', 'RR TEA [Thùng]', 'MTD BEV [Triệu]', 'MTD TEA [Thùng]',
+      'SỐ SUẤT', 'GAP [Thùng]', 'ĐK D&L',
+  ]
+  if df_raw is None or df_raw.empty:
+    return pd.DataFrame(columns=empty_cols)
+
+  d = df_raw.copy()
+  colmap = {}
+  for c in d.columns:
+    cl = str(c).strip().upper().replace(' ', '_')
+    if cl in ('OUTLET_CODE', 'OUTLETCODE'):
+      colmap[c] = 'OUTLET CODE'
+    elif cl in ('OUTLET_NAME', 'OUTLETNAME'):
+      colmap[c] = 'OUTLET NAME'
+    elif cl in ('SM_NAME', 'SMNAME'):
+      colmap[c] = 'SM_NAME'
+    elif cl in ('ORDER_DATE', 'ORDERDATE'):
+      colmap[c] = 'ORDER DATE'
+    elif cl in ('TOTAL_CASES', 'TOTALCASES'):
+      colmap[c] = 'TOTAL CASES'
+    elif cl in ('SALES_BEFORE_DISCOUNT', 'SALESBEFOREDISCOUNT'):
+      colmap[c] = 'Sales Before Discount'
+    elif cl == 'BRAND':
+      colmap[c] = 'BRAND'
+    elif cl in ('SKU_DESC', 'SKUDESC'):
+      colmap[c] = 'SKU DESC'
+    elif cl == 'L1':
+      colmap[c] = 'L1'
+  if colmap:
+    d = d.rename(columns=colmap)
+
+  d['_ma'] = d['OUTLET CODE'].map(_norm_out) if 'OUTLET CODE' in d.columns else ''
+  d['_ten'] = d['OUTLET NAME'].astype(str).str.strip() if 'OUTLET NAME' in d.columns else ''
+  d['_nv'] = d['SM_NAME'].astype(str).str.strip() if 'SM_NAME' in d.columns else ''
+  d['_brand'] = d['BRAND'].astype(str) if 'BRAND' in d.columns else ''
+  d['_sku'] = d['SKU DESC'].astype(str) if 'SKU DESC' in d.columns else ''
+  d['_sales'] = pd.to_numeric(
+      d['Sales Before Discount'] if 'Sales Before Discount' in d.columns else 0,
+      errors='coerce',
+  ).fillna(0)
+  d['_cases'] = pd.to_numeric(
+      d['TOTAL CASES'] if 'TOTAL CASES' in d.columns else 0, errors='coerce'
+  ).fillna(0)
+  d['_dt'] = pd.to_datetime(
+      d['ORDER DATE'] if 'ORDER DATE' in d.columns else None, errors='coerce'
+  )
+  d['_ym'] = d['_dt'].dt.to_period('M')
+  d['_tea'] = [
+      _is_tea_brand(b, s) for b, s in zip(d['_brand'].tolist(), d['_sku'].tolist())
+  ]
+
+  vip_map, l1_map, thu_map, ten_mcp, nv_mcp = {}, {}, {}, {}, {}
+  if df_mcp is not None and not df_mcp.empty:
+    c_ma = find_col(df_mcp, ['Outlet_code', 'Outlet Code', 'Mã CH'])
+    c_vip = find_col(df_mcp, ['VIP MCH', 'VIP_MCH'])
+    c_l1 = find_col(df_mcp, ['L1', 'Channel'])
+    c_thu = find_col(df_mcp, ['Thứ', 'Thu', 'Day'])
+    c_ten = find_col(df_mcp, ['Outlet_name', 'Outlet Name', 'Tên CH', 'Tên cửa hàng'])
+    c_nv = find_col(df_mcp, ['Tên NVBH', 'SM name', 'SM_NAME', 'Salesman'])
+    if c_ma:
+      for _, r in df_mcp.iterrows():
+        ma = _norm_out(r[c_ma])
+        if not ma:
+          continue
+        if c_vip and pd.notna(r.get(c_vip)):
+          vip_map[ma] = str(r[c_vip]).strip()
+        if c_l1 and pd.notna(r.get(c_l1)):
+          l1_map[ma] = str(r[c_l1]).strip()
+        if c_thu and pd.notna(r.get(c_thu)):
+          thu_map[ma] = str(r[c_thu]).strip()
+        if c_ten and pd.notna(r.get(c_ten)):
+          ten_mcp[ma] = str(r[c_ten]).strip()
+        if c_nv and pd.notna(r.get(c_nv)):
+          nv_mcp[ma] = str(r[c_nv]).strip()
+
+  rr_bev, rr_tea, meta = {}, {}, {}
+  for ma, g in d.groupby('_ma'):
+    if not ma:
+      continue
+    months = g['_ym'].dropna().unique()
+    nm = max(len(months), 1)
+    bev_sum = float(g['_sales'].sum()) / 1_000_000.0
+    tea_sum = float(g.loc[g['_tea'], '_cases'].sum())
+    rr_bev[ma] = round(bev_sum / nm, 2)
+    rr_tea[ma] = round(tea_sum / nm, 2)
+    last = g.sort_values('_dt').iloc[-1]
+    meta[ma] = {
+        'nv': str(last['_nv']),
+        'ten': str(last['_ten']),
+        'l1': str(last['L1']) if 'L1' in g.columns and pd.notna(last.get('L1')) else '',
+    }
+
+  mtd_bev, mtd_tea = {}, {}
+  if df_rpt is not None and not df_rpt.empty and 'date' in df_rpt.columns:
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
+    ym = (rd.year, rd.month)
+    dr = df_rpt.copy()
+    dr = dr[dr['date'].apply(
+        lambda x: hasattr(x, 'year') and (x.year, x.month) == ym if pd.notna(x) else False
+    )]
+    if not dr.empty:
+      dr['_ma'] = dr['Mã CH'].map(_norm_out) if 'Mã CH' in dr.columns else ''
+      val_col = find_col(dr, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Sales Before Discount'])
+      dr['_sales'] = pd.to_numeric(dr[val_col], errors='coerce').fillna(0) if val_col else 0
+      case_col = find_col(dr, ['Tổng chẵn', 'TOTAL CASES', 'Total Cases', 'Tổng Chẵn'])
+      if case_col:
+        dr['_cases'] = pd.to_numeric(dr[case_col], errors='coerce').fillna(0)
+      else:
+        sl = find_col(dr, ['Tổng lẻ', 'TOTAL PIECES', 'SL lẻ'])
+        pack = find_col(dr, ['Hệ số quy đổi chẵn/lẻ', 'CASE/PACK'])
+        if sl and pack:
+          dr['_cases'] = (
+              pd.to_numeric(dr[sl], errors='coerce').fillna(0)
+              / pd.to_numeric(dr[pack], errors='coerce').replace(0, 1).fillna(1)
+          )
+        else:
+          dr['_cases'] = 0
+      if 'Tên SP lower' not in dr.columns:
+        sp = dr['Tên sản phẩm'] if 'Tên sản phẩm' in dr.columns else ''
+        dr['Tên SP lower'] = pd.Series(sp, index=dr.index).astype(str).str.lower()
+      dr['_tea'] = dr['Tên SP lower'].map(lambda t: _is_tea_brand('', t))
+      bev_kw = (
+          r'wake up|wakeup|247|tea365|búp non|bupnon|vivant|lemona|vĩnh hảo|'
+          r'vinh hao|nước|nuoc|trà|tra |café|coffee'
+      )
+      dr['_bev'] = dr['Tên SP lower'].str.contains(bev_kw, case=False, na=False, regex=True)
+      for ma, g in dr.groupby('_ma'):
+        if not ma:
+          continue
+        mtd_bev[ma] = round(float(g.loc[g['_bev'], '_sales'].sum()) / 1_000_000.0, 2)
+        mtd_tea[ma] = round(float(g.loc[g['_tea'], '_cases'].sum()), 2)
+
+  dk_set = load_dk_tea_outlets()
+  all_ma = sorted(set(rr_bev.keys()) | set(mtd_tea.keys()) | set(mtd_bev.keys()))
+  rows = []
+  for ma in all_ma:
+    if not ma:
+      continue
+    m = meta.get(ma, {})
+    nv = nv_mcp.get(ma) or m.get('nv', '')
+    ten = ten_mcp.get(ma) or m.get('ten', '')
+    l1 = l1_map.get(ma) or m.get('l1', '')
+    vip = vip_map.get(ma, '')
+    thu = thu_map.get(ma, '')
+    rb = rr_bev.get(ma, 0.0)
+    rt = rr_tea.get(ma, 0.0)
+    mb = mtd_bev.get(ma, 0.0)
+    mt = mtd_tea.get(ma, 0.0)
+    if mt >= 20:
+      suat = 2
+    elif mt >= 10:
+      suat = 1
+    else:
+      suat = 0
+    gap = round(max(0.0, 10.0 - mt), 2) if mt < 10 else 0.0
+    dk = '✓' if ma in dk_set else ''
+    rows.append({
+        'Tên NVBH': nv,
+        'Mã KH': ma,
+        'Tên KH': ten,
+        'L1': l1,
+        'VIP': vip,
+        'Thứ VT': thu,
+        'RR BEV [Triệu]': rb,
+        'RR TEA [Thùng]': rt,
+        'MTD BEV [Triệu]': mb,
+        'MTD TEA [Thùng]': mt,
+        'SỐ SUẤT': suat,
+        'GAP [Thùng]': gap,
+        'ĐK D&L': dk,
+    })
+
+  out = pd.DataFrame(rows)
+  if out.empty:
+    return pd.DataFrame(columns=empty_cols)
+  if filter_nv:
+    vals = [
+        str(v).strip()
+        for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])
+        if str(v).strip()
+    ]
+    if vals:
+      out = out[out['Tên NVBH'].isin(vals)]
+  out = out.sort_values(['Tên NVBH', 'Mã KH']).reset_index(drop=True)
+  out.insert(0, 'STT', range(1, len(out) + 1))
+  return out
+
+
+def render_tea_battle_html(df):
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu Kế hoạch tác chiến Trà Búp Non.</p>'
+  cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'L1', 'VIP', 'Thứ VT',
+      'RR BEV [Triệu]', 'RR TEA [Thùng]', 'MTD BEV [Triệu]', 'MTD TEA [Thùng]',
+      'SỐ SUẤT', 'GAP [Thùng]', 'ĐK D&L',
+  ]
+  for c in cols:
+    if c not in df.columns:
+      df[c] = ''
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
+      'text-align:center !important;white-space:nowrap;'
+  )
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;">',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:1100px;font-family:Arial,sans-serif;"><thead><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      style = f'{td}background-color:{bg} !important;'
+      al = 'left' if c in ('Tên NVBH', 'Tên KH', 'L1') else 'center'
+      if c == 'SỐ SUẤT':
+        try:
+          s = int(val)
+        except Exception:
+          s = 0
+        if s == 0:
+          style = f'{td}background-color:#fed7d7 !important;color:#742a2a !important;font-weight:800;'
+          val = '0 (RỚT)'
+        elif s >= 2:
+          style = f'{td}background-color:#c6f6d5 !important;color:#22543d !important;font-weight:800;'
+        else:
+          style = f'{td}background-color:#fefcbf !important;color:#744210 !important;font-weight:700;'
+      if c == 'ĐK D&L' and str(val).strip() in ('✓', '✔'):
+        style = f'{td}background-color:{bg} !important;color:#228b22 !important;font-weight:900;'
+      if c == 'GAP [Thùng]':
+        try:
+          if float(val) > 0:
+            style = f'{td}background-color:#feebc8 !important;color:#7b341e !important;font-weight:700;'
+        except Exception:
+          pass
+      html.append(f'<td style="{style}text-align:{al} !important;">{val}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
+
 def load_display_data():
   """Load DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xlsx"""
   empty = pd.DataFrame()
@@ -6947,6 +7329,7 @@ with f2:
       '13. BÁO CÁO MBS BRAND': 'MBS_BRAND',
       '14. BÁO CÁO HIỆU SUẤT BÁN HÀNG': 'PERFORMANCE',
       '15. BÁO CÁO TRƯNG BÀY': 'DISPLAY',
+      '16. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON T10': 'TEA_BATTLE',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
@@ -8157,6 +8540,80 @@ with tab_kpi:
               mime='text/csv',
               key='dl_disp3',
           )
+
+  elif selected_kpi == 'TEA_BATTLE':
+    st.markdown(
+        '<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
+        '16. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON THÁNG 10</h3>',
+        unsafe_allow_html=True,
+    )
+    df_raw = load_raw_tea_data()
+    if df_raw is None or df_raw.empty:
+      st.warning(
+          '⚠️ Chưa có file **RAW DATA.xlsx** trong thư mục `data/`. '
+          'Upload file raw Bev/Tea (3 tháng) lên GitHub rồi **Xóa Cache & Reload**.'
+      )
+    else:
+      df_tea = build_tea_battle_report(df_raw, df, mcp, report_date, filter_nv)
+      st.caption(
+          'Nguồn: RAW DATA (RR) + RPT (MTD tháng BC) + MCP (VIP/Thứ VT) + file ĐK Tích Lũy (nếu có). | '
+          'SỐ SUẤT: 10 thùng = 1 suất, max 2; dưới 10 thùng → 0 (RỚT).'
+      )
+      st.markdown(
+          '<p class="filter-label">🔍 Bộ lọc Kế hoạch tác chiến</p>',
+          unsafe_allow_html=True,
+      )
+      t1, t2, t3, t4, t5 = st.columns(5)
+      nvs = sorted([
+          x for x in df_tea['Tên NVBH'].dropna().unique().tolist() if str(x).strip()
+      ]) if not df_tea.empty else []
+      thus = sorted([
+          str(x) for x in df_tea['Thứ VT'].dropna().unique().tolist()
+          if str(x).strip() and str(x).lower() != 'nan'
+      ]) if not df_tea.empty else []
+      with t1:
+        st.markdown('<p class="filter-label">Tên Nhân Viên</p>', unsafe_allow_html=True)
+        f_nv_t = st.multiselect('', nvs, default=[], key='tea_nv', label_visibility='collapsed')
+      with t2:
+        st.markdown('<p class="filter-label">Mã KH</p>', unsafe_allow_html=True)
+        f_ma_t = st.text_input('', key='tea_ma', label_visibility='collapsed', placeholder='Nhập Mã KH...')
+      with t3:
+        st.markdown('<p class="filter-label">Tên KH</p>', unsafe_allow_html=True)
+        f_ten_t = st.text_input('', key='tea_ten', label_visibility='collapsed', placeholder='Nhập Tên KH...')
+      with t4:
+        st.markdown('<p class="filter-label">Thứ VT</p>', unsafe_allow_html=True)
+        f_thu_t = st.multiselect('', thus, default=[], key='tea_thu', label_visibility='collapsed')
+      with t5:
+        st.markdown('<p class="filter-label">Check ĐK</p>', unsafe_allow_html=True)
+        f_dk_t = st.selectbox(
+            '', ['Tất cả', 'Đã ĐK (✓)', 'Chưa ĐK'], key='tea_dk', label_visibility='collapsed'
+        )
+      view = df_tea.copy()
+      if not view.empty:
+        if f_nv_t:
+          view = view[view['Tên NVBH'].isin(f_nv_t)]
+        if f_ma_t:
+          view = view[view['Mã KH'].astype(str).str.contains(f_ma_t.strip(), case=False, na=False)]
+        if f_ten_t:
+          view = view[view['Tên KH'].astype(str).str.contains(f_ten_t.strip(), case=False, na=False)]
+        if f_thu_t:
+          view = view[view['Thứ VT'].astype(str).isin([str(x) for x in f_thu_t])]
+        if f_dk_t == 'Đã ĐK (✓)':
+          view = view[view['ĐK D&L'].astype(str).str.strip().isin(['✓', '✔'])]
+        elif f_dk_t == 'Chưa ĐK':
+          view = view[~view['ĐK D&L'].astype(str).str.strip().isin(['✓', '✔'])]
+        view = view.drop(columns=['STT'], errors='ignore').reset_index(drop=True)
+        view.insert(0, 'STT', range(1, len(view) + 1))
+      st.markdown(render_tea_battle_html(view), unsafe_allow_html=True)
+      st.caption(f'Hiển thị: {len(view):,} / {len(df_tea):,} cửa hàng')
+      st.download_button(
+          '📥 Tải CSV Kế hoạch Trà Búp Non',
+          data=view.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'TacChien_TraBupNon_{report_date}.csv',
+          mime='text/csv',
+          key='dl_tea_battle',
+      )
+
 
   elif selected_kpi != 'COMBO':
     set_color_moc_for_kpi(selected_kpi)
