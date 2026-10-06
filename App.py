@@ -5902,8 +5902,9 @@ def render_tea_battle_html(df):
           )
         continue
       if c == 'ĐK D&L' and str(val).strip() in ('✓', '✔'):
+        # Giữ nền zebra của bảng, chỉ đổi chữ xanh đậm
         html.append(
-            f'<td data-colored="1" class="suat-ok" style="{base}">{val}</td>'
+            f'<td style="{base}color:#228b22 !important;font-weight:900 !important;">{val}</td>'
         )
         continue
       html.append(f'<td style="{base}">{val}</td>')
