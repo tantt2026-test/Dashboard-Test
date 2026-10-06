@@ -191,6 +191,31 @@ st.markdown(
         color: #553c9a !important;
         font-weight: 700 !important;
     }
+    /* Tea battle — Chưa Đạt scale */
+    .custom-kpi-table td.chua-low {
+        background-color: #c6f6d5 !important;
+        color: #22543d !important;
+        font-weight: 900 !important;
+    }
+    .custom-kpi-table td.chua-mid {
+        background-color: #fbd38d !important;
+        color: #7b341e !important;
+        font-weight: 900 !important;
+    }
+    .custom-kpi-table td.chua-high {
+        background-color: #fc8181 !important;
+        color: #742a2a !important;
+        font-weight: 900 !important;
+    }
+    /* Tea battle — SỐ SUẤT text color */
+    .custom-kpi-table td.suat-ok {
+        color: #228b22 !important;
+        font-weight: 900 !important;
+    }
+    .custom-kpi-table td.suat-rot {
+        color: #c53030 !important;
+        font-weight: 900 !important;
+    }
     /* VIP KO ĐH */
     .custom-kpi-table td.vip-1 {
         background-color: #fed7d7 !important; color: #742a2a !important; font-weight: 700 !important;
@@ -211,7 +236,7 @@ st.markdown(
         font-weight: 900 !important;
         border-color: #2b6cb0 !important;
     }
-    .custom-kpi-table tbody tr.row-total td {
+    .custom-kpi-table tbody tr.row-total td:not([data-colored="1"]) {
         background-color: #1a365d !important;
         color: #ffffff !important;
         font-weight: 900 !important;
@@ -5822,9 +5847,7 @@ def build_tea_battle_report(df_raw, df_rpt, df_mcp, report_date, filter_nv=None)
 
 def render_tea_battle_html(df):
   if df is None or df.empty:
-    return (
-        '<p style="color:#718096;">Không có dữ liệu chi tiết cửa hàng.</p>'
-    )
+    return '<p style="color:#718096;">Không có dữ liệu chi tiết cửa hàng.</p>'
   cols = [
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'L1', 'VIP', 'Thứ VT',
       'RR BEV [Triệu]', 'RR TEA [Thùng]', 'MTD BEV [Triệu]', 'MTD TEA [Thùng]',
@@ -5860,42 +5883,39 @@ def render_tea_battle_html(df):
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
-      style = f'{td}background-color:{bg} !important;'
       al = 'left' if c in ('Tên NVBH', 'Tên KH', 'L1') else 'center'
+      base = (
+          f'{td}background-color:{bg} !important;text-align:{al} !important;'
+      )
       if c == 'SỐ SUẤT':
         try:
-          s = int(float(val))
+          s = int(float(str(val).replace('(RỚT)', '').strip() or 0))
         except Exception:
           s = 0
-        if s == 0:
-          # 0 (RỚT) — chữ đỏ đậm, nền giữ zebra
-          style = (
-              f'{td}background-color:{bg} !important;'
-              'color:#c53030 !important;font-weight:900 !important;'
+        if s <= 0:
+          html.append(
+              f'<td data-colored="1" class="suat-rot" style="{base}">{0 (RỚT)}</td>'
           )
-          val = '0 (RỚT)'
         else:
-          # 1 hoặc 2 — chữ xanh lá đậm
-          style = (
-              f'{td}background-color:{bg} !important;'
-              'color:#228b22 !important;font-weight:900 !important;'
+          html.append(
+              f'<td data-colored="1" class="suat-ok" style="{base}">{s}</td>'
           )
-          val = str(s)
+        continue
       if c == 'ĐK D&L' and str(val).strip() in ('✓', '✔'):
-        style = (
-            f'{td}background-color:{bg} !important;color:#228b22 !important;'
-            'font-weight:900;'
+        html.append(
+            f'<td data-colored="1" class="suat-ok" style="{base}">{val}</td>'
         )
+        continue
       if c == 'GAP [Thùng]':
         try:
           if float(val) > 0:
-            style = (
-                f'{td}background-color:#feebc8 !important;color:#7b341e !important;'
-                'font-weight:700;'
+            html.append(
+                f'<td data-colored="1" class="chua-mid" style="{base}">{val}</td>'
             )
+            continue
         except Exception:
           pass
-      html.append(f'<td style="{style}text-align:{al} !important;">{val}</td>')
+      html.append(f'<td style="{base}">{val}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
@@ -5968,7 +5988,6 @@ def render_tea_battle_summary_html(df):
       'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
       'padding:6px 5px;font-size:12px;'
   )
-  # Scale Chưa Đạt: cao=đỏ, thấp=xanh
   chua_vals = []
   for _, r in df.iterrows():
     if 'TỔNG' in str(r.get('Tên NVBH', '')).upper():
@@ -5982,31 +6001,17 @@ def render_tea_battle_summary_html(df):
   if vmax <= vmin:
     vmax = vmin + 1.0
 
-  def _chua_style(v):
+  def _chua_cls(v):
     try:
       t = (float(v) - vmin) / (vmax - vmin)
     except Exception:
-      t = 0.0
+      t = 0.5
     t = max(0.0, min(1.0, t))
-    # Xanh (thấp) → Cam → Đỏ (cao)
-    if t <= 0.5:
-      u = t / 0.5
-      r = int(198 + (251 - 198) * u)
-      g = int(246 + (211 - 246) * u)
-      b = int(213 + (141 - 213) * u)
-      fg = '#22543d'
-    else:
-      u = (t - 0.5) / 0.5
-      r = int(251 + (252 - 251) * u)
-      g = int(211 + (129 - 211) * u)
-      b = int(141 + (129 - 141) * u)
-      fg = '#9b2c2c'
-    return (
-        f'background-color:rgb({r},{g},{b}) !important;'
-        f'color:{fg} !important;font-weight:900 !important;'
-        f'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:12px;'
-        f'text-align:center !important;'
-    )
+    if t <= 0.33:
+      return 'chua-low'
+    if t <= 0.66:
+      return 'chua-mid'
+    return 'chua-high'
 
   def _pct_chua_class(v):
     try:
@@ -6043,20 +6048,17 @@ def render_tea_battle_summary_html(df):
         disp = val
 
       if c == 'Chưa Đạt' and not is_tot:
-        # data-colored để zebra không đè
+        cls = _chua_cls(val)
         html.append(
-            f'<td data-colored="1" style="{_chua_style(val)}">{disp}</td>'
+            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+            f'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;">{disp}</td>'
         )
       elif c == '% Chưa Đạt':
         cls = _pct_chua_class(val)
-        extra_tot = (
-            'border:1px solid #2b6cb0 !important;font-weight:900 !important;'
-            if is_tot
-            else 'border:1px solid #bce2f5 !important;font-weight:800 !important;'
-        )
         html.append(
             f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
-            f'{extra_tot}padding:6px 5px;font-size:12px;">{disp}</td>'
+            f'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
+            f'font-weight:800 !important;">{disp}</td>'
         )
       elif is_tot:
         html.append(
