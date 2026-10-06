@@ -5906,15 +5906,6 @@ def render_tea_battle_html(df):
             f'<td data-colored="1" class="suat-ok" style="{base}">{val}</td>'
         )
         continue
-      if c == 'GAP [Thùng]':
-        try:
-          if float(val) > 0:
-            html.append(
-                f'<td data-colored="1" class="chua-mid" style="{base}">{val}</td>'
-            )
-            continue
-        except Exception:
-          pass
       html.append(f'<td style="{base}">{val}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
@@ -6047,13 +6038,7 @@ def render_tea_battle_summary_html(df):
       else:
         disp = val
 
-      if c == 'Chưa Đạt' and not is_tot:
-        cls = _chua_cls(val)
-        html.append(
-            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
-            f'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;">{disp}</td>'
-        )
-      elif c == '% Chưa Đạt':
+      if c == '% Chưa Đạt':
         cls = _pct_chua_class(val)
         html.append(
             f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
