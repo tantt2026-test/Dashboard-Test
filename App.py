@@ -8699,15 +8699,7 @@ with tab_kpi:
       )
     else:
       df_tea = build_tea_battle_report(df_raw, df, mcp, report_date, filter_nv)
-      st.caption(
-          'Nguồn: RAW DATA (RR) + RPT (MTD tháng BC) + MCP (VIP/Thứ VT) + file ĐK Tích Lũy (nếu có). | '
-          'SỐ SUẤT: 10 thùng = 1 suất, max 2; dưới 10 thùng → 0 (RỚT).'
-      )
-      st.markdown(
-          '<p class="filter-label">🔍 Bộ lọc Kế hoạch tác chiến</p>',
-          unsafe_allow_html=True,
-      )
-      t1, t2, t3, t4, t5, t6 = st.columns(6)
+      # Options lọc (dùng chung)
       nvs = sorted([
           x for x in df_tea['Tên NVBH'].dropna().unique().tolist() if str(x).strip()
       ]) if not df_tea.empty else []
@@ -8719,6 +8711,17 @@ with tab_kpi:
           str(x) for x in df_tea['L1'].dropna().unique().tolist()
           if str(x).strip() and str(x).lower() != 'nan'
       ]) if not df_tea.empty else []
+
+      # ===== BẢNG 1: Tổng hợp NV (full data RR≥3tr, chưa lọc chi tiết) =====
+      df_sum = build_tea_battle_summary(df_tea)
+      st.markdown(render_tea_battle_summary_html(df_sum), unsafe_allow_html=True)
+
+      # ===== BỘ LỌC (giữa 2 bảng) =====
+      st.markdown(
+          '<p class="filter-label">🔍 Bộ lọc chi tiết cửa hàng</p>',
+          unsafe_allow_html=True,
+      )
+      t1, t2, t3, t4, t5, t6 = st.columns(6)
       with t1:
         st.markdown('<p class="filter-label">Tên Nhân Viên</p>', unsafe_allow_html=True)
         f_nv_t = st.multiselect('', nvs, default=[], key='tea_nv', label_visibility='collapsed')
@@ -8739,6 +8742,8 @@ with tab_kpi:
         f_dk_t = st.selectbox(
             '', ['Tất cả', 'Đã ĐK (✓)', 'Chưa ĐK'], key='tea_dk', label_visibility='collapsed'
         )
+
+      # ===== BẢNG 2: Chi tiết KH (sau lọc) =====
       view = df_tea.copy()
       if not view.empty:
         if f_nv_t:
@@ -8757,9 +8762,6 @@ with tab_kpi:
           view = view[~view['ĐK D&L'].astype(str).str.strip().isin(['✓', '✔'])]
         view = view.drop(columns=['STT'], errors='ignore').reset_index(drop=True)
         view.insert(0, 'STT', range(1, len(view) + 1))
-      # Bảng tổng hợp NV (trên) + chi tiết KH (dưới)
-      df_sum = build_tea_battle_summary(view)
-      st.markdown(render_tea_battle_summary_html(df_sum), unsafe_allow_html=True)
       st.markdown(render_tea_battle_html(view), unsafe_allow_html=True)
       st.caption(f'Hiển thị: {len(view):,} / {len(df_tea):,} cửa hàng')
       st.download_button(
