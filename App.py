@@ -5724,16 +5724,9 @@ def build_tea_battle_report(df_raw, df_rpt, df_mcp, report_date, filter_nv=None)
     rd = report_date.date() if hasattr(report_date, 'date') else report_date
     ym = (rd.year, rd.month)
     dr = df_rpt.copy()
-    # MTD: từ đầu tháng → đến ngày BC (lọc ngày bán hàng)
-    def _in_mtd(x):
-      if pd.isna(x) or not hasattr(x, 'year'):
-        return False
-      try:
-        xd = x.date() if hasattr(x, 'date') else x
-      except Exception:
-        return False
-      return (xd.year, xd.month) == ym and xd <= rd
-    dr = dr[dr['date'].apply(_in_mtd)]
+    dr = dr[dr['date'].apply(
+        lambda x: hasattr(x, 'year') and (x.year, x.month) == ym if pd.notna(x) else False
+    )]
     if not dr.empty:
       dr['_ma'] = dr['Mã CH'].map(_norm_out) if 'Mã CH' in dr.columns else ''
       val_col = find_col(dr, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Sales Before Discount'])
@@ -5949,56 +5942,12 @@ def render_tea_battle_summary_html(df):
       'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
       'padding:6px 5px;font-size:12px;'
   )
-  # Scale Chưa Đạt: cao=đỏ, thấp=xanh (bỏ TỔNG)
-  chua_vals = []
-  for _, r in df.iterrows():
-    if 'TỔNG' in str(r.get('Tên NVBH', '')).upper():
-      continue
-    try:
-      chua_vals.append(float(r.get('Chưa Đạt', 0) or 0))
-    except Exception:
-      pass
-  vmin = min(chua_vals) if chua_vals else 0.0
-  vmax = max(chua_vals) if chua_vals else 1.0
-  if vmax <= vmin:
-    vmax = vmin + 1.0
-
-  def _chua_style(v):
-    try:
-      t = (float(v) - vmin) / (vmax - vmin)
-    except Exception:
-      t = 0.0
-    t = max(0.0, min(1.0, t))
-    # Đỏ (cao) ← Cam ← Xanh (thấp): invert so high t = red
-    if t <= 0.5:
-      u = t / 0.5  # 0 green → 0.5 orange
-      r = int(0xC6 + (0xFB - 0xC6) * u)
-      g = int(0xF6 + (0xD3 - 0xF6) * u)
-      b = int(0xD5 + (0x8D - 0xD5) * u)
-      fg = '#22543d'
-    else:
-      u = (t - 0.5) / 0.5  # 0.5 orange → 1 red
-      r = int(0xFB + (0xFC - 0xFB) * u)
-      g = int(0xD3 + (0x81 - 0xD3) * u)
-      b = int(0x8D + (0x81 - 0x8D) * u)
-      fg = '#742a2a'
-    return (
-        f'background-color:#{r:02x}{g:02x}{b:02x} !important;'
-        f'color:{fg} !important;font-weight:900 !important;'
-        f'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
-        f'text-align:center !important;'
-    )
-
   html = [
-      '<style>'
-      'table.tea-sum-table td.chua-dat-cell{'
-      'font-weight:900 !important;}'
-      '</style>',
       '<div style="overflow-x:auto;margin:8px 0 16px 0;">',
       '<h4 style="color:#1a365d;font-weight:800;margin:0 0 6px 0;">'
       '📊 TỔNG HỢP THEO NHÂN VIÊN (RR BEV ≥ 3 triệu)</h4>',
-      '<table class="custom-kpi-table tea-sum-table" style="border-collapse:collapse;'
-      'width:100%;min-width:700px;font-family:Arial,sans-serif;"><thead><tr>',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:700px;font-family:Arial,sans-serif;"><thead><tr>',
   ]
   for c in cols:
     html.append(f'<th style="{th}">{c}</th>')
@@ -6007,7 +5956,8 @@ def render_tea_battle_summary_html(df):
     is_tot = 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
     bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
     fg = '#ffffff' if is_tot else '#1a202c'
-    html.append('<tr class="row-total">' if is_tot else '<tr>')
+    tr = ' class="row-total"' if is_tot else ''
+    html.append(f'<tr{tr}>')
     for c in cols:
       val = row.get(c, '')
       if pd.isna(val):
@@ -6017,19 +5967,14 @@ def render_tea_battle_summary_html(df):
         html.append(
             f'<td class="row-total-cell" style="{tot_s}text-align:{al} !important;">{val}</td>'
         )
-      elif c == 'Chưa Đạt':
-        html.append(
-            f'<td class="chua-dat-cell" data-colored="1" style="{_chua_style(val)}">{val}</td>'
-        )
       else:
         html.append(
-            f'<td style="{td}background-color:{bg} !important;color:{fg} !important;'
-            f'text-align:{al} !important;">{val}</td>'
+            f'<td style="{td}background:{bg} !important;color:{fg} !important;'
+            f'text-align:{al};">{val}</td>'
         )
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
-
 
 
 def load_display_data():
@@ -8754,7 +8699,15 @@ with tab_kpi:
       )
     else:
       df_tea = build_tea_battle_report(df_raw, df, mcp, report_date, filter_nv)
-      # Options lọc (dùng chung)
+      st.caption(
+          'Nguồn: RAW DATA (RR) + RPT (MTD tháng BC) + MCP (VIP/Thứ VT) + file ĐK Tích Lũy (nếu có). | '
+          'SỐ SUẤT: 10 thùng = 1 suất, max 2; dưới 10 thùng → 0 (RỚT).'
+      )
+      st.markdown(
+          '<p class="filter-label">🔍 Bộ lọc Kế hoạch tác chiến</p>',
+          unsafe_allow_html=True,
+      )
+      t1, t2, t3, t4, t5, t6 = st.columns(6)
       nvs = sorted([
           x for x in df_tea['Tên NVBH'].dropna().unique().tolist() if str(x).strip()
       ]) if not df_tea.empty else []
@@ -8766,21 +8719,6 @@ with tab_kpi:
           str(x) for x in df_tea['L1'].dropna().unique().tolist()
           if str(x).strip() and str(x).lower() != 'nan'
       ]) if not df_tea.empty else []
-
-      # ===== BẢNG 1: Tổng hợp NV — MTD theo ngày BC đã chọn =====
-      df_sum = build_tea_battle_summary(df_tea)
-      st.markdown(render_tea_battle_summary_html(df_sum), unsafe_allow_html=True)
-      st.caption(
-          f'MTD tính từ đầu tháng → ngày BC: **{report_date}** '
-          f'(Đã Đạt / Chưa Đạt / SỐ SUẤT nhảy theo ngày lọc)'
-      )
-
-      # ===== BỘ LỌC (giữa 2 bảng) =====
-      st.markdown(
-          '<p class="filter-label">🔍 Bộ lọc chi tiết cửa hàng</p>',
-          unsafe_allow_html=True,
-      )
-      t1, t2, t3, t4, t5, t6 = st.columns(6)
       with t1:
         st.markdown('<p class="filter-label">Tên Nhân Viên</p>', unsafe_allow_html=True)
         f_nv_t = st.multiselect('', nvs, default=[], key='tea_nv', label_visibility='collapsed')
@@ -8801,8 +8739,6 @@ with tab_kpi:
         f_dk_t = st.selectbox(
             '', ['Tất cả', 'Đã ĐK (✓)', 'Chưa ĐK'], key='tea_dk', label_visibility='collapsed'
         )
-
-      # ===== BẢNG 2: Chi tiết KH (sau lọc) =====
       view = df_tea.copy()
       if not view.empty:
         if f_nv_t:
@@ -8821,6 +8757,9 @@ with tab_kpi:
           view = view[~view['ĐK D&L'].astype(str).str.strip().isin(['✓', '✔'])]
         view = view.drop(columns=['STT'], errors='ignore').reset_index(drop=True)
         view.insert(0, 'STT', range(1, len(view) + 1))
+      # Bảng tổng hợp NV (trên) + chi tiết KH (dưới)
+      df_sum = build_tea_battle_summary(view)
+      st.markdown(render_tea_battle_summary_html(df_sum), unsafe_allow_html=True)
       st.markdown(render_tea_battle_html(view), unsafe_allow_html=True)
       st.caption(f'Hiển thị: {len(view):,} / {len(df_tea):,} cửa hàng')
       st.download_button(
