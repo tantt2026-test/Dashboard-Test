@@ -5887,8 +5887,11 @@ def render_tea_battle_html(df):
 
 
 def build_tea_battle_summary(df_detail):
-  """Tổng hợp theo NV: Tổng KH / Đã Đạt / Chưa Đạt / Đã ĐK / Chưa ĐK."""
-  cols = ['STT', 'Tên NVBH', 'Tổng KH', 'Đã Đạt', 'Chưa Đạt', 'Đã ĐK', 'Chưa ĐK']
+  """Tổng hợp theo NV + % Chưa Đạt/Tổng KH."""
+  cols = [
+      'STT', 'Tên NVBH', 'Tổng KH', 'Đã Đạt', 'Chưa Đạt',
+      '% Chưa Đạt', 'Đã ĐK', 'Chưa ĐK',
+  ]
   if df_detail is None or df_detail.empty:
     return pd.DataFrame(columns=cols)
   d = df_detail.copy()
@@ -5899,21 +5902,25 @@ def build_tea_battle_summary(df_detail):
     chua_dat = int((pd.to_numeric(g['MTD TEA [Thùng]'], errors='coerce').fillna(0) < 10).sum())
     da_dk = int(g['ĐK D&L'].astype(str).str.strip().isin(['✓', '✔']).sum())
     chua_dk = tong - da_dk
+    pct_chua = round(chua_dat / tong * 100, 1) if tong else 0.0
     rows.append({
         'Tên NVBH': nv,
         'Tổng KH': tong,
         'Đã Đạt': da_dat,
         'Chưa Đạt': chua_dat,
+        '% Chưa Đạt': pct_chua,
         'Đã ĐK': da_dk,
         'Chưa ĐK': chua_dk,
     })
   out = pd.DataFrame(rows).sort_values('Tên NVBH').reset_index(drop=True)
-  # Total row
+  tong_all = int(out['Tổng KH'].sum())
+  chua_all = int(out['Chưa Đạt'].sum())
   tot = {
       'Tên NVBH': 'TỔNG CỘNG',
-      'Tổng KH': int(out['Tổng KH'].sum()),
+      'Tổng KH': tong_all,
       'Đã Đạt': int(out['Đã Đạt'].sum()),
-      'Chưa Đạt': int(out['Chưa Đạt'].sum()),
+      'Chưa Đạt': chua_all,
+      '% Chưa Đạt': round(chua_all / tong_all * 100, 1) if tong_all else 0.0,
       'Đã ĐK': int(out['Đã ĐK'].sum()),
       'Chưa ĐK': int(out['Chưa ĐK'].sum()),
   }
@@ -5927,7 +5934,10 @@ def build_tea_battle_summary(df_detail):
 def render_tea_battle_summary_html(df):
   if df is None or df.empty:
     return ''
-  cols = ['STT', 'Tên NVBH', 'Tổng KH', 'Đã Đạt', 'Chưa Đạt', 'Đã ĐK', 'Chưa ĐK']
+  cols = [
+      'STT', 'Tên NVBH', 'Tổng KH', 'Đã Đạt', 'Chưa Đạt',
+      '% Chưa Đạt', 'Đã ĐK', 'Chưa ĐK',
+  ]
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
@@ -5942,12 +5952,59 @@ def render_tea_battle_summary_html(df):
       'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
       'padding:6px 5px;font-size:12px;'
   )
+  # Scale Chưa Đạt (số): cao=đỏ, thấp=xanh
+  chua_vals = []
+  for _, r in df.iterrows():
+    if 'TỔNG' in str(r.get('Tên NVBH', '')).upper():
+      continue
+    try:
+      chua_vals.append(float(r.get('Chưa Đạt', 0) or 0))
+    except Exception:
+      pass
+  vmin = min(chua_vals) if chua_vals else 0.0
+  vmax = max(chua_vals) if chua_vals else 1.0
+  if vmax <= vmin:
+    vmax = vmin + 1.0
+
+  def _chua_style(v):
+    try:
+      t = (float(v) - vmin) / (vmax - vmin)
+    except Exception:
+      t = 0.0
+    t = max(0.0, min(1.0, t))
+    if t <= 0.5:
+      u = t / 0.5
+      r = int(0xC6 + (0xFB - 0xC6) * u)
+      g = int(0xF6 + (0xD3 - 0xF6) * u)
+      b = int(0xD5 + (0x8D - 0xD5) * u)
+      fg = '#22543d'
+    else:
+      u = (t - 0.5) / 0.5
+      r = int(0xFB + (0xFC - 0xFB) * u)
+      g = int(0xD3 + (0x81 - 0xD3) * u)
+      b = int(0x8D + (0x81 - 0x8D) * u)
+      fg = '#742a2a'
+    return (
+        f'background-color:#{r:02x}{g:02x}{b:02x} !important;'
+        f'color:{fg} !important;font-weight:900 !important;'
+        f'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
+        f'text-align:center !important;'
+    )
+
+  def _pct_chua_class(v):
+    """% Chưa Đạt: thấp = tốt. Invert → color_pct_class(100 - v, moc=100)."""
+    try:
+      pct = float(v)
+      return color_pct_class(100.0 - pct, moc=100.0)
+    except Exception:
+      return ''
+
   html = [
       '<div style="overflow-x:auto;margin:8px 0 16px 0;">',
       '<h4 style="color:#1a365d;font-weight:800;margin:0 0 6px 0;">'
       '📊 TỔNG HỢP THEO NHÂN VIÊN (RR BEV ≥ 3 triệu)</h4>',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:700px;font-family:Arial,sans-serif;"><thead><tr>',
+      '<table class="custom-kpi-table tea-sum-table" style="border-collapse:collapse;'
+      'width:100%;min-width:760px;font-family:Arial,sans-serif;"><thead><tr>',
   ]
   for c in cols:
     html.append(f'<th style="{th}">{c}</th>')
@@ -5956,25 +6013,50 @@ def render_tea_battle_summary_html(df):
     is_tot = 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
     bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
     fg = '#ffffff' if is_tot else '#1a202c'
-    tr = ' class="row-total"' if is_tot else ''
-    html.append(f'<tr{tr}>')
+    html.append('<tr class="row-total">' if is_tot else '<tr>')
     for c in cols:
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
       al = 'left' if c == 'Tên NVBH' else 'center'
-      if is_tot:
+      if c == '% Chưa Đạt' and val != '':
+        try:
+          disp = f'{float(val):.1f}%'
+        except Exception:
+          disp = str(val)
+      else:
+        disp = val
+      if is_tot and c != '% Chưa Đạt':
         html.append(
-            f'<td class="row-total-cell" style="{tot_s}text-align:{al} !important;">{val}</td>'
+            f'<td class="row-total-cell" style="{tot_s}text-align:{al} !important;">{disp}</td>'
+        )
+      elif is_tot and c == '% Chưa Đạt':
+        cls = _pct_chua_class(val)
+        html.append(
+            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+            f'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
+            f'padding:6px 5px;font-size:12px;">{disp}</td>'
+        )
+      elif c == 'Chưa Đạt':
+        html.append(
+            f'<td class="chua-dat-cell" data-colored="1" style="{_chua_style(val)}">{disp}</td>'
+        )
+      elif c == '% Chưa Đạt':
+        cls = _pct_chua_class(val)
+        html.append(
+            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+            f'font-weight:800 !important;border:1px solid #bce2f5 !important;'
+            f'padding:6px 5px;font-size:12px;">{disp}</td>'
         )
       else:
         html.append(
-            f'<td style="{td}background:{bg} !important;color:{fg} !important;'
-            f'text-align:{al};">{val}</td>'
+            f'<td style="{td}background-color:{bg} !important;color:{fg} !important;'
+            f'text-align:{al} !important;">{disp}</td>'
         )
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
+
 
 
 def load_display_data():
