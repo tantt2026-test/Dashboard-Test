@@ -5894,7 +5894,7 @@ def render_tea_battle_html(df):
           s = 0
         if s <= 0:
           html.append(
-              f'<td data-colored="1" class="suat-rot" style="{base}">{0 (RỚT)}</td>'
+              f'<td data-colored="1" class="suat-rot" style="{base}">0 (RỚT)</td>'
           )
         else:
           html.append(
