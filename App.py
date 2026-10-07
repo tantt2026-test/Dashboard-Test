@@ -6795,9 +6795,16 @@ def load_bo_hinh_data():
 def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date):
   """Maps NV → so_ch_tb_per, chup_hinh_ddkd.
 
-  Số CH TB PER: CH đăng ký TB (trừ Sampling & TBTN) ∩ lịch VT ngày BC của NV.
-  Chụp hình bởi ĐDKD: Người đăng hình = NV, Ngày đăng hình = ngày BC,
-  Mã CH trong lịch VT ngày BC của NV.
+  Số CH TB PER:
+    CH đăng ký TB (trừ Sampling & TBTN) ∩ lịch VT ngày BC của NV.
+
+  Chụp hình bởi ĐDKD:
+    - Ngày đăng hình = ngày BC
+    - Gán NV: Người đăng hình trùng Tên NVBH; nếu không thì lấy cột NVBH
+    - Tên CT không chứa Sampling / TBTN
+    - Mã CH ∈ đăng ký TB (non-Sampling/TBTN) của NV
+    - Mã CH ∈ lịch VT ngày BC của NV
+    → đếm unique Mã CH
   """
   per_map, chup_map = {}, {}
   rd = report_date.date() if hasattr(report_date, 'date') else report_date
@@ -6812,6 +6819,10 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date):
       return str(int(float(s)))
     except Exception:
       return s
+
+  def _is_excluded_ct(ct):
+    s = str(ct or '').lower()
+    return ('sampling' in s) or ('tbtn' in s)
 
   # Lịch VT ngày: nv → set mã CH
   vt_by_nv = {}
@@ -6831,7 +6842,9 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date):
           continue
         vt_by_nv.setdefault(nv, set()).add(ma)
 
-  # Đăng ký TB trừ Sampling & TBTN
+  known_nvs = set(vt_by_nv.keys())
+
+  # Đăng ký TB trừ Sampling & TBTN: nv → set mã CH
   reg_by_nv = {}
   if df_disp is not None and not df_disp.empty:
     d = df_disp.copy()
@@ -6840,23 +6853,21 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date):
     c_ct = find_col(d, ['Tên chương trình', 'Chương trình', 'Tên CT'])
     if c_nv and c_ma:
       for _, r in d.iterrows():
-        ct = str(r[c_ct]).lower() if c_ct and pd.notna(r.get(c_ct)) else ''
-        if 'sampling' in ct or 'tbtn' in ct:
+        ct = r[c_ct] if c_ct else ''
+        if _is_excluded_ct(ct):
           continue
         nv = str(r[c_nv]).strip()
         ma = _nma(r[c_ma])
         if not nv or not ma or ma.lower() in ('nan', 'none'):
           continue
         reg_by_nv.setdefault(nv, set()).add(ma)
+        known_nvs.add(nv)
 
-  all_nvs = set(list(vt_by_nv.keys()) + list(reg_by_nv.keys()))
-  for nv in all_nvs:
+  # PER = |reg ∩ plan|
+  for nv in known_nvs:
     plan = vt_by_nv.get(nv, set())
     reg = reg_by_nv.get(nv, set())
-    if plan:
-      per_map[nv] = len(plan & reg)
-    else:
-      per_map[nv] = 0
+    per_map[nv] = len(plan & reg) if plan else 0
 
   # Chụp hình bởi ĐDKD
   if df_bohinh is not None and not df_bohinh.empty:
@@ -6865,31 +6876,35 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date):
     c_ngay = find_col(b, ['Ngày đăng hình', 'Ngày Đăng Hình'])
     c_ma = find_col(b, ['Mã cửa hàng', 'Mã CH', 'Mã KH'])
     c_nvbh = find_col(b, ['NVBH', 'Tên NVBH'])
-    if c_nguoi and c_ngay and c_ma:
+    c_ct = find_col(b, ['Tên CT', 'Tên chương trình', 'Chương trình'])
+    if c_ngay and c_ma:
       b['_ngay'] = pd.to_datetime(b[c_ngay], errors='coerce').dt.date
       b = b[b['_ngay'] == rd]
       for _, r in b.iterrows():
-        nguoi = str(r[c_nguoi]).strip()
+        if c_ct and _is_excluded_ct(r.get(c_ct)):
+          continue
         ma = _nma(r[c_ma])
         if not ma:
           continue
-        # Ưu tiên match tên NVBH qua Người đăng hình
-        candidates = [nguoi]
-        if c_nvbh and pd.notna(r.get(c_nvbh)):
-          candidates.append(str(r[c_nvbh]).strip())
-        matched = False
-        for cand in candidates:
-          if not cand:
-            continue
-          plan = vt_by_nv.get(cand, set())
-          if plan and ma in plan:
-            chup_map.setdefault(cand, set()).add(ma)
-            matched = True
-            break
-        # Nếu Người đăng hình = NV nhưng CH không trong lịch → không đếm (0)
+        # Gán NV: ưu tiên Người đăng hình nếu đúng tên NVBH
+        nv = ''
+        if c_nguoi:
+          nguoi = str(r[c_nguoi]).strip()
+          if nguoi in known_nvs:
+            nv = nguoi
+        if not nv and c_nvbh and pd.notna(r.get(c_nvbh)):
+          nv = str(r[c_nvbh]).strip()
+        if not nv:
+          continue
+        plan = vt_by_nv.get(nv, set())
+        reg = reg_by_nv.get(nv, set())
+        # Bắt buộc: trong lịch VT VÀ trong DS đăng ký TB (non-Sampling/TBTN)
+        if ma in plan and ma in reg:
+          chup_map.setdefault(nv, set()).add(ma)
 
   chup_cnt = {nv: len(s) for nv, s in chup_map.items()}
   return per_map, chup_cnt
+
 
 
 def build_display_report(df_disp, df_mcp=None, filter_nv=None):
