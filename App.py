@@ -6162,6 +6162,199 @@ def render_perf_chart(df, month_label):
   st.altair_chart(chart, use_container_width=True)
 
 
+
+def build_perf_nv_matrix(df_raw, month, filter_nv=None):
+  """Pivot NV × SUB DIV: TARGET / SELL OUT / % MTD. Ẩn ngành không có chỉ tiêu."""
+  if df_raw is None or df_raw.empty or not month:
+    return pd.DataFrame(), []
+  d = df_raw.copy()
+  c_month = find_col(d, ['MONTH', 'Month'])
+  c_cat = find_col(d, ['SUB DIV', 'SUB_DIV', 'CAT', 'Category'])
+  c_so = find_col(d, ['SO', 'SellOut', 'Sell Out'])
+  c_tg = find_col(d, ['TARGET SO', 'Target SO', 'TARGET', 'Target'])
+  c_nv = find_col(d, ['SM NAME', 'SM_NAME', 'Tên NVBH'])
+  if not all([c_month, c_cat, c_nv]):
+    return pd.DataFrame(), []
+  d = d[d[c_month].astype(str).str.strip() == str(month).strip()]
+  if filter_nv:
+    d = d[d[c_nv].astype(str).isin([str(x) for x in filter_nv])]
+  d['_nv'] = d[c_nv].astype(str).str.strip()
+  d['_cat'] = d[c_cat].astype(str).str.strip()
+  d['_cat'] = d['_cat'].replace({'': '(blank)', 'nan': '(blank)', 'None': '(blank)'})
+  d['_so'] = pd.to_numeric(d[c_so], errors='coerce').fillna(0) if c_so else 0
+  d['_tg'] = pd.to_numeric(d[c_tg], errors='coerce').fillna(0) if c_tg else 0
+  # Bỏ blank category
+  d = d[~d['_cat'].str.lower().isin(['(blank)', 'blank', 'nan', ''])]
+  # Chỉ giữ ngành có TARGET > 0
+  cat_tg = d.groupby('_cat')['_tg'].sum()
+  cats = [c for c in cat_tg.index.tolist() if float(cat_tg[c] or 0) > 0]
+  # Sort cats by total target desc
+  cats = sorted(cats, key=lambda c: -float(cat_tg[c]))
+  if not cats:
+    return pd.DataFrame(), []
+  g = d.groupby(['_nv', '_cat'], as_index=False).agg(tg=('_tg', 'sum'), so=('_so', 'sum'))
+  nvs = sorted(g['_nv'].dropna().unique().tolist())
+  rows = []
+  for nv in nvs:
+    row = {'Tên NVBH': nv}
+    tot_tg = 0.0
+    tot_so = 0.0
+    sub = g[g['_nv'] == nv]
+    for cat in cats:
+      r = sub[sub['_cat'] == cat]
+      tg = float(r['tg'].sum()) if len(r) else 0.0
+      so = float(r['so'].sum()) if len(r) else 0.0
+      pct = round(so / tg * 100, 0) if tg > 0 else 0.0
+      row[f'{cat}|TARGET'] = tg
+      row[f'{cat}|SELL OUT'] = so
+      row[f'{cat}|% MTD'] = pct
+      tot_tg += tg
+      tot_so += so
+    row['TOTAL|TARGET'] = tot_tg
+    row['TOTAL|SELL OUT'] = tot_so
+    row['TOTAL|% MTD'] = round(tot_so / tot_tg * 100, 0) if tot_tg > 0 else 0.0
+    rows.append(row)
+  out = pd.DataFrame(rows)
+  if out.empty:
+    return out, cats
+  # Total row
+  tot = {'Tên NVBH': 'TỔNG CỘNG'}
+  for cat in cats:
+    tot[f'{cat}|TARGET'] = float(out[f'{cat}|TARGET'].sum())
+    tot[f'{cat}|SELL OUT'] = float(out[f'{cat}|SELL OUT'].sum())
+    t = tot[f'{cat}|TARGET']
+    s = tot[f'{cat}|SELL OUT']
+    tot[f'{cat}|% MTD'] = round(s / t * 100, 0) if t > 0 else 0.0
+  tot['TOTAL|TARGET'] = float(out['TOTAL|TARGET'].sum())
+  tot['TOTAL|SELL OUT'] = float(out['TOTAL|SELL OUT'].sum())
+  tt = tot['TOTAL|TARGET']
+  ts = tot['TOTAL|SELL OUT']
+  tot['TOTAL|% MTD'] = round(ts / tt * 100, 0) if tt > 0 else 0.0
+  out = pd.concat([out, pd.DataFrame([tot])], ignore_index=True)
+  out.insert(0, 'STT', [
+      str(i + 1) if i < len(out) - 1 else '' for i in range(len(out))
+  ])
+  return out, cats
+
+
+def render_perf_nv_matrix_html(df, cats, month_label):
+  """Bảng tổng hợp NV × ngành — header vàng như mẫu."""
+  if df is None or df.empty or not cats:
+    return ''
+  # Header 2 dòng
+  yellow = (
+      'background-color:#ffd700 !important;color:#1a202c !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #d69e2e !important;padding:5px 4px;font-size:10px;'
+      'white-space:nowrap;'
+  )
+  yellow_sub = (
+      'background-color:#ffe066 !important;color:#1a202c !important;'
+      'font-weight:700 !important;text-align:center !important;'
+      'border:1px solid #d69e2e !important;padding:3px 3px;font-size:9px;'
+      'white-space:nowrap;'
+  )
+  td = (
+      'border:1px solid #e2e8f0 !important;padding:3px 4px;font-size:10px;'
+      'text-align:center !important;white-space:nowrap;'
+  )
+  tot_s = (
+      'background-color:#ffd700 !important;color:#1a202c !important;'
+      'font-weight:900 !important;border:1px solid #d69e2e !important;'
+      'padding:3px 4px;font-size:10px;'
+  )
+  n_metric = 3  # TARGET, SELL OUT, % MTD
+  html = [
+      f'<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
+      f'📊 TỔNG HỢP PERFORMANCE THEO NHÂN VIÊN — Tháng {month_label}</h4>',
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px;">',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:1200px;font-family:Arial,sans-serif;"><thead>',
+      # Row 1: category names
+      '<tr>',
+      f'<th rowspan="2" style="{yellow}">STT</th>',
+      f'<th rowspan="2" style="{yellow}">TÊN NVBH</th>',
+  ]
+  for cat in cats:
+    html.append(
+        f'<th colspan="{n_metric}" style="{yellow}">{cat}</th>'
+    )
+  html.append(f'<th colspan="{n_metric}" style="{yellow}">TARGET</th>')
+  html.append('</tr><tr>')
+  # Row 2: sub headers
+  for _ in list(cats) + ['TOTAL']:
+    for sub in ('TARGET', 'SELL OUT', '% MTD'):
+      html.append(f'<th style="{yellow_sub}">{sub}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    bg = '#ffd700' if is_tot else ('#fffff0' if pos % 2 == 0 else '#ffffff')
+    fg = '#1a202c'
+    html.append('<tr class="row-total">' if is_tot else '<tr>')
+    # STT + NV
+    for c, al in [('STT', 'center'), ('Tên NVBH', 'left')]:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      if is_tot:
+        html.append(
+            f'<td class="row-total-cell" style="{tot_s}text-align:{al} !important;">{val}</td>'
+        )
+      else:
+        html.append(
+            f'<td style="{td}background-color:{bg} !important;color:{fg} !important;'
+            f'text-align:{al} !important;">{val}</td>'
+        )
+    # categories + total
+    keys = []
+    for cat in cats:
+      keys.extend([f'{cat}|TARGET', f'{cat}|SELL OUT', f'{cat}|% MTD'])
+    keys.extend(['TOTAL|TARGET', 'TOTAL|SELL OUT', 'TOTAL|% MTD'])
+    for k in keys:
+      val = row.get(k, 0)
+      if pd.isna(val):
+        val = 0
+      is_pct = k.endswith('% MTD')
+      if is_pct:
+        try:
+          disp = f'{int(float(val))}%'
+        except Exception:
+          disp = str(val)
+      else:
+        try:
+          disp = f'{float(val):,.0f}'.replace(',', '.')
+        except Exception:
+          disp = str(val)
+      if is_tot:
+        if is_pct:
+          cls = color_pct_class(val, moc=100.0)
+          html.append(
+              f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+              f'border:1px solid #d69e2e !important;padding:3px 4px;font-size:10px;'
+              f'font-weight:900 !important;">{disp}</td>'
+          )
+        else:
+          html.append(
+              f'<td class="row-total-cell" style="{tot_s}text-align:right !important;">{disp}</td>'
+          )
+      elif is_pct:
+        cls = color_pct_class(val, moc=100.0)
+        html.append(
+            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+            f'border:1px solid #e2e8f0 !important;padding:3px 4px;font-size:10px;'
+            f'font-weight:700 !important;">{disp}</td>'
+        )
+      else:
+        html.append(
+            f'<td style="{td}background-color:{bg} !important;color:{fg} !important;'
+            f'text-align:right !important;">{disp}</td>'
+        )
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
 def build_tea_battle_summary(df_detail):
   """Tổng hợp theo NV + % Chưa Đạt/Tổng KH."""
   cols = [
@@ -9040,6 +9233,14 @@ with tab_kpi:
             f'Nguồn: TARGETACTUAL BY STD SKU -BY SM | '
             f'Hiển thị **{len(months)} tháng gần nhất**: {", ".join(months)}'
         )
+        # Bảng tổng hợp NV × ngành (tháng mới nhất)
+        latest_m = months[0]
+        df_mat, cats_mat = build_perf_nv_matrix(df_perf, latest_m, filter_nv)
+        if not df_mat.empty:
+          st.markdown(
+              render_perf_nv_matrix_html(df_mat, cats_mat, latest_m),
+              unsafe_allow_html=True,
+          )
         for m in months:
           df_m = data_by_m.get(m)
           st.markdown(
