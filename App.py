@@ -10000,9 +10000,17 @@ with tab_kpi:
           df_mat = pd.concat([base_body, pd.DataFrame([tot])], ignore_index=True)
 
         label_m = ', '.join(use_months) if use_months else ''
+        # Chỉ tô Timegone khi lọc đúng 1 tháng và đó là tháng T (mới nhất)
+        _use_tg = (
+            len(use_months) == 1
+            and all_months
+            and use_months[0] == all_months[0]
+        )
         if not df_mat.empty and cats_union:
           st.markdown(
-              render_perf_nv_matrix_html(df_mat, cats_union, label_m),
+              render_perf_nv_matrix_html(
+                  df_mat, cats_union, label_m, use_timegone=_use_tg
+              ),
               unsafe_allow_html=True,
           )
         elif use_months:
