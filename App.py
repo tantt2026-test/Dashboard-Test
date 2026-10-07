@@ -5988,8 +5988,62 @@ def load_perf_sku_data():
     return pd.DataFrame()
 
 
-def build_perf_by_month(df_raw, filter_nv=None, n_months=4):
-  """4 tháng gần nhất: bảng CAT / Target / SellOut / %MTD."""
+
+
+def _month_key_from_date(d):
+  """date/datetime → 'MM/YYYY'."""
+  try:
+    if hasattr(d, 'month'):
+      return f'{int(d.month):02d}/{int(d.year)}'
+  except Exception:
+    pass
+  return ''
+
+
+def build_rpt_sellout_maps(df_rpt, report_date):
+  """SellOut tháng T từ RPT: theo CAT và theo (NV, CAT).
+
+  Returns:
+    by_cat: {sub_div: amount}
+    by_nv_cat: {(nv, sub_div): amount}
+  """
+  by_cat, by_nv_cat = {}, {}
+  if df_rpt is None or getattr(df_rpt, 'empty', True) or report_date is None:
+    return by_cat, by_nv_cat
+  d = df_rpt.copy()
+  c_date = find_col(d, [
+      'Ngày tạo đơn hàng', 'Ngày tạo đơn', 'Order Date', 'ORDER_DT', 'date',
+  ])
+  c_cat = find_col(d, ['Sub Division', 'SUB DIV', 'SubDivision', 'Phân nhóm'])
+  c_nv = find_col(d, ['Tên NVBH', 'SM NAME', 'SM_NAME', 'Nhân viên'])
+  c_val = find_col(d, ['Tổng tiền', 'Giá trị sau CK', 'Thành tiền trước CK', 'Doanh thu'])
+  c_status = find_col(d, ['Tình trạng đơn hàng', 'Status', 'STATUS_CD'])
+  if not c_date or not c_cat or not c_val:
+    return by_cat, by_nv_cat
+  d['_dt'] = pd.to_datetime(d[c_date], errors='coerce')
+  ym = (int(report_date.year), int(report_date.month))
+  d = d[d['_dt'].apply(
+      lambda x: (int(x.year), int(x.month)) == ym if pd.notna(x) else False
+  )]
+  if c_status:
+    st = d[c_status].astype(str).str.lower()
+    d = d[~st.str.contains('hủy|cancel|pending', na=False)]
+  d['_cat'] = d[c_cat].astype(str).str.strip()
+  d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
+  if c_nv:
+    d['_nv'] = d[c_nv].astype(str).str.strip()
+  else:
+    d['_nv'] = ''
+  by_cat = d.groupby('_cat')['_val'].sum().to_dict()
+  by_nv_cat = d.groupby(['_nv', '_cat'])['_val'].sum().to_dict()
+  return by_cat, by_nv_cat
+
+def build_perf_by_month(df_raw, filter_nv=None, n_months=4, df_rpt=None, report_date=None):
+  """4 tháng gần nhất: bảng CAT / Target / SellOut / %MTD.
+
+  Tháng T (tháng report_date): SellOut lấy từ RPT (DanhSachChiTietDonHang).
+  Các tháng trước: SellOut lấy từ file TARGETACTUAL (cột SO).
+  """
   empty = pd.DataFrame(columns=['CAT', 'Target', 'SellOut', '%MTD'])
   if df_raw is None or df_raw.empty:
     return {}, []
@@ -6017,12 +6071,29 @@ def build_perf_by_month(df_raw, filter_nv=None, n_months=4):
       return (0, 0)
   months = sorted(d['_month'].dropna().unique().tolist(), key=_mk, reverse=True)
   months = months[:n_months]
+  # RPT sellout tháng T
+  cur_m = _month_key_from_date(report_date) if report_date is not None else ''
+  rpt_by_cat, _ = build_rpt_sellout_maps(df_rpt, report_date)
+
   result = {}
   for m in months:
     g = d[d['_month'] == m].groupby('_cat', as_index=False).agg(
         Target=('_tg', 'sum'), SellOut=('_so', 'sum')
     )
     g = g.rename(columns={'_cat': 'CAT'})
+    # Tháng hiện tại → SellOut từ RPT
+    if m == cur_m and rpt_by_cat:
+      g['SellOut'] = g['CAT'].map(
+          lambda c: float(rpt_by_cat.get(str(c), 0) or 0)
+      )
+      # Thêm CAT có trên RPT nhưng chưa có target row
+      existing = set(g['CAT'].astype(str))
+      extra = []
+      for cat, amt in rpt_by_cat.items():
+        if cat not in existing and float(amt or 0) > 0:
+          extra.append({'CAT': cat, 'Target': 0.0, 'SellOut': float(amt)})
+      if extra:
+        g = pd.concat([g, pd.DataFrame(extra)], ignore_index=True)
     g['%MTD'] = g.apply(
         lambda r: round(float(r['SellOut']) / float(r['Target']) * 100, 0)
         if float(r['Target'] or 0) > 0
@@ -6170,8 +6241,11 @@ def render_perf_chart(df, month_label):
 
 
 
-def build_perf_nv_matrix(df_raw, month, filter_nv=None):
-  """Pivot NV × SUB DIV: TARGET / SELL OUT / % MTD. Ẩn ngành không có chỉ tiêu."""
+def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date=None):
+  """Pivot NV × SUB DIV: TARGET / SELL OUT / % MTD. Ẩn ngành không có chỉ tiêu.
+
+  Tháng T: SELL OUT lấy từ RPT; tháng khác lấy từ cột SO file Target.
+  """
   if df_raw is None or df_raw.empty or not month:
     return pd.DataFrame(), []
   d = df_raw.copy()
@@ -6200,6 +6274,24 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None):
   if not cats:
     return pd.DataFrame(), []
   g = d.groupby(['_nv', '_cat'], as_index=False).agg(tg=('_tg', 'sum'), so=('_so', 'sum'))
+  # Tháng T → thay SO bằng RPT
+  cur_m = _month_key_from_date(report_date) if report_date is not None else ''
+  if str(month).strip() == cur_m:
+    _, rpt_nv_cat = build_rpt_sellout_maps(df_rpt, report_date)
+    if rpt_nv_cat:
+      # rebuild so from RPT
+      g['_key'] = list(zip(g['_nv'].astype(str), g['_cat'].astype(str)))
+      g['so'] = g['_key'].map(lambda k: float(rpt_nv_cat.get(k, 0) or 0))
+      # thêm NV/CAT có trên RPT
+      extra_rows = []
+      existing = set(g['_key'].tolist())
+      for (nv, cat), amt in rpt_nv_cat.items():
+        if (nv, cat) not in existing and float(amt or 0) > 0:
+          # chỉ thêm cat đã có target team-level
+          if cat in cats:
+            extra_rows.append({'_nv': nv, '_cat': cat, 'tg': 0.0, 'so': float(amt)})
+      if extra_rows:
+        g = pd.concat([g, pd.DataFrame(extra_rows)], ignore_index=True)
   nvs = sorted(g['_nv'].dropna().unique().tolist())
   rows = []
   for nv in nvs:
@@ -9240,13 +9332,13 @@ with tab_kpi:
           'Upload lên GitHub rồi **Xóa Cache & Reload**.'
       )
     else:
-      data_by_m, months = build_perf_by_month(df_perf, filter_nv, n_months=4)
+      data_by_m, months = build_perf_by_month(df_perf, filter_nv, n_months=4, df_rpt=df, report_date=report_date)
       if not months:
         st.info('Không có dữ liệu tháng để hiển thị.')
       else:
         st.caption(
             f'Nguồn: TARGETACTUAL BY STD SKU -BY SM | '
-            f'Số liệu Target / SellOut hiển thị theo **triệu đồng** | '
+            f'Số liệu theo **triệu đồng** | SellOut **tháng T** lấy từ RPT (DanhSachChiTietDonHang); tháng trước lấy từ file Target/Actual | '
             f'{len(months)} tháng: {", ".join(months)}'
         )
         # ===== Bộ lọc bảng tổng hợp =====
@@ -9295,7 +9387,7 @@ with tab_kpi:
         mats = []
         cats_union = []
         for mm in use_months:
-          dm, cm = build_perf_nv_matrix(df_perf, mm, use_nvs)
+          dm, cm = build_perf_nv_matrix(df_perf, mm, use_nvs, df_rpt=df, report_date=report_date)
           if dm.empty:
             continue
           mats.append(dm)
