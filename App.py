@@ -6155,7 +6155,7 @@ def render_perf_chart(df, month_label):
               alt.Tooltip('Giá trị:Q', format=',.0f'),
           ],
       )
-      .properties(height=320, title=f'Target vs SellOut — {month_label}')
+      .properties(height=300, title=f'Target vs SellOut — {month_label}')
       .configure_title(fontSize=14, fontWeight='bold', color='#1a365d')
       .configure_view(strokeWidth=0)
   )
@@ -9042,10 +9042,27 @@ with tab_kpi:
         )
         for m in months:
           df_m = data_by_m.get(m)
-          st.markdown(render_perf_table_html(df_m, m), unsafe_allow_html=True)
-          render_perf_chart(df_m, m)
-          st.markdown('<hr style="margin:18px 0;border:none;border-top:1px solid #e2e8f0;">',
-                      unsafe_allow_html=True)
+          st.markdown(
+              f'<h4 style="color:#1a365d;font-weight:800;margin:14px 0 6px 0;">'
+              f'📅 Tháng {m}</h4>',
+              unsafe_allow_html=True,
+          )
+          c_left, c_right = st.columns([1, 1.2])
+          with c_left:
+            # Bỏ tiêu đề tháng trong table (đã hiện ở trên)
+            html = render_perf_table_html(df_m, m)
+            html = html.replace(
+                f'<h4 style="color:#1a365d;font-weight:800;margin:12px 0 6px 0;">'
+                f'📅 Tháng {m}</h4>',
+                '',
+            )
+            st.markdown(html, unsafe_allow_html=True)
+          with c_right:
+            render_perf_chart(df_m, m)
+          st.markdown(
+              '<hr style="margin:14px 0;border:none;border-top:1px solid #e2e8f0;">',
+              unsafe_allow_html=True,
+          )
 
   elif selected_kpi == 'TEA_BATTLE':
     st.markdown(
