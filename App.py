@@ -5486,7 +5486,9 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
 @st.cache_data(ttl=120, show_spinner=False)
 # ====================== 16. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON ======================
 def _resolve_raw_tea_path():
+  """Ưu tiên data.xlsx (RR 3 tháng Bev/Tea), sau đó RAW DATA.*"""
   names = [
+      'data.xlsx', 'Data.xlsx', 'DATA.xlsx',
       'RAW DATA.xlsx', 'RAW_DATA.xlsx', 'Raw Data.xlsx',
       'RAW DATA.xls', 'Data_RAW_TEA.xlsx',
   ]
@@ -5495,13 +5497,20 @@ def _resolve_raw_tea_path():
     if os.path.isfile(p):
       return p
   if os.path.isdir(DATA_DIR):
+    scored = []
     for fn in os.listdir(DATA_DIR):
+      if not fn.lower().endswith(('.xlsx', '.xls')):
+        continue
       low = fn.lower().replace(' ', '').replace('_', '')
-      if fn.lower().endswith(('.xlsx', '.xls')) and (
-          'rawdata' in low or (low.startswith('raw') and 'data' in low)
-      ):
-        return os.path.join(DATA_DIR, fn)
-  return os.path.join(DATA_DIR, 'RAW DATA.xlsx')
+      # data.xlsx kiểu export PowerBI / OneTech
+      if low in ('data.xlsx', 'data.xls'):
+        scored.append((0, fn))
+      elif 'rawdata' in low or (low.startswith('raw') and 'data' in low):
+        scored.append((1, fn))
+    scored.sort()
+    if scored:
+      return os.path.join(DATA_DIR, scored[0][1])
+  return os.path.join(DATA_DIR, 'data.xlsx')
 
 
 def _resolve_dk_tea_path():
@@ -5524,7 +5533,7 @@ def load_raw_tea_data():
     return pd.DataFrame()
   raw = pd.read_excel(path, header=None, dtype=object)
   header_row = None
-  markers = ('outlet code', 'sm_name', 'order date', 'sku desc', 'brand')
+  markers = ('outlet_code', 'outlet code', 'sm_name', 'order_dt', 'order date', 'brand_desc', 'brand')
   for i in range(min(10, len(raw))):
     vals = [str(x).strip().lower() for x in raw.iloc[i].tolist() if pd.notna(x)]
     joined = ' | '.join(vals)
@@ -5659,49 +5668,72 @@ def build_tea_battle_report(df_raw, df_rpt, df_mcp, report_date, filter_nv=None)
     return pd.DataFrame(columns=empty_cols)
 
   d = df_raw.copy()
-  colmap = {}
-  for c in d.columns:
-    cl = str(c).strip().upper().replace(' ', '_')
-    if cl in ('OUTLET_CODE', 'OUTLETCODE'):
-      colmap[c] = 'OUTLET CODE'
-    elif cl in ('OUTLET_NAME', 'OUTLETNAME'):
-      colmap[c] = 'OUTLET NAME'
-    elif cl in ('SM_NAME', 'SMNAME'):
-      colmap[c] = 'SM_NAME'
-    elif cl in ('ORDER_DATE', 'ORDERDATE'):
-      colmap[c] = 'ORDER DATE'
-    elif cl in ('TOTAL_CASES', 'TOTALCASES'):
-      colmap[c] = 'TOTAL CASES'
-    elif cl in ('SALES_BEFORE_DISCOUNT', 'SALESBEFOREDISCOUNT'):
-      colmap[c] = 'Sales Before Discount'
-    elif cl == 'BRAND':
-      colmap[c] = 'BRAND'
-    elif cl in ('SKU_DESC', 'SKUDESC'):
-      colmap[c] = 'SKU DESC'
-    elif cl == 'L1':
-      colmap[c] = 'L1'
-  if colmap:
-    d = d.rename(columns=colmap)
+  # Chuẩn hoá tên cột (hỗ trợ RAW cũ + data.xlsx mới)
+  def _find_raw_col(cands):
+    cols_l = {str(c).strip().lower().replace(' ', '_'): c for c in d.columns}
+    # cũng match bỏ dấu _ thừa / trailing space
+    cols_norm = {}
+    for c in d.columns:
+      k = str(c).strip().lower().replace(' ', '_').rstrip('_')
+      cols_norm[k] = c
+    for cand in cands:
+      k = cand.strip().lower().replace(' ', '_').rstrip('_')
+      if k in cols_norm:
+        return cols_norm[k]
+    for c in d.columns:
+      cl = str(c).strip().lower()
+      for cand in cands:
+        if cand.lower() in cl:
+          return c
+    return None
 
-  d['_ma'] = d['OUTLET CODE'].map(_norm_out) if 'OUTLET CODE' in d.columns else ''
-  d['_ten'] = d['OUTLET NAME'].astype(str).str.strip() if 'OUTLET NAME' in d.columns else ''
-  d['_nv'] = d['SM_NAME'].astype(str).str.strip() if 'SM_NAME' in d.columns else ''
-  d['_brand'] = d['BRAND'].astype(str) if 'BRAND' in d.columns else ''
-  d['_sku'] = d['SKU DESC'].astype(str) if 'SKU DESC' in d.columns else ''
-  d['_sales'] = pd.to_numeric(
-      d['Sales Before Discount'] if 'Sales Before Discount' in d.columns else 0,
-      errors='coerce',
-  ).fillna(0)
-  d['_cases'] = pd.to_numeric(
-      d['TOTAL CASES'] if 'TOTAL CASES' in d.columns else 0, errors='coerce'
-  ).fillna(0)
-  d['_dt'] = pd.to_datetime(
-      d['ORDER DATE'] if 'ORDER DATE' in d.columns else None, errors='coerce'
+  c_ma = _find_raw_col(['OUTLET_CODE', 'OUTLET CODE', 'Mã CH', 'Outlet Code'])
+  c_ten = _find_raw_col(['OUTLET NAME', 'OUTLET_NAME', 'Tên CH'])
+  c_nv = _find_raw_col(['SM_NAME', 'SM NAME', 'Tên NVBH'])
+  c_order = _find_raw_col(['ORDER_DT', 'ORDER DATE', 'ORDER_DATE'])
+  c_brand = _find_raw_col(['BRAND_DESC', 'BRAND', 'Brand'])
+  c_sku = _find_raw_col([
+      'STANDARD_SKU_DESC', 'ITEM_DESC', 'SKU DESC', 'SKU_DESC', 'DMS OBJ',
+  ])
+  c_sales = _find_raw_col(['Sales Before Discount', 'SALES_BEFORE_DISCOUNT'])
+  c_cases = _find_raw_col([
+      'Total Sales Cases',
+      'Total Cases (Sales & Promo)',
+      'TOTAL CASES',
+      'Total Cases',
+  ])
+  c_l1 = _find_raw_col([
+      'x_msc_business_type_l1', 'L1', 'Channel',
+  ])
+  c_month = _find_raw_col(['Month', 'MONTH'])
+
+  d['_ma'] = d[c_ma].map(_norm_out) if c_ma else ''
+  d['_ten'] = d[c_ten].astype(str).str.strip() if c_ten else ''
+  d['_nv'] = d[c_nv].astype(str).str.strip() if c_nv else ''
+  d['_brand'] = d[c_brand].astype(str) if c_brand else ''
+  d['_sku'] = d[c_sku].astype(str) if c_sku else ''
+  d['_sales'] = (
+      pd.to_numeric(d[c_sales], errors='coerce').fillna(0) if c_sales else 0
   )
+  d['_cases'] = (
+      pd.to_numeric(d[c_cases], errors='coerce').fillna(0) if c_cases else 0
+  )
+  if c_order:
+    d['_dt'] = pd.to_datetime(d[c_order], errors='coerce')
+  elif c_month:
+    # Month dạng 07/2026
+    d['_dt'] = pd.to_datetime(d[c_month].astype(str), format='%m/%Y', errors='coerce')
+  else:
+    d['_dt'] = pd.NaT
   d['_ym'] = d['_dt'].dt.to_period('M')
   d['_tea'] = [
       _is_tea_brand(b, s) for b, s in zip(d['_brand'].tolist(), d['_sku'].tolist())
   ]
+  # L1 từ raw nếu có
+  if c_l1:
+    d['_l1_raw'] = d[c_l1].astype(str).str.strip()
+  else:
+    d['_l1_raw'] = ''
 
   vip_map, l1_map, thu_map, ten_mcp, nv_mcp = {}, {}, {}, {}, {}
   if df_mcp is not None and not df_mcp.empty:
@@ -5741,7 +5773,7 @@ def build_tea_battle_report(df_raw, df_rpt, df_mcp, report_date, filter_nv=None)
     meta[ma] = {
         'nv': str(last['_nv']),
         'ten': str(last['_ten']),
-        'l1': str(last['L1']) if 'L1' in g.columns and pd.notna(last.get('L1')) else '',
+        'l1': str(last['_l1_raw']) if pd.notna(last.get('_l1_raw')) else '',
     }
 
   mtd_bev, mtd_tea = {}, {}
@@ -8778,8 +8810,8 @@ with tab_kpi:
     df_raw = load_raw_tea_data()
     if df_raw is None or df_raw.empty:
       st.warning(
-          '⚠️ Chưa có file **RAW DATA.xlsx** trong thư mục `data/`. '
-          'Upload file raw Bev/Tea (3 tháng) lên GitHub rồi **Xóa Cache & Reload**.'
+          '⚠️ Chưa có file **data.xlsx** (hoặc RAW DATA.xlsx) trong thư mục `data/`. '
+          'Upload file data.xlsx / RAW Bev-Tea (3 tháng 7–9) lên GitHub rồi **Xóa Cache & Reload**.'
       )
     else:
       df_tea = build_tea_battle_report(df_raw, df, mcp, report_date, filter_nv)
