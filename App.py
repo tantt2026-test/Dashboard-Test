@@ -6209,7 +6209,7 @@ def _fmt_perf_num(v, div_million=True):
     return str(v) if v is not None else ''
 
 
-def render_perf_table_html(df, month_label):
+def render_perf_table_html(df, month_label, use_timegone=False):
   if df is None or df.empty:
     return ''
   cols = ['CAT', 'Target', 'SellOut', '%MTD']
@@ -6258,9 +6258,12 @@ def render_perf_table_html(df, month_label):
             f'<td class="row-total-cell" style="{tot_s}text-align:{al} !important;">{disp}</td>'
         )
       elif c == '%MTD':
-        try:
-          _moc = float(_CURRENT_TIMEGONE)
-        except Exception:
+        if use_timegone:
+          try:
+            _moc = float(_CURRENT_TIMEGONE)
+          except Exception:
+            _moc = 100.0
+        else:
           _moc = 100.0
         cls = color_pct_class(val, moc=_moc)
         bg = color_pct_bg(val, moc=_moc)
@@ -6422,7 +6425,7 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date
   return out, cats
 
 
-def render_perf_nv_matrix_html(df, cats, month_label):
+def render_perf_nv_matrix_html(df, cats, month_label, use_timegone=True):
   """Bảng tổng hợp NV × ngành — sticky STT/Tên NVBH + header, cuộn ngang như Trưng bày."""
   if df is None or df.empty or not cats:
     return ''
@@ -6538,10 +6541,13 @@ def render_perf_nv_matrix_html(df, cats, month_label):
             f'<td class="row-total-cell" style="{tot_s}text-align:right !important;">{disp}</td>'
         )
       elif is_pct:
-        # Tô màu theo % Timegone (giống các báo cáo KPI)
-        try:
-          _moc = float(_CURRENT_TIMEGONE)
-        except Exception:
+        # Tháng T: Timegone; tháng trước: mốc 100%
+        if use_timegone:
+          try:
+            _moc = float(_CURRENT_TIMEGONE)
+          except Exception:
+            _moc = 100.0
+        else:
           _moc = 100.0
         cls = color_pct_class(val, moc=_moc)
         bg = color_pct_bg(val, moc=_moc)
@@ -10016,7 +10022,7 @@ with tab_kpi:
         elif use_months:
           st.info('Không có dữ liệu tổng hợp với bộ lọc hiện tại.')
 
-        for m in months:
+        for _mi, m in enumerate(months):
           df_m = data_by_m.get(m)
           st.markdown(
               f'<h4 style="color:#1a365d;font-weight:800;margin:14px 0 6px 0;">'
@@ -10025,8 +10031,8 @@ with tab_kpi:
           )
           c_left, c_right = st.columns([1, 1.2])
           with c_left:
-            # Bỏ tiêu đề tháng trong table (đã hiện ở trên)
-            html = render_perf_table_html(df_m, m)
+            # Tháng T (đầu list): Timegone; T-1..: mốc 100%
+            html = render_perf_table_html(df_m, m, use_timegone=(_mi == 0))
             html = html.replace(
                 f'<h4 style="color:#1a365d;font-weight:800;margin:12px 0 6px 0;">'
                 f'📅 Tháng {m}</h4>',
