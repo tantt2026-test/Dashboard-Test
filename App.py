@@ -9456,34 +9456,146 @@ with tab_kpi:
       # Bảng 1
       st.markdown(render_display_summary_html(df1), unsafe_allow_html=True)
 
-      # Bộ lọc Chương Trình TB cho Bảng 2 (chọn nhiều)
+      # Bộ lọc Bảng 2: Chương trình TB | Ngày VT | Tên NVBH
       prog_names = []
       if df2 is not None and not df2.empty:
         for c in df2.columns:
           if '|' in str(c):
             prog_names.append(str(c).split('|', 1)[0])
-        # unique giữ thứ tự
         seen = set()
         prog_names = [p for p in prog_names if not (p in seen or seen.add(p))]
+      nv_names_tb2 = []
+      if df2 is not None and not df2.empty and 'Tên NVBH' in df2.columns:
+        nv_names_tb2 = sorted([
+            str(x).strip() for x in df2['Tên NVBH'].dropna().unique().tolist()
+            if str(x).strip() and str(x).lower() != 'nan'
+            and 'tổng' not in str(x).lower() and 'total' not in str(x).lower()
+        ])
+
       st.markdown(
-          '<p class="filter-label" style="margin-top:12px;">🏷️ Lọc Chương Trình TB (Bảng chi tiết theo CT)</p>',
+          '<p class="filter-label" style="margin-top:12px;">🏷️ Bộ lọc Bảng chi tiết theo CT</p>',
           unsafe_allow_html=True,
       )
-      f_prog_tb2 = st.multiselect(
-          '',
-          options=prog_names,
-          default=[],
-          key='disp_prog_tb2',
-          label_visibility='collapsed',
-          placeholder='Tất cả chương trình (chọn nhiều)',
-      )
-      df2_view = df2
-      if f_prog_tb2 and df2 is not None and not df2.empty:
-        keep = ['STT', 'Tên NVBH']
-        for c in df2.columns:
-          if '|' in str(c) and str(c).split('|', 1)[0] in f_prog_tb2:
-            keep.append(c)
-        df2_view = df2[keep].copy()
+      fc_p, fc_d, fc_n = st.columns(3)
+      with fc_p:
+        st.markdown(
+            '<p class="filter-label">Chương Trình TB</p>',
+            unsafe_allow_html=True,
+        )
+        f_prog_tb2 = st.multiselect(
+            '',
+            options=prog_names,
+            default=[],
+            key='disp_prog_tb2',
+            label_visibility='collapsed',
+            placeholder='Tất cả chương trình',
+        )
+      with fc_d:
+        st.markdown(
+            '<p class="filter-label">Ngày VT</p>',
+            unsafe_allow_html=True,
+        )
+        f_ngay_vt_tb2 = st.date_input(
+            '',
+            value=report_date if hasattr(report_date, 'year') else None,
+            key='disp_ngay_vt_tb2',
+            label_visibility='collapsed',
+            format='DD/MM/YYYY',
+        )
+      with fc_n:
+        st.markdown(
+            '<p class="filter-label">Tên NVBH</p>',
+            unsafe_allow_html=True,
+        )
+        f_nv_tb2 = st.multiselect(
+            '',
+            options=nv_names_tb2,
+            default=[],
+            key='disp_nv_tb2',
+            label_visibility='collapsed',
+            placeholder='Tất cả ĐDKD',
+        )
+
+      df2_view = df2.copy() if df2 is not None else df2
+
+      # Lọc theo Chương trình
+      if f_prog_tb2 and df2_view is not None and not df2_view.empty:
+        keep = [c for c in df2_view.columns if c in ('STT', 'Tên NVBH') or (
+            '|' in str(c) and str(c).split('|', 1)[0] in f_prog_tb2
+        )]
+        df2_view = df2_view[keep].copy()
+
+      # Lọc theo Tên NVBH
+      if f_nv_tb2 and df2_view is not None and not df2_view.empty and 'Tên NVBH' in df2_view.columns:
+        _mask_tot = df2_view['Tên NVBH'].astype(str).str.contains(
+            'Tổng|Total|SS ', case=False, na=False
+        )
+        df2_view = df2_view[
+            df2_view['Tên NVBH'].isin(f_nv_tb2) | _mask_tot
+        ].copy()
+
+      # Lọc theo Ngày VT: chỉ giữ NV có CH lịch VT / Thứ MCP khớp ngày
+      if f_ngay_vt_tb2 and df2_view is not None and not df2_view.empty:
+        _rd = f_ngay_vt_tb2
+        _nvs_day = set()
+        # Từ lịch VT
+        try:
+          _vis = df_visit_sched
+          if _vis is not None and not _vis.empty:
+            _v = _vis.copy()
+            _cdate = find_col(_v, ['Ngày lịch VT', 'Ngày VT', 'date'])
+            _cnv = find_col(_v, ['Tên NVBH', 'NVBH'])
+            if _cdate and _cnv:
+              _v['_d'] = pd.to_datetime(_v[_cdate], dayfirst=True, errors='coerce').dt.date
+              _nvs_day |= set(
+                  _v.loc[_v['_d'] == _rd, _cnv].astype(str).str.strip().tolist()
+              )
+        except Exception:
+          pass
+        # Từ MCP Thứ (2-7, 25/36/47)
+        try:
+          if mcp is not None and not mcp.empty:
+            _wd = _rd.weekday()
+            _code = str(_wd + 2) if _wd <= 5 else None
+            _valid = set()
+            if _code:
+              _valid.add(_code)
+              if _code in ('2', '5'):
+                _valid.add('25')
+              if _code in ('3', '6'):
+                _valid.add('36')
+              if _code in ('4', '7'):
+                _valid.add('47')
+            _cthu = find_col(mcp, ['Thứ', 'Thứ VT', 'Thu VT', 'THỨ'])
+            _cnv = find_col(mcp, ['SM name', 'SM NAME', 'Tên NVBH', 'NVBH'])
+            if _cthu and _cnv and _valid:
+              _thu = mcp[_cthu].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+              _nvs_day |= set(
+                  mcp.loc[_thu.isin(_valid), _cnv].astype(str).str.strip().tolist()
+              )
+        except Exception:
+          pass
+        if _nvs_day:
+          _mask_tot = df2_view['Tên NVBH'].astype(str).str.contains(
+              'Tổng|Total|SS ', case=False, na=False
+          )
+          df2_view = df2_view[
+              df2_view['Tên NVBH'].isin(_nvs_day) | _mask_tot
+          ].copy()
+        # Đánh lại STT
+        if 'STT' in df2_view.columns:
+          _is_tot = df2_view['Tên NVBH'].astype(str).str.contains(
+              'Tổng|Total|SS ', case=False, na=False
+          )
+          _n = 0
+          _stt = []
+          for _t in _is_tot:
+            if _t:
+              _stt.append('-')
+            else:
+              _n += 1
+              _stt.append(_n)
+          df2_view['STT'] = _stt
 
       # Bảng 2
       st.markdown(render_display_by_program_html(df2_view), unsafe_allow_html=True)
