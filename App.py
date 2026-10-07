@@ -4305,6 +4305,19 @@ def build_performance_report(
   # Tập CH nằm trên lịch VT hôm nay (toàn team / đã lọc NV)
   plan_set_all = set(vis['_ma'].tolist()) if not vis.empty else set()
 
+  # --- Kỷ Luật Bán Hàng (TB) ---
+  try:
+    _df_disp_tb = load_display_data()
+  except Exception:
+    _df_disp_tb = pd.DataFrame()
+  try:
+    _df_bohinh = load_bo_hinh_data()
+  except Exception:
+    _df_bohinh = pd.DataFrame()
+  _tb_per_map, _tb_chup_map = build_tb_discipline_maps(
+      _df_disp_tb, _df_bohinh, vis, report_date
+  )
+
   rows = []
   for nv_name, nv_code in sorted(nv_map.items(), key=lambda x: x[0]):
     v_nv = vis[vis['_nv'] == nv_name] if not vis.empty else pd.DataFrame()
@@ -4582,6 +4595,13 @@ def build_performance_report(
         'CT Vàng': ct_v,
         'TH Vàng': aso_v,
         '% TH Vàng': f'{round(aso_v / ct_v * 100, 1)}%',
+        'Số CH TB PER': int(_tb_per_map.get(nv_name, 0) or 0),
+        'Chụp hình bởi ĐDKD': int(_tb_chup_map.get(nv_name, 0) or 0),
+        '% TH TB': (
+            f'{round(int(_tb_chup_map.get(nv_name, 0) or 0) / max(int(_tb_per_map.get(nv_name, 0) or 0), 1) * 100, 1)}%'
+            if int(_tb_per_map.get(nv_name, 0) or 0) > 0
+            else '0%'
+        ),
         'Đề xuất cải thiện': de_xuat_str,
         'Đánh giá Tăng/Giảm': danh_gia,
         '_delta_so': _delta_so,
@@ -4654,6 +4674,12 @@ def build_performance_report(
       'CT Vàng': tot_cv,
       'TH Vàng': tot_tv,
       '% TH Vàng': f'{round(tot_tv / tot_cv * 100, 1) if tot_cv else 0}%',
+      'Số CH TB PER': _sum('Số CH TB PER'),
+      'Chụp hình bởi ĐDKD': _sum('Chụp hình bởi ĐDKD'),
+      '% TH TB': (
+          f'{round(_sum("Chụp hình bởi ĐDKD") / _sum("Số CH TB PER") * 100, 1)}%'
+          if _sum('Số CH TB PER') else '0%'
+      ),
       'Đề xuất cải thiện': '',
       'Đánh giá Tăng/Giảm': '',
   }
@@ -4707,6 +4733,11 @@ def _perf_table_html(df, section='call'):
             ('CT Vàng', 'CT Ngày'),
             ('TH Vàng', 'TH'),
             ('% TH Vàng', '% TH'),
+        ]),
+        ('Kỷ Luật Bán Hàng', [
+            ('Số CH TB PER', 'Số CH TB PER'),
+            ('Chụp hình bởi ĐDKD', 'Chụp hình bởi ĐDKD'),
+            ('% TH TB', '% TH'),
         ]),
         ('Giữa Ngày', [
             ('Đề xuất cải thiện', 'Đề xuất cải thiện'),
@@ -6680,6 +6711,155 @@ def _short_program_name(name):
   if len(s) > 42:
     s = s[:40] + '…'
   return s
+
+
+
+def _resolve_bo_hinh_path():
+  names = [
+      'DanhSachXetBoHinhTrungBay.xlsx',
+      'DanhSachXetBoHinhTrungBay.xls',
+      'Danh_Sach_Xet_Bo_Hinh_Trung_Bay.xlsx',
+  ]
+  for n in names:
+    p = os.path.join(DATA_DIR, n)
+    if os.path.isfile(p):
+      return p
+  if os.path.isdir(DATA_DIR):
+    for fn in os.listdir(DATA_DIR):
+      low = fn.lower().replace(' ', '').replace('_', '')
+      if fn.lower().endswith(('.xlsx', '.xls')) and (
+          'bohinh' in low or 'xetbohinh' in low
+          or ('trungbay' in low and 'xet' in low)
+      ):
+        return os.path.join(DATA_DIR, fn)
+  return os.path.join(DATA_DIR, 'DanhSachXetBoHinhTrungBay.xlsx')
+
+
+@st.cache_data(ttl=600)
+def load_bo_hinh_data():
+  """Load DanhSachXetBoHinhTrungBay.xlsx — danh sách bộ hình đã chụp."""
+  path = _resolve_bo_hinh_path()
+  if not os.path.isfile(path):
+    return pd.DataFrame()
+  try:
+    raw = pd.read_excel(path, header=None, dtype=object)
+    header_row = 0
+    for i in range(min(8, len(raw))):
+      vals = [str(x).strip().lower() for x in raw.iloc[i].tolist() if pd.notna(x)]
+      joined = ' | '.join(vals)
+      if 'mã cửa hàng' in joined or 'người đăng hình' in joined or 'tên bộ hình' in joined:
+        header_row = i
+        break
+    cols = [
+        str(c).strip() if pd.notna(c) else f'Col_{i}'
+        for i, c in enumerate(raw.iloc[header_row].tolist())
+    ]
+    df = raw.iloc[header_row + 1:].copy()
+    df.columns = cols
+    df = df.dropna(how='all')
+    return df
+  except Exception:
+    return pd.DataFrame()
+
+
+def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date):
+  """Maps NV → so_ch_tb_per, chup_hinh_ddkd.
+
+  Số CH TB PER: CH đăng ký TB (trừ Sampling & TBTN) ∩ lịch VT ngày BC của NV.
+  Chụp hình bởi ĐDKD: Người đăng hình = NV, Ngày đăng hình = ngày BC,
+  Mã CH trong lịch VT ngày BC của NV.
+  """
+  per_map, chup_map = {}, {}
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+
+  def _nma(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  # Lịch VT ngày: nv → set mã CH
+  vt_by_nv = {}
+  if df_visit_day is not None and not df_visit_day.empty:
+    vis = df_visit_day.copy()
+    c_nv = find_col(vis, ['Tên NVBH', 'NVBH']) or (
+        '_nv' if '_nv' in vis.columns else None
+    )
+    c_ma = find_col(vis, ['Mã Cửa hàng', 'Mã CH', 'Outlet_code']) or (
+        '_ma' if '_ma' in vis.columns else None
+    )
+    if c_nv and c_ma:
+      for _, r in vis.iterrows():
+        nv = str(r[c_nv]).strip()
+        ma = _nma(r[c_ma])
+        if not nv or not ma or ma.lower() in ('nan', 'none'):
+          continue
+        vt_by_nv.setdefault(nv, set()).add(ma)
+
+  # Đăng ký TB trừ Sampling & TBTN
+  reg_by_nv = {}
+  if df_disp is not None and not df_disp.empty:
+    d = df_disp.copy()
+    c_nv = find_col(d, ['Nhân viên BH', 'Tên NVBH', 'NVBH'])
+    c_ma = find_col(d, ['Mã CH', 'Mã KH', 'Mã cửa hàng'])
+    c_ct = find_col(d, ['Tên chương trình', 'Chương trình', 'Tên CT'])
+    if c_nv and c_ma:
+      for _, r in d.iterrows():
+        ct = str(r[c_ct]).lower() if c_ct and pd.notna(r.get(c_ct)) else ''
+        if 'sampling' in ct or 'tbtn' in ct:
+          continue
+        nv = str(r[c_nv]).strip()
+        ma = _nma(r[c_ma])
+        if not nv or not ma or ma.lower() in ('nan', 'none'):
+          continue
+        reg_by_nv.setdefault(nv, set()).add(ma)
+
+  all_nvs = set(list(vt_by_nv.keys()) + list(reg_by_nv.keys()))
+  for nv in all_nvs:
+    plan = vt_by_nv.get(nv, set())
+    reg = reg_by_nv.get(nv, set())
+    if plan:
+      per_map[nv] = len(plan & reg)
+    else:
+      per_map[nv] = 0
+
+  # Chụp hình bởi ĐDKD
+  if df_bohinh is not None and not df_bohinh.empty:
+    b = df_bohinh.copy()
+    c_nguoi = find_col(b, ['Người đăng hình', 'Người Đăng Hình'])
+    c_ngay = find_col(b, ['Ngày đăng hình', 'Ngày Đăng Hình'])
+    c_ma = find_col(b, ['Mã cửa hàng', 'Mã CH', 'Mã KH'])
+    c_nvbh = find_col(b, ['NVBH', 'Tên NVBH'])
+    if c_nguoi and c_ngay and c_ma:
+      b['_ngay'] = pd.to_datetime(b[c_ngay], errors='coerce').dt.date
+      b = b[b['_ngay'] == rd]
+      for _, r in b.iterrows():
+        nguoi = str(r[c_nguoi]).strip()
+        ma = _nma(r[c_ma])
+        if not ma:
+          continue
+        # Ưu tiên match tên NVBH qua Người đăng hình
+        candidates = [nguoi]
+        if c_nvbh and pd.notna(r.get(c_nvbh)):
+          candidates.append(str(r[c_nvbh]).strip())
+        matched = False
+        for cand in candidates:
+          if not cand:
+            continue
+          plan = vt_by_nv.get(cand, set())
+          if plan and ma in plan:
+            chup_map.setdefault(cand, set()).add(ma)
+            matched = True
+            break
+        # Nếu Người đăng hình = NV nhưng CH không trong lịch → không đếm (0)
+
+  chup_cnt = {nv: len(s) for nv, s in chup_map.items()}
+  return per_map, chup_cnt
 
 
 def build_display_report(df_disp, df_mcp=None, filter_nv=None):
