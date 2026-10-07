@@ -4778,30 +4778,51 @@ def _perf_table_html(df, section='call'):
   )
 
   n_data = len(data_cols)
+  name_w = 150
+  try:
+    max_len = int(df['Tên NVBH'].astype(str).str.len().max())
+    name_w = max(130, min(220, max_len * 8 + 16))
+  except Exception:
+    pass
+
+  sticky_stt_h = (
+      f'{th}position:sticky;left:0;z-index:6;min-width:44px;max-width:44px;'
+  )
+  sticky_ten_h = (
+      f'{th}position:sticky;left:44px;z-index:6;min-width:{name_w}px;'
+  )
+  sticky_stt_c = 'position:sticky;left:0;z-index:2;min-width:44px;max-width:44px;'
+  sticky_ten_c = f'position:sticky;left:44px;z-index:2;min-width:{name_w}px;'
+
   html = [
       '<div style="overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch;">',
-      '<table class="custom-kpi-table" style="min-width:1100px;">',
-      '<thead>',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;">',
+      '<thead style="position:sticky;top:0;z-index:5;">',
   ]
 
-  # Row 1: STT/Mã/Tên rowspan=3 merged + top group titles
+  # Row 1: STT/Tên rowspan=3 + top group titles
   html.append('<tr>')
-  html.append(f'<th rowspan="3" style="{th}">STT</th>')
-  html.append(f'<th rowspan="3" style="{th}">Tên NVBH</th>')
+  html.append(f'<th rowspan="3" style="{sticky_stt_h}">STT</th>')
+  html.append(f'<th rowspan="3" style="{sticky_ten_h}">Tên NVBH</th>')
   if section == 'call':
     html.append(f'<th colspan="{n_data}" style="{th_top}">Call Plan</th>')
   else:
+    # Fundamental = SellOut + ASO Xanh + ASO Vàng (9)
+    # Kỷ Luật Bán Hàng (3)
+    # Đề xuất & Đánh Giá = Giữa + Cuối (2)
     html.append(f'<th colspan="9" style="{th_top}">Fundamental</th>')
+    html.append(f'<th colspan="3" style="{th_top}">Kỷ Luật Bán Hàng</th>')
     html.append(f'<th colspan="2" style="{th_top}">Đề xuất &amp; Đánh Giá</th>')
   html.append('</tr>')
 
-  # Row 2: sub-groups only (no empty cells for info cols — rowspan covers)
+  # Row 2: sub-groups
   html.append('<tr>')
   for gname, pairs in groups:
     html.append(f'<th colspan="{len(pairs)}" style="{th_mid}">{gname}</th>')
   html.append('</tr>')
 
-  # Row 3: leaf headers only
+  # Row 3: leaf headers
   html.append('<tr>')
   for _, pairs in groups:
     for _, lab in pairs:
