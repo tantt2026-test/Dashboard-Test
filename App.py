@@ -5946,6 +5946,222 @@ def render_tea_battle_html(df):
 
 
 
+
+# ====================== 17. PERFORMANCE BY CAT ======================
+def _resolve_perf_sku_path():
+  names = [
+      'TARGETACTUAL BY STD SKU -BY SM.xlsx',
+      'TARGETACTUAL BY STD SKU -BY SM.xls',
+      'TARGETACTUAL_BY_STD_SKU_BY_SM.xlsx',
+  ]
+  for n in names:
+    p = os.path.join(DATA_DIR, n)
+    if os.path.isfile(p):
+      return p
+  if os.path.isdir(DATA_DIR):
+    for fn in os.listdir(DATA_DIR):
+      low = fn.lower().replace(' ', '').replace('_', '').replace('-', '')
+      if fn.lower().endswith(('.xlsx', '.xls')) and 'targetactual' in low and 'sku' in low:
+        return os.path.join(DATA_DIR, fn)
+  return os.path.join(DATA_DIR, 'TARGETACTUAL BY STD SKU -BY SM.xlsx')
+
+
+@st.cache_data(ttl=600)
+def load_perf_sku_data():
+  path = _resolve_perf_sku_path()
+  if not os.path.isfile(path):
+    return pd.DataFrame()
+  try:
+    raw = pd.read_excel(path, header=None, dtype=object)
+    header_row = 0
+    for i in range(min(10, len(raw))):
+      vals = [str(x).strip().lower() for x in raw.iloc[i].tolist() if pd.notna(x)]
+      joined = ' | '.join(vals)
+      if 'month' in joined and ('sm name' in joined or 'target' in joined or 'sub div' in joined):
+        header_row = i
+        break
+    cols = [str(c).strip() if pd.notna(c) else f'Col_{i}' for i, c in enumerate(raw.iloc[header_row].tolist())]
+    df = raw.iloc[header_row + 1:].copy()
+    df.columns = cols
+    return df
+  except Exception:
+    return pd.DataFrame()
+
+
+def build_perf_by_month(df_raw, filter_nv=None, n_months=4):
+  """4 tháng gần nhất: bảng CAT / Target / SellOut / %MTD."""
+  empty = pd.DataFrame(columns=['CAT', 'Target', 'SellOut', '%MTD'])
+  if df_raw is None or df_raw.empty:
+    return {}, []
+  d = df_raw.copy()
+  c_month = find_col(d, ['MONTH', 'Month'])
+  c_cat = find_col(d, ['SUB DIV', 'SUB_DIV', 'CAT', 'Category'])
+  c_so = find_col(d, ['SO', 'SellOut', 'Sell Out'])
+  c_tg = find_col(d, ['TARGET SO', 'Target SO', 'TARGET', 'Target'])
+  c_nv = find_col(d, ['SM NAME', 'SM_NAME', 'Tên NVBH'])
+  if not c_month or not c_cat:
+    return {}, []
+  d['_month'] = d[c_month].astype(str).str.strip()
+  d['_cat'] = d[c_cat].astype(str).str.strip()
+  d['_cat'] = d['_cat'].replace({'': '(blank)', 'nan': '(blank)', 'None': '(blank)'})
+  d['_so'] = pd.to_numeric(d[c_so], errors='coerce').fillna(0) if c_so else 0
+  d['_tg'] = pd.to_numeric(d[c_tg], errors='coerce').fillna(0) if c_tg else 0
+  if filter_nv and c_nv:
+    d = d[d[c_nv].astype(str).isin([str(x) for x in filter_nv])]
+  # Parse month key for sort: MM/YYYY
+  def _mk(m):
+    try:
+      parts = str(m).split('/')
+      return (int(parts[1]), int(parts[0]))
+    except Exception:
+      return (0, 0)
+  months = sorted(d['_month'].dropna().unique().tolist(), key=_mk, reverse=True)
+  months = months[:n_months]
+  result = {}
+  for m in months:
+    g = d[d['_month'] == m].groupby('_cat', as_index=False).agg(
+        Target=('_tg', 'sum'), SellOut=('_so', 'sum')
+    )
+    g = g.rename(columns={'_cat': 'CAT'})
+    g['%MTD'] = g.apply(
+        lambda r: round(float(r['SellOut']) / float(r['Target']) * 100, 0)
+        if float(r['Target'] or 0) > 0
+        else 0.0,
+        axis=1,
+    )
+    # sort by Target desc, blank last
+    g['_ord'] = g['CAT'].apply(lambda x: 1 if str(x).lower() in ('(blank)', 'blank', 'nan') else 0)
+    g = g.sort_values(['_ord', 'Target'], ascending=[True, False]).drop(columns=['_ord'])
+    # Grand Total
+    tot_t = float(g['Target'].sum())
+    tot_s = float(g['SellOut'].sum())
+    tot = pd.DataFrame([{
+        'CAT': 'Grand Total',
+        'Target': tot_t,
+        'SellOut': tot_s,
+        '%MTD': round(tot_s / tot_t * 100, 0) if tot_t > 0 else 0.0,
+    }])
+    g = pd.concat([g, tot], ignore_index=True)
+    result[m] = g
+  return result, months
+
+
+def _fmt_perf_num(v):
+  try:
+    n = float(v)
+    return f'{n:,.0f}'.replace(',', '.')
+  except Exception:
+    return str(v) if v is not None else ''
+
+
+def render_perf_table_html(df, month_label):
+  if df is None or df.empty:
+    return ''
+  cols = ['CAT', 'Target', 'SellOut', '%MTD']
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:7px 8px;font-size:12px;'
+  )
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 8px;font-size:12px;'
+  )
+  tot_s = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
+      'padding:5px 8px;font-size:12px;'
+  )
+  html = [
+      f'<h4 style="color:#1a365d;font-weight:800;margin:12px 0 6px 0;">'
+      f'📅 Tháng {month_label}</h4>',
+      '<div style="overflow-x:auto;margin-bottom:8px;">',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'max-width:560px;font-family:Arial,sans-serif;"><thead><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = str(row.get('CAT', '')).strip().lower() in ('grand total', 'tổng cộng', 'total')
+    bg = '#1a365d' if is_tot else ('#e6f4fc' if pos % 2 == 0 else '#ffffff')
+    fg = '#ffffff' if is_tot else '#1a202c'
+    html.append('<tr class="row-total">' if is_tot else '<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if c in ('Target', 'SellOut'):
+        disp = _fmt_perf_num(val)
+      elif c == '%MTD':
+        try:
+          disp = f'{int(float(val))}%'
+        except Exception:
+          disp = str(val)
+      else:
+        disp = val
+      al = 'left' if c == 'CAT' else 'right' if c in ('Target', 'SellOut') else 'center'
+      if is_tot:
+        html.append(
+            f'<td class="row-total-cell" style="{tot_s}text-align:{al} !important;">{disp}</td>'
+        )
+      elif c == '%MTD':
+        cls = color_pct_class(val, moc=100.0)
+        html.append(
+            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+            f'border:1px solid #bce2f5 !important;padding:5px 8px;font-size:12px;'
+            f'font-weight:700 !important;">{disp}</td>'
+        )
+      else:
+        html.append(
+            f'<td style="{td}background-color:{bg} !important;color:{fg} !important;'
+            f'text-align:{al} !important;">{disp}</td>'
+        )
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
+def render_perf_chart(df, month_label):
+  """Bar chart Target (xanh) vs SellOut (cam) theo CAT."""
+  if df is None or df.empty:
+    return
+  d = df[~df['CAT'].astype(str).str.lower().isin(['grand total', 'tổng cộng', 'total'])].copy()
+  if d.empty:
+    return
+  import altair as alt
+  plot = d.melt(
+      id_vars=['CAT'],
+      value_vars=['Target', 'SellOut'],
+      var_name='Chỉ số',
+      value_name='Giá trị',
+  )
+  chart = (
+      alt.Chart(plot)
+      .mark_bar()
+      .encode(
+          x=alt.X('CAT:N', title=None, sort=list(d['CAT'].tolist()),
+                  axis=alt.Axis(labelAngle=-30, labelFontSize=11)),
+          y=alt.Y('Giá trị:Q', title=None, axis=alt.Axis(format='~s')),
+          color=alt.Color(
+              'Chỉ số:N',
+              scale=alt.Scale(
+                  domain=['Target', 'SellOut'],
+                  range=['#5b9bd5', '#ed7d31'],
+              ),
+              legend=alt.Legend(title=None, orient='top'),
+          ),
+          xOffset='Chỉ số:N',
+          tooltip=[
+              alt.Tooltip('CAT:N', title='CAT'),
+              alt.Tooltip('Chỉ số:N'),
+              alt.Tooltip('Giá trị:Q', format=',.0f'),
+          ],
+      )
+      .properties(height=320, title=f'Target vs SellOut — {month_label}')
+      .configure_title(fontSize=14, fontWeight='bold', color='#1a365d')
+      .configure_view(strokeWidth=0)
+  )
+  st.altair_chart(chart, use_container_width=True)
+
+
 def build_tea_battle_summary(df_detail):
   """Tổng hợp theo NV + % Chưa Đạt/Tổng KH."""
   cols = [
@@ -7590,6 +7806,7 @@ with f2:
       '14. BÁO CÁO HIỆU SUẤT BÁN HÀNG': 'PERFORMANCE',
       '15. BÁO CÁO TRƯNG BÀY': 'DISPLAY',
       '16. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON T10': 'TEA_BATTLE',
+      '17. BÁO CÁO PERFORMANCE': 'PERF_CAT',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
@@ -8800,6 +9017,35 @@ with tab_kpi:
               mime='text/csv',
               key='dl_disp3',
           )
+
+
+  elif selected_kpi == 'PERF_CAT':
+    st.markdown(
+        '<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
+        '17. BÁO CÁO PERFORMANCE (THEO NGÀNH HÀNG)</h3>',
+        unsafe_allow_html=True,
+    )
+    df_perf = load_perf_sku_data()
+    if df_perf is None or df_perf.empty:
+      st.warning(
+          '⚠️ Chưa có file **TARGETACTUAL BY STD SKU -BY SM.xlsx** trong `data/`. '
+          'Upload lên GitHub rồi **Xóa Cache & Reload**.'
+      )
+    else:
+      data_by_m, months = build_perf_by_month(df_perf, filter_nv, n_months=4)
+      if not months:
+        st.info('Không có dữ liệu tháng để hiển thị.')
+      else:
+        st.caption(
+            f'Nguồn: TARGETACTUAL BY STD SKU -BY SM | '
+            f'Hiển thị **{len(months)} tháng gần nhất**: {", ".join(months)}'
+        )
+        for m in months:
+          df_m = data_by_m.get(m)
+          st.markdown(render_perf_table_html(df_m, m), unsafe_allow_html=True)
+          render_perf_chart(df_m, m)
+          st.markdown('<hr style="margin:18px 0;border:none;border-top:1px solid #e2e8f0;">',
+                      unsafe_allow_html=True)
 
   elif selected_kpi == 'TEA_BATTLE':
     st.markdown(
