@@ -7199,6 +7199,140 @@ def _disp_pct_style(col_name, v):
   return 'pct-purple', purple
 
 
+def rebuild_display_by_program(
+    df_disp, mcp=None, filter_nv=None, filter_thu=None, filter_nv_list=None, filter_prog=None
+):
+  """Build bảng 2 (chi tiết theo CT) với lọc Thứ VT / NV / Chương trình.
+
+  filter_thu: list mã thứ ('2','3',..,'25','36','47') — CH phải khớp MCP Thứ.
+  Số liệu CH ĐK / Đã chụp tính lại theo CH thỏa điều kiện.
+  Dòng TOTAL = tổng theo dữ liệu đang lọc.
+  """
+  empty = pd.DataFrame()
+  if df_disp is None or df_disp.empty:
+    return empty
+
+  d = df_disp.copy()
+  c_nv = find_col(d, ['Nhân viên BH', 'Tên NVBH', 'NVBH'])
+  c_ma = find_col(d, ['Mã CH', 'Mã KH', 'Mã cửa hàng'])
+  c_ct = find_col(d, ['Tên chương trình', 'Chương trình', 'Tên CT'])
+  c_anh = find_col(d, ['Số bộ ảnh đã chụp', 'Số bộ ảnh duyệt'])
+  if not c_nv or not c_ma or not c_ct:
+    return empty
+
+  def _nma(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  d['_nv'] = d[c_nv].astype(str).str.strip()
+  d['_ma'] = d[c_ma].map(_nma)
+  d['_ct'] = d[c_ct].astype(str).str.strip()
+  d['_anh'] = pd.to_numeric(d[c_anh], errors='coerce').fillna(0) if c_anh else 0
+
+  if nv_selected(filter_nv):
+    vals = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+    d = d[d['_nv'].isin([str(v).strip() for v in vals])]
+
+  if filter_nv_list:
+    d = d[d['_nv'].isin([str(v).strip() for v in filter_nv_list])]
+
+  # Map CH → Thứ từ MCP
+  thu_map = {}
+  if mcp is not None and not getattr(mcp, 'empty', True):
+    c_m = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+    c_t = find_col(mcp, ['Thứ', 'Thứ VT', 'Thu VT', 'THỨ'])
+    if c_m and c_t:
+      for _, r in mcp.iterrows():
+        ma = _nma(r[c_m])
+        if ma:
+          thu_map[ma] = str(r[c_t]).strip().replace('.0', '')
+
+  d['_thu'] = d['_ma'].map(lambda x: thu_map.get(x, ''))
+
+  # Lọc Thứ VT (hỗ trợ 25/36/47)
+  if filter_thu:
+    thu_list = [str(t).strip() for t in filter_thu if str(t).strip()]
+    if thu_list:
+      mapping_rules = {
+          '2': {'2', '25'}, '3': {'3', '36'}, '4': {'4', '47'},
+          '5': {'5', '25'}, '6': {'6', '36'}, '7': {'7', '47'},
+          '25': {'25'}, '36': {'36'}, '47': {'47'},
+      }
+      valid = set()
+      for t in thu_list:
+        valid |= mapping_rules.get(t, {t})
+      # CH có Thứ ∈ valid; CH không map Thứ → loại khi đang lọc
+      d = d[d['_thu'].isin(valid)]
+
+  if filter_prog:
+    # filter_prog là short name hoặc full name
+    def _match_prog(ct):
+      short = _short_program_name(ct)
+      return short in filter_prog or ct in filter_prog
+    d = d[d['_ct'].map(_match_prog)]
+
+  if d.empty:
+    return empty
+
+  def _agg(g):
+    n_dk = g['_ma'].nunique() if len(g) else 0
+    # unique CH đã chụp (>=1 ảnh) — lấy max ảnh theo CH
+    if len(g):
+      by_ch = g.groupby('_ma')['_anh'].max()
+      n_chup = int((by_ch >= 1).sum())
+      n_chua = int((by_ch < 1).sum())
+      n_ge6 = int((by_ch >= 6).sum())
+    else:
+      n_chup = n_chua = n_ge6 = 0
+    return {
+        'CH ĐK': n_dk,
+        'CH ĐÃ CHỤP': n_chup,
+        '% ĐÃ CHỤP': round(n_chup / n_dk * 100, 1) if n_dk else 0.0,
+        'CH CHƯA CHỤP': n_chua,
+        'CH >= 6 BỘ ẢNH': n_ge6,
+    }
+
+  programs = [p for p in d['_ct'].dropna().unique() if p and str(p).lower() != 'nan']
+  # giữ thứ tự program gốc nếu có
+  rows2 = []
+  for nv, gnv in d.groupby('_nv', sort=False):
+    row = {'Tên NVBH': nv}
+    for prog in programs:
+      gp = gnv[gnv['_ct'] == prog]
+      short = _short_program_name(prog)
+      a = _agg(gp)
+      row[f'{short}|CH ĐĂNG KÝ'] = a['CH ĐK']
+      row[f'{short}|CH ĐÃ CHỤP'] = a['CH ĐÃ CHỤP']
+      row[f'{short}|% ĐÃ CHỤP'] = a['% ĐÃ CHỤP']
+      row[f'{short}|CHƯA CHỤP'] = a['CH CHƯA CHỤP']
+      row[f'{short}|>= 6 BỘ ẢNH'] = a['CH >= 6 BỘ ẢNH']
+    rows2.append(row)
+  df2 = pd.DataFrame(rows2)
+  if df2.empty:
+    return empty
+  df2.insert(0, 'STT', range(1, len(df2) + 1))
+  # TOTAL theo dữ liệu đang lọc
+  tot2 = {'STT': '-', 'Tên NVBH': 'TỔNG CỘNG'}
+  for prog in programs:
+    short = _short_program_name(prog)
+    a = _agg(d[d['_ct'] == prog])
+    tot2[f'{short}|CH ĐĂNG KÝ'] = a['CH ĐK']
+    tot2[f'{short}|CH ĐÃ CHỤP'] = a['CH ĐÃ CHỤP']
+    tot2[f'{short}|% ĐÃ CHỤP'] = a['% ĐÃ CHỤP']
+    tot2[f'{short}|CHƯA CHỤP'] = a['CH CHƯA CHỤP']
+    tot2[f'{short}|>= 6 BỘ ẢNH'] = a['CH >= 6 BỘ ẢNH']
+  df2 = pd.concat([df2, pd.DataFrame([tot2])], ignore_index=True)
+  return df2
+
+
+
 def render_display_summary_html(df):
   """Bảng 1: sticky STT + Tên NVBH + header; % tô màu; total row-total."""
   if df is None or df.empty:
@@ -9456,7 +9590,7 @@ with tab_kpi:
       # Bảng 1
       st.markdown(render_display_summary_html(df1), unsafe_allow_html=True)
 
-      # Bộ lọc Bảng 2: Chương trình TB | Ngày VT | Tên NVBH
+      # Bộ lọc Bảng 2: Chương trình TB | Thứ VT | Tên NVBH
       prog_names = []
       if df2 is not None and not df2.empty:
         for c in df2.columns:
@@ -9471,6 +9605,7 @@ with tab_kpi:
             if str(x).strip() and str(x).lower() != 'nan'
             and 'tổng' not in str(x).lower() and 'total' not in str(x).lower()
         ])
+      thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
 
       st.markdown(
           '<p class="filter-label" style="margin-top:12px;">🏷️ Bộ lọc Bảng chi tiết theo CT</p>',
@@ -9492,15 +9627,16 @@ with tab_kpi:
         )
       with fc_d:
         st.markdown(
-            '<p class="filter-label">Ngày VT</p>',
+            '<p class="filter-label">Thứ VT</p>',
             unsafe_allow_html=True,
         )
-        f_ngay_vt_tb2 = st.date_input(
+        f_thu_tb2 = st.multiselect(
             '',
-            value=report_date if hasattr(report_date, 'year') else None,
-            key='disp_ngay_vt_tb2',
+            options=thu_opts,
+            default=[],
+            key='disp_thu_tb2',
             label_visibility='collapsed',
-            format='DD/MM/YYYY',
+            placeholder='Tất cả các thứ (2,3,4,5,6,7,25,36,47)',
         )
       with fc_n:
         st.markdown(
@@ -9516,86 +9652,17 @@ with tab_kpi:
             placeholder='Tất cả ĐDKD',
         )
 
-      df2_view = df2.copy() if df2 is not None else df2
-
-      # Lọc theo Chương trình
-      if f_prog_tb2 and df2_view is not None and not df2_view.empty:
-        keep = [c for c in df2_view.columns if c in ('STT', 'Tên NVBH') or (
-            '|' in str(c) and str(c).split('|', 1)[0] in f_prog_tb2
-        )]
-        df2_view = df2_view[keep].copy()
-
-      # Lọc theo Tên NVBH
-      if f_nv_tb2 and df2_view is not None and not df2_view.empty and 'Tên NVBH' in df2_view.columns:
-        _mask_tot = df2_view['Tên NVBH'].astype(str).str.contains(
-            'Tổng|Total|SS ', case=False, na=False
+      # Rebuild bảng 2 theo bộ lọc → CH ĐK / Đã chụp / Total đúng theo dữ liệu đang chọn
+      if f_thu_tb2 or f_nv_tb2 or f_prog_tb2:
+        df2_view = rebuild_display_by_program(
+            df_disp, mcp,
+            filter_nv=filter_nv,
+            filter_thu=f_thu_tb2 or None,
+            filter_nv_list=f_nv_tb2 or None,
+            filter_prog=f_prog_tb2 or None,
         )
-        df2_view = df2_view[
-            df2_view['Tên NVBH'].isin(f_nv_tb2) | _mask_tot
-        ].copy()
-
-      # Lọc theo Ngày VT: chỉ giữ NV có CH lịch VT / Thứ MCP khớp ngày
-      if f_ngay_vt_tb2 and df2_view is not None and not df2_view.empty:
-        _rd = f_ngay_vt_tb2
-        _nvs_day = set()
-        # Từ lịch VT
-        try:
-          _vis = df_visit_sched
-          if _vis is not None and not _vis.empty:
-            _v = _vis.copy()
-            _cdate = find_col(_v, ['Ngày lịch VT', 'Ngày VT', 'date'])
-            _cnv = find_col(_v, ['Tên NVBH', 'NVBH'])
-            if _cdate and _cnv:
-              _v['_d'] = pd.to_datetime(_v[_cdate], dayfirst=True, errors='coerce').dt.date
-              _nvs_day |= set(
-                  _v.loc[_v['_d'] == _rd, _cnv].astype(str).str.strip().tolist()
-              )
-        except Exception:
-          pass
-        # Từ MCP Thứ (2-7, 25/36/47)
-        try:
-          if mcp is not None and not mcp.empty:
-            _wd = _rd.weekday()
-            _code = str(_wd + 2) if _wd <= 5 else None
-            _valid = set()
-            if _code:
-              _valid.add(_code)
-              if _code in ('2', '5'):
-                _valid.add('25')
-              if _code in ('3', '6'):
-                _valid.add('36')
-              if _code in ('4', '7'):
-                _valid.add('47')
-            _cthu = find_col(mcp, ['Thứ', 'Thứ VT', 'Thu VT', 'THỨ'])
-            _cnv = find_col(mcp, ['SM name', 'SM NAME', 'Tên NVBH', 'NVBH'])
-            if _cthu and _cnv and _valid:
-              _thu = mcp[_cthu].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-              _nvs_day |= set(
-                  mcp.loc[_thu.isin(_valid), _cnv].astype(str).str.strip().tolist()
-              )
-        except Exception:
-          pass
-        if _nvs_day:
-          _mask_tot = df2_view['Tên NVBH'].astype(str).str.contains(
-              'Tổng|Total|SS ', case=False, na=False
-          )
-          df2_view = df2_view[
-              df2_view['Tên NVBH'].isin(_nvs_day) | _mask_tot
-          ].copy()
-        # Đánh lại STT
-        if 'STT' in df2_view.columns:
-          _is_tot = df2_view['Tên NVBH'].astype(str).str.contains(
-              'Tổng|Total|SS ', case=False, na=False
-          )
-          _n = 0
-          _stt = []
-          for _t in _is_tot:
-            if _t:
-              _stt.append('-')
-            else:
-              _n += 1
-              _stt.append(_n)
-          df2_view['STT'] = _stt
+      else:
+        df2_view = df2
 
       # Bảng 2
       st.markdown(render_display_by_program_html(df2_view), unsafe_allow_html=True)
