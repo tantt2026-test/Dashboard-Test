@@ -6001,33 +6001,48 @@ def _month_key_from_date(d):
 
 
 def build_rpt_sellout_maps(df_rpt, report_date):
-  """SellOut tháng T từ RPT: theo CAT và theo (NV, CAT).
+  """SellOut tháng T từ RPT — cùng rule TURNOVER.
 
-  Returns:
-    by_cat: {sub_div: amount}
-    by_nv_cat: {(nv, sub_div): amount}
+  - Cột tiền: **Thành tiền trước CK** (không dùng Tổng tiền / sau CK)
+  - Chỉ loại đơn **Đã hủy** (giống load_main_data; không loại pending)
+  - Kỳ: từ đầu tháng → hết tháng của report_date
   """
   by_cat, by_nv_cat = {}, {}
   if df_rpt is None or getattr(df_rpt, 'empty', True) or report_date is None:
     return by_cat, by_nv_cat
   d = df_rpt.copy()
-  c_date = find_col(d, [
-      'Ngày tạo đơn hàng', 'Ngày tạo đơn', 'Order Date', 'ORDER_DT', 'date',
-  ])
+  # Ưu tiên cột date đã chuẩn hoá từ load_main_data
+  if 'date' in d.columns:
+    d['_d'] = pd.to_datetime(d['date'], errors='coerce')
+  else:
+    c_date = find_col(d, [
+        'Ngày tạo đơn hàng', 'Ngày tạo đơn', 'Order Date', 'ORDER_DT',
+    ])
+    if not c_date:
+      return by_cat, by_nv_cat
+    d['_d'] = pd.to_datetime(d[c_date], dayfirst=True, errors='coerce')
+
   c_cat = find_col(d, ['Sub Division', 'SUB DIV', 'SubDivision', 'Phân nhóm'])
   c_nv = find_col(d, ['Tên NVBH', 'SM NAME', 'SM_NAME', 'Nhân viên'])
-  c_val = find_col(d, ['Tổng tiền', 'Giá trị sau CK', 'Thành tiền trước CK', 'Doanh thu'])
+  # Cùng TURNOVER: Thành tiền trước CK
+  c_val = find_col(d, [
+      'Thành tiền trước CK', 'Thành tiền trước chiết khấu',
+      'Tổng tiền', 'Giá trị sau CK', 'Doanh thu',
+  ])
   c_status = find_col(d, ['Tình trạng đơn hàng', 'Status', 'STATUS_CD'])
-  if not c_date or not c_cat or not c_val:
+  if not c_cat or not c_val:
     return by_cat, by_nv_cat
-  d['_dt'] = pd.to_datetime(d[c_date], errors='coerce')
-  ym = (int(report_date.year), int(report_date.month))
-  d = d[d['_dt'].apply(
-      lambda x: (int(x.year), int(x.month)) == ym if pd.notna(x) else False
+
+  y, m = int(report_date.year), int(report_date.month)
+  d = d[d['_d'].apply(
+      lambda x: (int(x.year), int(x.month)) == (y, m) if pd.notna(x) else False
   )]
+  # Chỉ loại Đã hủy — khớp load_main_data / TURNOVER
   if c_status:
-    st = d[c_status].astype(str).str.lower()
-    d = d[~st.str.contains('hủy|cancel|pending', na=False)]
+    st = d[c_status].astype(str).str.strip().str.lower()
+    d = d[~st.isin(['đã hủy', 'da huy', 'cancelled', 'canceled'])]
+    d = d[~st.str.contains('hủy|huy', na=False)]
+
   d['_cat'] = d[c_cat].astype(str).str.strip()
   d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
   if c_nv:
