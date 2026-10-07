@@ -4809,16 +4809,20 @@ def _perf_table_html(df, section='call'):
     html.append(f'<th colspan="{n_data}" style="{th_top}">Call Plan</th>')
   else:
     # Fundamental = SellOut + ASO Xanh + ASO Vàng (9)
-    # Kỷ Luật Bán Hàng (3)
+    # Kỷ Luật Bán Hàng: rowspan=2 gộp 2 dòng tiêu đề thành 1 ô
     # Đề xuất & Đánh Giá = Giữa + Cuối (2)
     html.append(f'<th colspan="9" style="{th_top}">Fundamental</th>')
-    html.append(f'<th colspan="3" style="{th_top}">Kỷ Luật Bán Hàng</th>')
+    html.append(
+        f'<th colspan="3" rowspan="2" style="{th_top}">Kỷ Luật Bán Hàng</th>'
+    )
     html.append(f'<th colspan="2" style="{th_top}">Đề xuất &amp; Đánh Giá</th>')
   html.append('</tr>')
 
-  # Row 2: sub-groups
+  # Row 2: sub-groups — bỏ "Kỷ Luật Bán Hàng" (đã rowspan từ row 1)
   html.append('<tr>')
   for gname, pairs in groups:
+    if section != 'call' and gname == 'Kỷ Luật Bán Hàng':
+      continue
     html.append(f'<th colspan="{len(pairs)}" style="{th_mid}">{gname}</th>')
   html.append('</tr>')
 
