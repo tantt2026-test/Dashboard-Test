@@ -6859,11 +6859,17 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date, df_m
           continue
         vt_by_nv.setdefault(nv, set()).add(ma)
 
-  # Bổ sung CH có Thứ VT 25/36/47 khớp ngày BC từ MCP
+  # Bổ sung CH có Thứ / Thứ VT (25/36/47) khớp ngày BC từ MCP
   if df_mcp is not None and not getattr(df_mcp, 'empty', True) and valid_thu:
-    c_nv = find_col(df_mcp, ['Tên NVBH', 'NVBH', 'SM NAME', 'Nhân viên'])
-    c_ma = find_col(df_mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
-    c_thu = find_col(df_mcp, ['Thứ VT', 'Thu VT', 'THỨ VT', 'Ngay VT', 'Ngày VT'])
+    c_nv = find_col(df_mcp, [
+        'SM name', 'SM NAME', 'Tên NVBH', 'NVBH', 'Nhân viên', 'SM_NAME',
+    ])
+    c_ma = find_col(df_mcp, [
+        'Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH', 'OUTLET_CODE',
+    ])
+    c_thu = find_col(df_mcp, [
+        'Thứ', 'Thứ VT', 'Thu VT', 'THỨ VT', 'THỨ', 'Ngay VT', 'Ngày VT',
+    ])
     if c_ma and c_thu:
       for _, r in df_mcp.iterrows():
         thu = str(r[c_thu]).strip().replace('.0', '')
