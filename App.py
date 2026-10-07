@@ -9384,6 +9384,9 @@ with tab_kpi:
           tot['TOTAL|SELL OUT'] = float(base_body['TOTAL|SELL OUT'].sum())
           tt, ts = tot['TOTAL|TARGET'], tot['TOTAL|SELL OUT']
           tot['TOTAL|% MTD'] = round(ts / tt * 100, 0) if tt > 0 else 0.0
+          if 'STT' in base_body.columns:
+            base_body = base_body.drop(columns=['STT'])
+          base_body = base_body.reset_index(drop=True)
           base_body.insert(0, 'STT', range(1, len(base_body) + 1))
           df_mat = pd.concat([base_body, pd.DataFrame([tot])], ignore_index=True)
 
