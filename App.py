@@ -6264,13 +6264,14 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date
   d['_cat'] = d['_cat'].replace({'': '(blank)', 'nan': '(blank)', 'None': '(blank)'})
   d['_so'] = pd.to_numeric(d[c_so], errors='coerce').fillna(0) if c_so else 0
   d['_tg'] = pd.to_numeric(d[c_tg], errors='coerce').fillna(0) if c_tg else 0
-  # Bỏ blank category
+  # Bỏ blank category — hiển thị đủ SUB DIV (kể cả không có chỉ tiêu)
   d = d[~d['_cat'].str.lower().isin(['(blank)', 'blank', 'nan', ''])]
-  # Chỉ giữ ngành có TARGET > 0
   cat_tg = d.groupby('_cat')['_tg'].sum()
-  cats = [c for c in cat_tg.index.tolist() if float(cat_tg[c] or 0) > 0]
-  # Sort cats by total target desc
-  cats = sorted(cats, key=lambda c: -float(cat_tg[c]))
+  # Sort: có target trước (desc), rồi tên
+  cats = sorted(
+      cat_tg.index.tolist(),
+      key=lambda c: (-float(cat_tg[c] or 0), str(c)),
+  )
   if not cats:
     return pd.DataFrame(), []
   g = d.groupby(['_nv', '_cat'], as_index=False).agg(tg=('_tg', 'sum'), so=('_so', 'sum'))
