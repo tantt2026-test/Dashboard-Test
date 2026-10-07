@@ -4862,8 +4862,28 @@ def _perf_table_html(df, section='call'):
           or (c == 'Đánh giá Tăng/Giảm')
       )
       is_de_xuat = c == 'Đề xuất cải thiện'
+      sticky = ''
+      if c == 'STT':
+        sticky = sticky_stt_c
+      elif c == 'Tên NVBH':
+        sticky = sticky_ten_c
+      align = 'left' if c == 'Tên NVBH' else 'center'
+      sticky_bg = (
+          'background-color:#1a365d !important;color:#ffffff !important;'
+          if is_tot
+          else row_bg
+      )
 
-      # Dòng TOTAL: nền xanh đậm + chữ trắng (giống header); cột % vẫn tô màu rule KPI
+      # Sticky STT / Tên NVBH
+      if c in ('STT', 'Tên NVBH'):
+        html.append(
+            f'<td align="{align}" style="{td}{sticky}{sticky_bg}'
+            f'font-weight:{"900" if is_tot else "600"} !important;'
+            f'text-align:{align} !important;">{val if str(val).strip() not in ("", "nan", "None") else "&nbsp;"}</td>'
+        )
+        continue
+
+      # Dòng TOTAL: nền xanh đậm + chữ trắng; cột % vẫn tô màu rule KPI
       if is_tot and is_pct:
         html.append(
             f'<td align="center" data-colored="1" class="{color_pct_class(val)}" '
@@ -4879,16 +4899,11 @@ def _perf_table_html(df, section='call'):
             f'{val if str(val).strip() not in ("", "nan", "None") else "&nbsp;"}</td>'
         )
       elif is_danh_gia:
-        # Zebra xanh/trắng như các cột khác; chữ xanh/đỏ đậm trong HTML
-        # Không dùng data-colored để CSS zebra :not([data-colored]) vẫn áp dụng
         zebra_bg = '#e6f4fc' if (pos % 2 == 1) else '#ffffff'
-        if is_tot:
-          zebra_bg = '#1a365d'
         html.append(
             f'<td align="center" '
             f'style="{td}background-color:{zebra_bg} !important;'
-            f'text-align:center !important;font-size:11px;'
-            f'{"color:#fff !important;" if is_tot else ""}">{val}</td>'
+            f'text-align:center !important;font-size:11px;">{val}</td>'
         )
       elif is_pct:
         cls = color_pct_class(val)
@@ -4903,12 +4918,6 @@ def _perf_table_html(df, section='call'):
         html.append(
             f'<td align="center"{attr}{cls_attr} '
             f'style="{td}{vip_ko_bg(val)}text-align:center !important;">{val}</td>'
-        )
-      elif is_tot:
-        html.append(
-            f'<td align="center" style="{td}'
-            f'background-color:#1a365d !important;color:#ffffff !important;'
-            f'font-weight:900 !important;text-align:center !important;">{val}</td>'
         )
       else:
         html.append(
