@@ -6258,9 +6258,14 @@ def render_perf_table_html(df, month_label):
             f'<td class="row-total-cell" style="{tot_s}text-align:{al} !important;">{disp}</td>'
         )
       elif c == '%MTD':
-        cls = color_pct_class(val, moc=100.0)
+        try:
+          _moc = float(_CURRENT_TIMEGONE)
+        except Exception:
+          _moc = 100.0
+        cls = color_pct_class(val, moc=_moc)
+        bg = color_pct_bg(val, moc=_moc)
         html.append(
-            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+            f'<td data-colored="1" class="{cls}" style="{bg}text-align:center !important;'
             f'border:1px solid #bce2f5 !important;padding:5px 8px;font-size:12px;'
             f'font-weight:700 !important;">{disp}</td>'
         )
@@ -6533,9 +6538,16 @@ def render_perf_nv_matrix_html(df, cats, month_label):
             f'<td class="row-total-cell" style="{tot_s}text-align:right !important;">{disp}</td>'
         )
       elif is_pct:
-        cls = color_pct_class(val, moc=100.0)
+        # Tô màu theo % Timegone (giống các báo cáo KPI)
+        try:
+          _moc = float(_CURRENT_TIMEGONE)
+        except Exception:
+          _moc = 100.0
+        cls = color_pct_class(val, moc=_moc)
+        bg = color_pct_bg(val, moc=_moc)
         html.append(
-            f'<td data-colored="1" class="{cls}" style="text-align:center !important;'
+            f'<td data-colored="1" class="{cls}" style="{bg}'
+            f'text-align:center !important;'
             f'border:1px solid #e2e8f0 !important;padding:3px 4px;font-size:10px;'
             f'font-weight:700 !important;">{disp}</td>'
         )
