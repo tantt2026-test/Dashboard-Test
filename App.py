@@ -6338,34 +6338,41 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date
 
 
 def render_perf_nv_matrix_html(df, cats, month_label):
-  """Bảng tổng hợp NV × ngành — header vàng, sticky STT + Tên NVBH, số ÷1tr."""
+  """Bảng tổng hợp NV × ngành — sticky STT/Tên NVBH + header, cuộn ngang như Trưng bày."""
   if df is None or df.empty or not cats:
     return ''
-  yellow = (
+
+  name_w = 150
+  # Ước lượng độ rộng cột tên theo tên dài nhất
+  try:
+    max_len = int(df['Tên NVBH'].astype(str).str.len().max())
+    name_w = max(140, min(220, max_len * 8 + 20))
+  except Exception:
+    pass
+
+  th = (
       'background-color:#ffd700 !important;color:#1a202c !important;'
       'font-weight:800 !important;text-align:center !important;'
       'border:1px solid #d69e2e !important;padding:5px 4px;font-size:10px;'
       'white-space:nowrap;'
   )
-  yellow_sub = (
+  th_sub = (
       'background-color:#ffe066 !important;color:#1a202c !important;'
       'font-weight:700 !important;text-align:center !important;'
       'border:1px solid #d69e2e !important;padding:3px 3px;font-size:9px;'
       'white-space:nowrap;'
   )
-  sticky_stt = (
-      'position:sticky;left:0;z-index:3;'
-      'background-color:#ffd700 !important;color:#1a202c !important;'
-      'font-weight:800 !important;text-align:center !important;'
-      'border:1px solid #d69e2e !important;padding:5px 4px;font-size:10px;'
-      'min-width:36px;'
+  sticky_stt_h = (
+      f'{th}position:sticky;left:0;z-index:6;min-width:44px;max-width:44px;'
   )
-  sticky_nv = (
-      'position:sticky;left:36px;z-index:3;'
-      'background-color:#ffd700 !important;color:#1a202c !important;'
-      'font-weight:800 !important;text-align:center !important;'
-      'border:1px solid #d69e2e !important;padding:5px 6px;font-size:10px;'
-      'min-width:140px;white-space:nowrap;'
+  sticky_ten_h = (
+      f'{th}position:sticky;left:44px;z-index:6;min-width:{name_w}px;'
+  )
+  sticky_stt_c = (
+      'position:sticky;left:0;z-index:2;min-width:44px;max-width:44px;'
+  )
+  sticky_ten_c = (
+      f'position:sticky;left:44px;z-index:2;min-width:{name_w}px;'
   )
   td = (
       'border:1px solid #e2e8f0 !important;padding:3px 4px;font-size:10px;'
@@ -6377,54 +6384,54 @@ def render_perf_nv_matrix_html(df, cats, month_label):
       'padding:3px 4px;font-size:10px;'
   )
   n_metric = 3
+
   html = [
       f'<h4 style="color:#1a365d;font-weight:800;margin:8px 0 4px 0;">'
-      f'📊 TỔNG HỢP PERFORMANCE THEO NHÂN VIÊN'
+      f'📊 TỔNG HỢP PERFORMANCE THEO NHÂN VIÊN — {month_label}'
       f' <span style="font-size:12px;font-weight:600;color:#718096;">'
       f'(đơn vị: triệu đồng)</span></h4>',
-      '<div class="perf-matrix-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;'
-      'margin-bottom:14px;max-width:100%;">',
-      '<table class="custom-kpi-table perf-matrix-table" style="border-collapse:collapse;'
-      'width:max-content;min-width:100%;font-family:Arial,sans-serif;"><thead>',
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;">',
+      '<thead style="position:sticky;top:0;z-index:5;">',
       '<tr>',
-      f'<th rowspan="2" style="{sticky_stt}">STT</th>',
-      f'<th rowspan="2" style="{sticky_nv}">TÊN NVBH</th>',
+      f'<th rowspan="2" style="{sticky_stt_h}">STT</th>',
+      f'<th rowspan="2" style="{sticky_ten_h}">TÊN NVBH</th>',
   ]
   for cat in cats:
-    html.append(f'<th colspan="{n_metric}" style="{yellow}">{cat}</th>')
-  html.append(f'<th colspan="{n_metric}" style="{yellow}">TARGET</th>')
+    html.append(f'<th colspan="{n_metric}" style="{th}">{cat}</th>')
+  html.append(f'<th colspan="{n_metric}" style="{th}">TARGET</th>')
   html.append('</tr><tr>')
   for _ in list(cats) + ['TOTAL']:
     for sub in ('TARGET', 'SELL OUT', '% MTD'):
-      html.append(f'<th style="{yellow_sub}">{sub}</th>')
+      html.append(f'<th style="{th_sub}">{sub}</th>')
   html.append('</tr></thead><tbody>')
 
   for pos, (_, row) in enumerate(df.iterrows()):
     is_tot = 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
     bg = '#ffd700' if is_tot else ('#fffff0' if pos % 2 == 0 else '#ffffff')
     fg = '#1a202c'
-    sticky_bg = '#ffd700' if is_tot else bg
     html.append('<tr class="row-total">' if is_tot else '<tr>')
+
     # STT sticky
     stt_val = row.get('STT', '')
     if pd.isna(stt_val):
       stt_val = ''
     html.append(
-        f'<td style="position:sticky;left:0;z-index:2;background-color:{sticky_bg} !important;'
-        f'color:{fg} !important;font-weight:{"900" if is_tot else "600"} !important;'
-        f'border:1px solid #e2e8f0 !important;padding:3px 4px;font-size:10px;'
-        f'text-align:center !important;min-width:36px;">{stt_val}</td>'
+        f'<td style="{sticky_stt_c}{td}background-color:{bg} !important;'
+        f'color:{fg} !important;font-weight:{"900" if is_tot else "600"} !important;">'
+        f'{stt_val}</td>'
     )
     # NV sticky
     nv_val = row.get('Tên NVBH', '')
     if pd.isna(nv_val):
       nv_val = ''
     html.append(
-        f'<td style="position:sticky;left:36px;z-index:2;background-color:{sticky_bg} !important;'
+        f'<td style="{sticky_ten_c}{td}background-color:{bg} !important;'
         f'color:{fg} !important;font-weight:{"900" if is_tot else "600"} !important;'
-        f'border:1px solid #e2e8f0 !important;padding:3px 6px;font-size:10px;'
-        f'text-align:left !important;min-width:140px;white-space:nowrap;">{nv_val}</td>'
+        f'text-align:left !important;">{nv_val}</td>'
     )
+
     keys = []
     for cat in cats:
       keys.extend([f'{cat}|TARGET', f'{cat}|SELL OUT', f'{cat}|% MTD'])
