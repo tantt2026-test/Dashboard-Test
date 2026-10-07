@@ -8301,6 +8301,44 @@ def build_performance_comments(df):
     names = [f"{r['Tên NVBH']} ({int(r['_n_vip_ko'])} VIP)" for _, r in vip.iterrows()]
     lines.append(f"• <b>KH VIP không mua hàng:</b> {', '.join(names)}<br/>")
 
+  # 6. Kỷ Luật TB: có PER nhưng hôm nay không chụp hình
+  lines.append(
+      '<b style="color:#034ea2;">6. Kỷ Luật TB — Có CH TB PER nhưng hôm nay không chụp hình</b><br/>'
+  )
+  c_per = 'Số CH TB PER' if 'Số CH TB PER' in d.columns else None
+  c_chup = 'Chụp hình bởi ĐDKD' if 'Chụp hình bởi ĐDKD' in d.columns else None
+  if c_per and c_chup:
+    d['_per'] = pd.to_numeric(d[c_per], errors='coerce').fillna(0)
+    d['_chup'] = pd.to_numeric(d[c_chup], errors='coerce').fillna(0)
+    # Có PER > 0 và Chụp = 0
+    miss = d[(d['_per'] > 0) & (d['_chup'] <= 0)].sort_values('_per', ascending=False)
+    # Có PER nhưng chụp < PER (thiếu)
+    gap = d[(d['_per'] > 0) & (d['_chup'] < d['_per'])].copy()
+    gap['_thieu'] = gap['_per'] - gap['_chup']
+    gap = gap.sort_values('_thieu', ascending=False)
+    if miss.empty:
+      lines.append(
+          '• <b>NV có CH TB PER nhưng 0 chụp hình hôm nay:</b> Không có<br/>'
+      )
+    else:
+      names = [
+          f"{r['Tên NVBH']} (PER {int(r['_per'])}, chụp 0)"
+          for _, r in miss.iterrows()
+      ]
+      lines.append(
+          f"• <b>NV có CH TB PER nhưng 0 chụp hình hôm nay:</b> {', '.join(names)}<br/>"
+      )
+    if not gap.empty:
+      names = [
+          f"{r['Tên NVBH']} (PER {int(r['_per'])}, chụp {int(r['_chup'])}, thiếu {int(r['_thieu'])})"
+          for _, r in gap.head(5).iterrows()
+      ]
+      lines.append(
+          f"• <b>NV còn thiếu chụp so với PER (Top 5):</b> {', '.join(names)}<br/>"
+      )
+  else:
+    lines.append('• Không có dữ liệu Kỷ Luật TB<br/>')
+
   lines.append('</div>')
   return ''.join(lines)
 
