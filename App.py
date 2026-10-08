@@ -4956,89 +4956,66 @@ def _perf_table_html(df, section='call'):
 
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def load_dskh_trai_tuyen():
-  """Load F4 & F2 từ DSKH_Trái Tuyến.xlsx — xử lý Unicode NFC/NFD + tìm file linh hoạt."""
+  """Load DSKH Trái Tuyến — hỗ trợ sheet Import / F4 / F2 / sheet đầu."""
   import unicodedata
   empty = pd.DataFrame()
 
-  def _nfc(s):
-    try:
-      return unicodedata.normalize('NFC', str(s))
-    except Exception:
-      return str(s)
-
   def _fold(s):
-    """Bỏ dấu + lower để so tên file."""
-    s = _nfc(s).lower()
-    repl = {
-        'á':'a','à':'a','ả':'a','ã':'a','ạ':'a','ă':'a','ắ':'a','ằ':'a','ẳ':'a','ẵ':'a','ặ':'a',
-        'â':'a','ấ':'a','ầ':'a','ẩ':'a','ẫ':'a','ậ':'a',
-        'é':'e','è':'e','ẻ':'e','ẽ':'e','ẹ':'e','ê':'e','ế':'e','ề':'e','ể':'e','ễ':'e','ệ':'e',
-        'í':'i','ì':'i','ỉ':'i','ĩ':'i','ị':'i',
-        'ó':'o','ò':'o','ỏ':'o','õ':'o','ọ':'o','ô':'o','ố':'o','ồ':'o','ổ':'o','ỗ':'o','ộ':'o',
-        'ơ':'o','ớ':'o','ờ':'o','ở':'o','ỡ':'o','ợ':'o',
-        'ú':'u','ù':'u','ủ':'u','ũ':'u','ụ':'u','ư':'u','ứ':'u','ừ':'u','ử':'u','ữ':'u','ự':'u',
-        'ý':'y','ỳ':'y','ỷ':'y','ỹ':'y','ỵ':'y','đ':'d',
-    }
-    for a, b in repl.items():
-      s = s.replace(a, b)
+    s = unicodedata.normalize('NFKD', str(s))
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    s = s.lower().replace('đ', 'd')
     return s
 
-  path_use = None
   candidates = []
+  search_roots = []
+  for d in [DATA_DIR, 'data', '.', '/mount/src', '/mount/src/dashboard-test',
+            '/mount/src/dashboard-test/data']:
+    if os.path.isdir(d) and d not in search_roots:
+      search_roots.append(d)
 
-  # Quét data/ — match mọi file có "dskh"
-  search_dirs = []
-  for d in [DATA_DIR, 'data', '.', '/mount/src']:
-    if os.path.isdir(d):
-      search_dirs.append(d)
-    # streamlit cloud đôi khi mount khác
+  for root in search_roots:
     try:
-      for root, dirs, files in os.walk(d if os.path.isdir(d) else '.'):
-        if 'data' in dirs:
-          search_dirs.append(os.path.join(root, 'data'))
-        break
-    except Exception:
-      pass
-
-  seen = set()
-  for d in search_dirs:
-    try:
-      for fn in os.listdir(d):
-        full = os.path.join(d, fn)
-        if full in seen:
+      for dirpath, _, files in os.walk(root):
+        if dirpath[len(root):].count(os.sep) > 2:
           continue
-        seen.add(full)
-        if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-          continue
-        folded = _fold(fn)
-        if 'dskh' in folded:
-          candidates.append(full)
+        for fn in files:
+          if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+            continue
+          if 'dskh' in _fold(fn):
+            candidates.append(os.path.join(dirpath, fn))
     except Exception:
       continue
 
-  # Thêm path cố định
-  for name in [
-      'DSKH_Trái Tuyến.xlsx', 'DSKH_Trai Tuyen.xlsx',
-      'DSKH_Trái_Tuyến.xlsx', 'DSKH Trai Tuyen.xlsx',
-  ]:
-    candidates.insert(0, os.path.join(DATA_DIR, name))
-
+  preferred, other = [], []
   for p in candidates:
-    try:
-      if os.path.isfile(p):
-        path_use = p
-        break
-    except Exception:
-      continue
+    f = _fold(os.path.basename(p))
+    (preferred if ('trai' in f or 'tuyen' in f) else other).append(p)
+  ordered = preferred + other
 
+  path_use = next((p for p in ordered if os.path.isfile(p)), None)
   if not path_use:
     return empty, empty
 
-  def _read_sheets(p):
-    xl = pd.ExcelFile(p)
+  try:
+    xl = pd.ExcelFile(path_use)
     names = list(xl.sheet_names)
+    # Ưu tiên: Import → F4 → F2 → sheet đầu
+    pick = None
+    for prefer in ['IMPORT', 'F4', 'F2']:
+      for s in names:
+        if str(s).strip().upper().startswith(prefer):
+          pick = s
+          break
+      if pick:
+        break
+    if pick is None and names:
+      pick = names[0]
+
+    df_all = pd.read_excel(path_use, sheet_name=pick)
+    df_all.columns = [str(c).strip() for c in df_all.columns]
+
+    # Tách F4/F2 nếu có 2 sheet riêng; không thì dùng chung 1 df
     s_f4 = s_f2 = None
     for s in names:
       su = str(s).strip().upper()
@@ -5046,21 +5023,20 @@ def load_dskh_trai_tuyen():
         s_f4 = s
       if su == 'F2' or su.startswith('F2'):
         s_f2 = s
-    df_f4 = pd.read_excel(p, sheet_name=s_f4) if s_f4 else empty
-    df_f2 = pd.read_excel(p, sheet_name=s_f2) if s_f2 else empty
-    if not df_f4.empty:
-      df_f4.columns = [str(c).strip() for c in df_f4.columns]
-    if not df_f2.empty:
-      df_f2.columns = [str(c).strip() for c in df_f2.columns]
-    return df_f4, df_f2
 
-  try:
-    return _read_sheets(path_use)
+    if s_f4 or s_f2:
+      df_f4 = pd.read_excel(path_use, sheet_name=s_f4) if s_f4 else empty
+      df_f2 = pd.read_excel(path_use, sheet_name=s_f2) if s_f2 else empty
+      if not df_f4.empty:
+        df_f4.columns = [str(c).strip() for c in df_f4.columns]
+      if not df_f2.empty:
+        df_f2.columns = [str(c).strip() for c in df_f2.columns]
+      return df_f4, df_f2
+
+    # 1 sheet (Import): trả về (df, empty) — build_lookup đọc cả 2
+    return df_all, empty
   except Exception:
-    try:
-      return _read_sheets(path_use)
-    except Exception:
-      return empty, empty
+    return empty, empty
 
 
 
@@ -5217,7 +5193,15 @@ def build_dskh_exempt_lookup(df_f4, df_f2):
         'NGÀY KO TÍNH TRÁI TUYẾN',
         'Ngày VT KO TÍNH TRÁI TUYẾN',
         'Ngày KO TÍNH TRÁI TUYẾN',
+        'NGAY VT KO TINH TRAI TUYEN',
     )
+    if c_ngay is None:
+      # fallback: cột chứa "trai tuyen" hoặc đúng 1 cột số thứ
+      for c in df.columns:
+        cl = str(c).strip().lower()
+        if 'trai' in cl and ('vt' in cl or 'ngay' in cl or 'ngày' in cl):
+          c_ngay = c
+          break
     c_tuan = None
     for c in df.columns:
       cl = str(c).strip().lower()
@@ -5234,36 +5218,42 @@ def build_dskh_exempt_lookup(df_f4, df_f2):
         continue
       days = _parse_weekday_codes(r[c_ngay])
       if not days:
+        # thử parse lại từ string thô
+        days = _parse_weekday_codes(str(r[c_ngay]).strip())
+      if not days:
         continue
       tuan = r[c_tuan] if c_tuan is not None else 'Both'
-      rules.setdefault(ma, []).append({
+      entry = {
           'days': days,
           'week': tuan,
           'sheet': sheet_name,
-      })
+      }
+      rules.setdefault(ma, []).append(entry)
+      # alias key dạng raw
+      raw = str(r[c_ma]).strip()
+      if raw.endswith('.0'):
+        raw = raw[:-2]
+      if raw and raw != ma:
+        rules.setdefault(raw, []).append(entry)
   return rules
 
 
 def check_dskh_bo_sung(ma_kh, report_date, rules_lookup):
-  """✓ nếu Mã KH trong DSKH và thứ của ngày BC khớp NGÀY VT KO TÍNH TRÁI TUYẾN.
+  """✓ nếu Mã KH trong DSKH và thứ ngày BC khớp NGÀY VT KO TÍNH TRÁI TUYẾN.
 
-  Rule nghiệp vụ (chỉ check THỨ, không filter Even/Odd Week):
-    25 → T2 & T5 | 36 → T3 & T6 | 47 → T4 & T7 | 2..7 → đúng thứ đó
-  Ví dụ: 08/10/2026 = Thứ 5 → tick CH có mã 5 hoặc 25.
-
-  Cột "Tuần hiện tại" (Even/Odd) mô tả lịch gốc F2, KHÔNG dùng để chặn tick.
+  Chỉ check THỨ (25/36/47/2-7). Không filter Even/Odd Week.
   """
   if not rules_lookup:
     return False
   ma = _norm_ma_kh(ma_kh)
   if not ma:
     return False
+
   candidates = {ma}
   try:
     candidates.add(str(int(float(ma))))
   except Exception:
     pass
-  # Thêm biến thể bỏ leading zeros
   if ma.lstrip('0') and ma.lstrip('0') != ma:
     candidates.add(ma.lstrip('0'))
 
@@ -5272,19 +5262,26 @@ def check_dskh_bo_sung(ma_kh, report_date, rules_lookup):
     if c in rules_lookup:
       matched = rules_lookup[c]
       break
+  # fallback: so khớp mọi key đã normalize
+  if not matched:
+    for k, v in rules_lookup.items():
+      if _norm_ma_kh(k) in candidates:
+        matched = v
+        break
   if not matched:
     return False
 
   try:
-    wd = pd.Timestamp(report_date).weekday()  # Mon=0 .. Sat=5
+    wd = pd.Timestamp(report_date).weekday()  # Mon=0
   except Exception:
     return False
 
   for rule in matched:
     days = rule.get('days') or set()
     if wd in days:
-      return True  # chỉ cần khớp thứ — không check Even/Odd
+      return True
   return False
+
 
 
 def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=None):
@@ -5305,6 +5302,7 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
     return empty
 
   # Load DSKH F4/F2 — ngoại lệ trái tuyến
+  _dskh_rules = {}
   try:
     _df_f4, _df_f2 = load_dskh_trai_tuyen()
     _dskh_rules = build_dskh_exempt_lookup(_df_f4, _df_f2)
