@@ -9988,30 +9988,33 @@ with tab_kpi:
           ]
           for extra in mats[1:]:
             eb = extra[~extra['Tên NVBH'].astype(str).str.upper().str.contains('TỔNG')].copy()
-            base_body = base_body.merge(
-                eb, on='Tên NVBH', how='outer', suffixes=('', '_y')
-            )
-            for c in list(metric_cols):
-              cy = c + '_y'
-              if cy in base_body.columns:
-                if c.endswith('% MTD'):
-                  base_body.drop(columns=[cy], inplace=True, errors='ignore')
-                else:
-                  base_body[c] = (
-                      pd.to_numeric(base_body[c], errors='coerce').fillna(0)
-                      + pd.to_numeric(base_body[cy], errors='coerce').fillna(0)
-                  )
-                  base_body.drop(columns=[cy], inplace=True, errors='ignore')
-            # new cat cols from extra
-            for c in eb.columns:
-              if c not in base_body.columns and c not in ('STT',):
-                if c.endswith('|TARGET') or c.endswith('|SELL OUT') or c.endswith('|% MTD'):
-                  if c not in metric_cols:
-                    metric_cols.append(c)
-                  base_body[c] = pd.to_numeric(eb.set_index('Tên NVBH')[c], errors='coerce')
-                  base_body[c] = base_body['Tên NVBH'].map(
-                      eb.set_index('Tên NVBH')[c].to_dict()
-                  ).fillna(0)
+            keep_cols = ['Tên NVBH'] + [
+                c for c in eb.columns
+                if c not in ('STT', 'Tên NVBH') and (
+                    c.endswith('|TARGET') or c.endswith('|SELL OUT')
+                )
+            ]
+            eb = eb[[c for c in keep_cols if c in eb.columns]].copy()
+            if eb.empty or 'Tên NVBH' not in base_body.columns:
+              continue
+            eb_idx = eb.drop_duplicates(subset=['Tên NVBH']).set_index('Tên NVBH')
+            base_body = base_body.set_index('Tên NVBH')
+            for c in eb_idx.columns:
+              s_extra = pd.to_numeric(eb_idx[c], errors='coerce').fillna(0)
+              if c in base_body.columns:
+                base_body[c] = (
+                    pd.to_numeric(base_body[c], errors='coerce').fillna(0).add(
+                        s_extra, fill_value=0
+                    )
+                )
+              else:
+                base_body[c] = s_extra
+                if c not in metric_cols:
+                  metric_cols.append(c)
+            only_extra = eb_idx.index.difference(base_body.index)
+            if len(only_extra) > 0:
+              base_body = pd.concat([base_body, eb_idx.loc[only_extra]], axis=0)
+            base_body = base_body.reset_index()
 
           # Recompute % and TOTAL from cats_union
           for cat in cats_union:
