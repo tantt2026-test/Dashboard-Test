@@ -6487,8 +6487,9 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date
 def render_perf_subdiv_charts(df_mat, cats):
   """8 chart ngang theo từng SUB DIV — 2 dòng × 4 cột, dưới bảng tổng hợp.
 
-  Trục Y: Tên NVBH | Trục X: Doanh số (triệu).
-  Cam = TARGET, Xanh = SO. Tự co theo container (mobile OK).
+  - Khung tách từng chart
+  - Title không trùng legend
+  - NV có % SO/Target < Timegone → tên đỏ in đậm trên trục Y
   """
   if df_mat is None or df_mat.empty or not cats:
     return
@@ -6504,7 +6505,6 @@ def render_perf_subdiv_charts(df_mat, cats):
     return
 
   nvs = [str(x) for x in d['Tên NVBH'].tolist()]
-  # Tối đa 8 ngành, layout 2×4
   cats_show = list(cats)[:8]
   while len(cats_show) < 8:
     cats_show.append(None)
@@ -6515,9 +6515,27 @@ def render_perf_subdiv_charts(df_mat, cats):
     st.caption('Cần plotly để xem chart SUB DIV.')
     return
 
+  try:
+    moc = float(_CURRENT_TIMEGONE)
+  except Exception:
+    moc = 100.0
+
   st.markdown(
-      '<h4 style="color:#1a365d;font-weight:800;margin:16px 0 8px 0;">'
-      '📊 CHART THEO TỪNG NGÀNH HÀNG (SUB DIV)</h4>',
+      '<h4 style="color:#1a365d;font-weight:800;margin:16px 0 4px 0;">'
+      '📊 CHART THEO TỪNG NGÀNH HÀNG (SUB DIV)</h4>'
+      '<p style="font-size:12px;color:#64748b;margin:0 0 10px 0;">'
+      '🟠 TARGET &nbsp;|&nbsp; 🔵 SO'
+      ' &nbsp;·&nbsp; Tên NV <b style="color:#c53030;">đỏ đậm</b> = % SO/Target &lt; Timegone'
+      f' ({moc:.0f}%)</p>',
+      unsafe_allow_html=True,
+  )
+
+  st.markdown(
+      '<style>'
+      'div.perf-subdiv-wrap{border:1px solid #cbd5e0;border-radius:8px;'
+      'padding:8px 6px 4px 6px;margin-bottom:10px;background:#fafbfc;'
+      'box-shadow:0 1px 3px rgba(0,0,0,0.06);}'
+      '</style>',
       unsafe_allow_html=True,
   )
 
@@ -6527,23 +6545,26 @@ def render_perf_subdiv_charts(df_mat, cats):
       return
     col_tg = f'{cat}|TARGET'
     col_so = f'{cat}|SELL OUT'
-    tg = []
-    so = []
+    tg, so, pcts = [], [], []
     for _, r in d.iterrows():
-      v_tg = r.get(col_tg, 0)
-      v_so = r.get(col_so, 0)
       try:
-        tg.append(float(v_tg or 0) / 1_000_000.0)
+        v_tg = float(r.get(col_tg, 0) or 0) / 1_000_000.0
       except Exception:
-        tg.append(0.0)
+        v_tg = 0.0
       try:
-        so.append(float(v_so or 0) / 1_000_000.0)
+        v_so = float(r.get(col_so, 0) or 0) / 1_000_000.0
       except Exception:
-        so.append(0.0)
-    # Đảo để NV đầu ở trên
+        v_so = 0.0
+      tg.append(v_tg)
+      so.append(v_so)
+      pcts.append(round(v_so / v_tg * 100, 1) if v_tg > 0 else 0.0)
+
     nvs_p = list(reversed(nvs))
     tg_p = list(reversed(tg))
     so_p = list(reversed(so))
+    pct_p = list(reversed(pcts))
+
+    tick_colors = ['#c53030' if p < moc else '#1a202c' for p in pct_p]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -6560,27 +6581,50 @@ def render_perf_subdiv_charts(df_mat, cats):
         barmode='group',
         bargap=0.2,
         bargroupgap=0.05,
-        title=dict(text=str(cat), font=dict(size=13, color='#1a365d'), x=0.5, xanchor='center'),
-        height=max(260, 22 * len(nvs) + 70),
-        margin=dict(l=4, r=8, t=36, b=8),
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        showlegend=True,
-        legend=dict(
-            orientation='h', y=1.02, yanchor='bottom', x=0.5, xanchor='center',
-            font=dict(size=10),
+        title=dict(
+            text='<b>' + str(cat) + '</b>',
+            font=dict(size=13, color='#1a365d'),
+            x=0.5,
+            xanchor='center',
+            y=0.98,
+            yanchor='top',
         ),
-        xaxis=dict(gridcolor='#e2e8f0', zeroline=False, tickfont=dict(size=9)),
-        yaxis=dict(tickfont=dict(size=10), automargin=True),
+        height=max(280, 24 * len(nvs) + 50),
+        margin=dict(l=4, r=8, t=40, b=8),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='white',
+        showlegend=False,
+        xaxis=dict(
+            gridcolor='#e2e8f0',
+            zeroline=False,
+            tickfont=dict(size=9),
+        ),
+        yaxis=dict(
+            tickmode='array',
+            tickvals=nvs_p,
+            ticktext=[
+                ('<span style="color:#c53030;font-weight:700">' + nvs_p[i] + '</span>')
+                if pct_p[i] < moc
+                else ('<span style="color:#1a202c">' + nvs_p[i] + '</span>')
+                for i in range(len(nvs_p))
+            ],
+            tickfont=dict(size=10),
+            automargin=True,
+        ),
     )
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    try:
+      box = st.container(border=True)
+    except TypeError:
+      box = st.container()
+    with box:
+      st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-  # 2 dòng × 4 cột — trên mobile Streamlit xếp dọc tự động khi hẹp
   for row_i in range(2):
     cols = st.columns(4)
     for col_i in range(4):
       with cols[col_i]:
         _one_chart(cats_show[row_i * 4 + col_i])
+
 
 
 def render_perf_nv_matrix_html(df, cats, month_label, use_timegone=True):
