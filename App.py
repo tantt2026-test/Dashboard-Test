@@ -6283,7 +6283,7 @@ def render_perf_table_html(df, month_label, use_timegone=False):
 
 
 def render_perf_chart(df, month_label):
-  """Grouped column chart: SO (xanh) vs TARGET (cam) — giống mẫu Excel."""
+  """Chart cột 3D: SO (xanh) vs TARGET (cam) — Plotly Mesh3d."""
   if df is None or df.empty:
     return
   d = df[~df['CAT'].astype(str).str.lower().isin(
@@ -6291,85 +6291,131 @@ def render_perf_chart(df, month_label):
   )].copy()
   if d.empty:
     return
-  import altair as alt
+
+  import plotly.graph_objects as go
+  import numpy as np
 
   d = d.copy()
   d['SellOut'] = pd.to_numeric(d['SellOut'], errors='coerce').fillna(0) / 1_000_000.0
   d['Target'] = pd.to_numeric(d['Target'], errors='coerce').fillna(0) / 1_000_000.0
-  cat_order = list(d['CAT'].tolist())
+  cats = list(d['CAT'].tolist())
+  n = len(cats)
 
-  plot = d.melt(
-      id_vars=['CAT'],
-      value_vars=['SellOut', 'Target'],
-      var_name='Chỉ số',
-      value_name='Giá trị',
-  )
-  plot['Chỉ số'] = plot['Chỉ số'].map({
-      'SellOut': 'Sum of SO',
-      'Target': 'Sum of TARGET SO',
-  })
+  def _box_mesh(x0, y0, z0, dx, dy, dz, color, name, showlegend):
+    """Tạo 1 cột 3D (hộp chữ nhật) bằng Mesh3d."""
+    # 8 đỉnh
+    x = [x0, x0+dx, x0+dx, x0, x0, x0+dx, x0+dx, x0]
+    y = [y0, y0, y0+dy, y0+dy, y0, y0, y0+dy, y0+dy]
+    z = [z0, z0, z0, z0, z0+dz, z0+dz, z0+dz, z0+dz]
+    # 12 tam giác (2 mặt × 6 mặt)
+    i = [0, 0, 4, 4, 0, 0, 1, 1, 2, 2, 3, 3]
+    j = [1, 3, 5, 7, 1, 4, 2, 5, 3, 6, 0, 7]
+    k = [3, 4, 7, 6, 5, 5, 5, 6, 6, 7, 7, 4]
+    return go.Mesh3d(
+        x=x, y=y, z=z,
+        i=i, j=j, k=k,
+        color=color,
+        opacity=0.92,
+        name=name,
+        showlegend=showlegend,
+        hovertemplate=(
+            f'<b>{name}</b><br>'
+            + 'Giá trị: %{z:.1f} triệu<extra></extra>'
+        ),
+        flatshading=True,
+    )
 
-  chart = (
-      alt.Chart(plot)
-      .mark_bar(size=18, cornerRadiusEnd=2)
-      .encode(
-          x=alt.X(
-              'CAT:N',
-              title=None,
-              sort=cat_order,
-              axis=alt.Axis(
-                  labelAngle=-30,
-                  labelFontSize=11,
-                  labelLimit=140,
-                  labelColor='#334155',
-              ),
+  fig = go.Figure()
+  bar_w = 0.32  # độ rộng cột trên trục X
+  gap = 0.08
+
+  for idx, row in enumerate(d.itertuples()):
+    # Trục X = category index
+    # SO (xanh) lệch trái, TARGET (cam) lệch phải
+    so = float(row.SellOut)
+    tg = float(row.Target)
+    # SO
+    fig.add_trace(_box_mesh(
+        x0=idx - bar_w - gap / 2,
+        y0=0,
+        z0=0,
+        dx=bar_w,
+        dy=0.55,
+        dz=max(so, 0.001),
+        color='#4472C4',
+        name='Sum of SO',
+        showlegend=(idx == 0),
+    ))
+    # TARGET
+    fig.add_trace(_box_mesh(
+        x0=idx + gap / 2,
+        y0=0,
+        z0=0,
+        dx=bar_w,
+        dy=0.55,
+        dz=max(tg, 0.001),
+        color='#ED7D31',
+        name='Sum of TARGET SO',
+        showlegend=(idx == 0),
+    ))
+
+  fig.update_layout(
+      title=dict(
+          text=f'📅 Tháng {month_label}',
+          font=dict(size=16, color='#1a365d', family='Arial'),
+          x=0.5,
+          xanchor='center',
+      ),
+      scene=dict(
+          xaxis=dict(
+              title='',
+              tickvals=list(range(n)),
+              ticktext=cats,
+              tickfont=dict(size=10, color='#e2e8f0'),
+              backgroundcolor='#2d3748',
+              gridcolor='#4a5568',
+              showbackground=True,
           ),
-          y=alt.Y(
-              'Giá trị:Q',
-              title=None,
-              axis=alt.Axis(
-                  grid=True,
-                  tickCount=6,
-                  format='~s',
-                  labelFontSize=11,
-                  labelColor='#334155',
-              ),
+          yaxis=dict(
+              title='',
+              showticklabels=False,
+              backgroundcolor='#2d3748',
+              gridcolor='#4a5568',
+              showbackground=True,
+              range=[-0.2, 1.2],
           ),
-          color=alt.Color(
-              'Chỉ số:N',
-              scale=alt.Scale(
-                  domain=['Sum of SO', 'Sum of TARGET SO'],
-                  range=['#4472C4', '#ED7D31'],  # Xanh dương + Cam như mẫu
-              ),
-              legend=alt.Legend(
-                  title=None,
-                  orient='bottom',
-                  labelFontSize=12,
-                  symbolType='square',
-                  direction='horizontal',
-              ),
+          zaxis=dict(
+              title='Triệu đồng',
+              titlefont=dict(size=11, color='#e2e8f0'),
+              tickfont=dict(size=10, color='#e2e8f0'),
+              backgroundcolor='#2d3748',
+              gridcolor='#4a5568',
+              showbackground=True,
           ),
-          xOffset=alt.XOffset('Chỉ số:N'),
-          tooltip=[
-              alt.Tooltip('CAT:N', title='CAT'),
-              alt.Tooltip('Chỉ số:N', title='Chỉ số'),
-              alt.Tooltip('Giá trị:Q', title='Triệu đồng', format=',.1f'),
-          ],
-      )
-      .properties(
-          height=360,
-          title=f'📅 Tháng {month_label}',
-      )
-      .configure_title(
-          fontSize=16,
-          fontWeight='bold',
-          color='#1a365d',
-          anchor='middle',
-      )
-      .configure_view(strokeWidth=0)
-      .configure_axis(gridColor='#e2e8f0', domainColor='#94a3b8')
+          bgcolor='#1a202c',
+          camera=dict(
+              eye=dict(x=1.6, y=-1.8, z=0.9),
+              center=dict(x=0, y=0, z=-0.1),
+          ),
+          aspectmode='manual',
+          aspectratio=dict(x=1.6, y=0.5, z=1.0),
+      ),
+      paper_bgcolor='#1a202c',
+      plot_bgcolor='#1a202c',
+      font=dict(color='#e2e8f0'),
+      legend=dict(
+          orientation='h',
+          yanchor='bottom',
+          y=-0.12,
+          xanchor='center',
+          x=0.5,
+          font=dict(size=12, color='#e2e8f0'),
+          bgcolor='rgba(0,0,0,0)',
+      ),
+      margin=dict(l=10, r=10, t=50, b=40),
+      height=420,
   )
-  st.altair_chart(chart, use_container_width=True)
+  st.plotly_chart(fig, use_container_width=True)
 
 
 
