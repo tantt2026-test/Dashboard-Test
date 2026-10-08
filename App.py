@@ -6283,47 +6283,99 @@ def render_perf_table_html(df, month_label, use_timegone=False):
 
 
 def render_perf_chart(df, month_label):
-  """Bar chart Target (xanh) vs SellOut (cam) theo CAT."""
+  """Bullet Chart: Target (xanh dương đậm nền) vs MTD SellOut (cam) theo CAT."""
   if df is None or df.empty:
     return
-  d = df[~df['CAT'].astype(str).str.lower().isin(['grand total', 'tổng cộng', 'total'])].copy()
+  d = df[~df['CAT'].astype(str).str.lower().isin(
+      ['grand total', 'tổng cộng', 'total']
+  )].copy()
   if d.empty:
     return
   import altair as alt
+
   d = d.copy()
   d['Target'] = pd.to_numeric(d['Target'], errors='coerce').fillna(0) / 1_000_000.0
   d['SellOut'] = pd.to_numeric(d['SellOut'], errors='coerce').fillna(0) / 1_000_000.0
-  plot = d.melt(
-      id_vars=['CAT'],
-      value_vars=['Target', 'SellOut'],
-      var_name='Chỉ số',
-      value_name='Giá trị',
-  )
-  chart = (
-      alt.Chart(plot)
-      .mark_bar()
+  cat_order = list(d['CAT'].tolist())
+
+  # Nền = Chỉ tiêu (Target) — xanh dương đậm
+  bars_target = (
+      alt.Chart(d)
+      .mark_bar(size=22, cornerRadiusEnd=2)
       .encode(
-          x=alt.X('CAT:N', title=None, sort=list(d['CAT'].tolist()),
-                  axis=alt.Axis(labelAngle=-30, labelFontSize=11)),
-          y=alt.Y('Giá trị:Q', title=None, axis=alt.Axis(format='~s')),
-          color=alt.Color(
-              'Chỉ số:N',
-              scale=alt.Scale(
-                  domain=['Target', 'SellOut'],
-                  range=['#5b9bd5', '#ed7d31'],
-              ),
-              legend=alt.Legend(title=None, orient='top'),
+          y=alt.Y(
+              'CAT:N',
+              title=None,
+              sort=cat_order,
+              axis=alt.Axis(labelFontSize=12, labelLimit=160),
           ),
-          xOffset='Chỉ số:N',
+          x=alt.X(
+              'Target:Q',
+              title='Giá trị (Triệu đồng)',
+              axis=alt.Axis(grid=True, tickCount=6, labelFontSize=11),
+          ),
+          color=alt.value('#1a365d'),  # Xanh dương đậm — Chỉ tiêu
           tooltip=[
               alt.Tooltip('CAT:N', title='CAT'),
-              alt.Tooltip('Chỉ số:N'),
-              alt.Tooltip('Giá trị:Q', format=',.0f'),
+              alt.Tooltip('Target:Q', title='Chỉ tiêu (triệu)', format=',.1f'),
+              alt.Tooltip('SellOut:Q', title='MTD SellOut (triệu)', format=',.1f'),
           ],
       )
-      .properties(height=300, title=f'Target vs SellOut (triệu) — {month_label}')
-      .configure_title(fontSize=14, fontWeight='bold', color='#1a365d')
+  )
+
+  # Thanh MTD SellOut — cam (nằm trên nền Target)
+  bars_mtd = (
+      alt.Chart(d)
+      .mark_bar(size=12, cornerRadiusEnd=2)
+      .encode(
+          y=alt.Y('CAT:N', sort=cat_order),
+          x=alt.X('SellOut:Q'),
+          color=alt.value('#ed7d31'),  # Cam — MTD SellOut
+          tooltip=[
+              alt.Tooltip('CAT:N', title='CAT'),
+              alt.Tooltip('Target:Q', title='Chỉ tiêu (triệu)', format=',.1f'),
+              alt.Tooltip('SellOut:Q', title='MTD SellOut (triệu)', format=',.1f'),
+          ],
+      )
+  )
+
+  # Legend giả bằng điểm 0
+  legend_df = pd.DataFrame({
+      'Loại': ['Chỉ tiêu (Target)', 'MTD Sell Out'],
+      'x': [0, 0],
+      'y': [cat_order[0], cat_order[0]] if cat_order else ['', ''],
+  })
+  legend = (
+      alt.Chart(legend_df)
+      .mark_point(size=80, filled=True)
+      .encode(
+          x=alt.X('x:Q', scale=alt.Scale(domain=[0, 1])),
+          y=alt.Y('y:N'),
+          color=alt.Color(
+              'Loại:N',
+              scale=alt.Scale(
+                  domain=['Chỉ tiêu (Target)', 'MTD Sell Out'],
+                  range=['#1a365d', '#ed7d31'],
+              ),
+              legend=alt.Legend(
+                  title=None,
+                  orient='bottom',
+                  labelFontSize=12,
+                  symbolType='square',
+              ),
+          ),
+      )
+  )
+
+  chart = (
+      (bars_target + bars_mtd + legend)
+      .properties(
+          height=max(280, 36 * len(cat_order) + 40),
+          title=f'Bullet Chart — {month_label} (Chỉ tiêu vs MTD SellOut)',
+      )
+      .configure_title(fontSize=14, fontWeight='bold', color='#1a365d', anchor='middle')
       .configure_view(strokeWidth=0)
+      .configure_axis(gridColor='#e2e8f0', domainColor='#cbd5e0')
   )
   st.altair_chart(chart, use_container_width=True)
 
