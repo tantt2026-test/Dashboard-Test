@@ -6283,7 +6283,7 @@ def render_perf_table_html(df, month_label, use_timegone=False):
 
 
 def render_perf_chart(df, month_label):
-  """Combo Chart: Cột xanh MTD SellOut + Đường đỏ % hoàn thành Target."""
+  """Grouped column chart: SO (xanh) vs TARGET (cam) — giống mẫu Excel."""
   if df is None or df.empty:
     return
   d = df[~df['CAT'].astype(str).str.lower().isin(
@@ -6296,112 +6296,78 @@ def render_perf_chart(df, month_label):
   d = d.copy()
   d['SellOut'] = pd.to_numeric(d['SellOut'], errors='coerce').fillna(0) / 1_000_000.0
   d['Target'] = pd.to_numeric(d['Target'], errors='coerce').fillna(0) / 1_000_000.0
-  # % MTD từ cột sẵn có hoặc tính lại
-  if '%MTD' in d.columns:
-    d['Pct'] = pd.to_numeric(d['%MTD'], errors='coerce').fillna(0)
-  else:
-    d['Pct'] = d.apply(
-        lambda r: round(r['SellOut'] / r['Target'] * 100, 1) if r['Target'] > 0 else 0.0,
-        axis=1,
-    )
-  d['PctLabel'] = d['Pct'].map(lambda x: f'{x:.1f}%')
   cat_order = list(d['CAT'].tolist())
 
-  # Trục Y phải: scale % (để line nằm cùng frame)
-  max_so = float(d['SellOut'].max()) if len(d) else 1.0
-  max_pct = float(d['Pct'].max()) if len(d) else 1.0
-  max_so = max(max_so, 1.0)
-  max_pct = max(max_pct, 1.0)
-  # Map Pct → cùng scale với SellOut để vẽ line trên bar chart
-  # Dùng dual axis Altair resolve_scale
-  bars = (
-      alt.Chart(d)
-      .mark_bar(size=28, cornerRadiusEnd=3, color='#22c55e')
+  plot = d.melt(
+      id_vars=['CAT'],
+      value_vars=['SellOut', 'Target'],
+      var_name='Chỉ số',
+      value_name='Giá trị',
+  )
+  plot['Chỉ số'] = plot['Chỉ số'].map({
+      'SellOut': 'Sum of SO',
+      'Target': 'Sum of TARGET SO',
+  })
+
+  chart = (
+      alt.Chart(plot)
+      .mark_bar(size=18, cornerRadiusEnd=2)
       .encode(
           x=alt.X(
               'CAT:N',
               title=None,
               sort=cat_order,
-              axis=alt.Axis(labelAngle=-25, labelFontSize=11, labelLimit=120),
+              axis=alt.Axis(
+                  labelAngle=-30,
+                  labelFontSize=11,
+                  labelLimit=140,
+                  labelColor='#334155',
+              ),
           ),
           y=alt.Y(
-              'SellOut:Q',
-              title='MTD Sell Out (Triệu đồng)',
+              'Giá trị:Q',
+              title=None,
               axis=alt.Axis(
-                  titleColor='#16a34a',
-                  labelColor='#16a34a',
                   grid=True,
                   tickCount=6,
+                  format='~s',
+                  labelFontSize=11,
+                  labelColor='#334155',
               ),
           ),
-          tooltip=[
-              alt.Tooltip('CAT:N', title='CAT'),
-              alt.Tooltip('SellOut:Q', title='MTD SellOut (triệu)', format=',.1f'),
-              alt.Tooltip('Target:Q', title='Target (triệu)', format=',.1f'),
-              alt.Tooltip('Pct:Q', title='% Hoàn thành', format='.1f'),
-          ],
-      )
-  )
-
-  line = (
-      alt.Chart(d)
-      .mark_line(color='#e11d48', strokeWidth=2.5, point=False)
-      .encode(
-          x=alt.X('CAT:N', sort=cat_order),
-          y=alt.Y(
-              'Pct:Q',
-              title='% Hoàn thành MTD (%)',
-              axis=alt.Axis(
-                  titleColor='#e11d48',
-                  labelColor='#e11d48',
-                  grid=False,
-                  tickCount=6,
-                  format='.1f',
+          color=alt.Color(
+              'Chỉ số:N',
+              scale=alt.Scale(
+                  domain=['Sum of SO', 'Sum of TARGET SO'],
+                  range=['#4472C4', '#ED7D31'],  # Xanh dương + Cam như mẫu
+              ),
+              legend=alt.Legend(
+                  title=None,
+                  orient='bottom',
+                  labelFontSize=12,
+                  symbolType='square',
+                  direction='horizontal',
               ),
           ),
-      )
-  )
-
-  points = (
-      alt.Chart(d)
-      .mark_circle(size=70, color='#e11d48')
-      .encode(
-          x=alt.X('CAT:N', sort=cat_order),
-          y=alt.Y('Pct:Q'),
+          xOffset=alt.XOffset('Chỉ số:N'),
           tooltip=[
               alt.Tooltip('CAT:N', title='CAT'),
-              alt.Tooltip('Pct:Q', title='% Hoàn thành', format='.1f'),
+              alt.Tooltip('Chỉ số:N', title='Chỉ số'),
+              alt.Tooltip('Giá trị:Q', title='Triệu đồng', format=',.1f'),
           ],
       )
-  )
-
-  labels = (
-      alt.Chart(d)
-      .mark_text(
-          align='center',
-          baseline='bottom',
-          dy=-10,
-          fontSize=11,
-          fontWeight='bold',
-          color='#e11d48',
-      )
-      .encode(
-          x=alt.X('CAT:N', sort=cat_order),
-          y=alt.Y('Pct:Q'),
-          text='PctLabel:N',
-      )
-  )
-
-  chart = (
-      alt.layer(bars, line, points, labels)
-      .resolve_scale(y='independent')
       .properties(
           height=360,
-          title=f'Combo Chart — {month_label} (MTD SellOut & % Hoàn thành Target)',
+          title=f'📅 Tháng {month_label}',
       )
-      .configure_title(fontSize=14, fontWeight='bold', color='#1a365d', anchor='middle')
+      .configure_title(
+          fontSize=16,
+          fontWeight='bold',
+          color='#1a365d',
+          anchor='middle',
+      )
       .configure_view(strokeWidth=0)
-      .configure_axis(gridColor='#e2e8f0', domainColor='#cbd5e0')
+      .configure_axis(gridColor='#e2e8f0', domainColor='#94a3b8')
   )
   st.altair_chart(chart, use_container_width=True)
 
