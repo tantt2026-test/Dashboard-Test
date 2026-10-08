@@ -6818,13 +6818,13 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date, df_m
   """Maps NV → so_ch_tb_per, chup_hinh_ddkd.
 
   Số CH TB PER:
-    CH đăng ký TB (trừ Sampling & TBTN) ∩
+    CH đăng ký TB (trừ Sampling, TBTN & Tích Lũy) ∩
     (lịch VT ngày BC của NV  ∪  CH có Thứ VT 25/36/47 khớp ngày BC trên MCP).
 
   Chụp hình bởi ĐDKD:
     - Ngày đăng hình = ngày BC
     - Người đăng hình trùng đúng Tên NVBH (không khớp → bỏ, = 0)
-    - Tên CT không Sampling / TBTN
+    - Tên CT không Sampling / TBTN / Tích Lũy
     - Mã CH ∈ ĐK TB và ∈ lịch VT ngày (gồm 25/36/47)
     → đếm unique Mã CH
   """
@@ -6844,7 +6844,16 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date, df_m
 
   def _is_excluded_ct(ct):
     s = str(ct or '').lower()
-    return ('sampling' in s) or ('tbtn' in s)
+    # Loại Sampling, TBTN, Tích Lũy (mọi biến thể)
+    return (
+        ('sampling' in s)
+        or ('tbtn' in s)
+        or ('tích lũy' in s)
+        or ('tich luy' in s)
+        or ('tichluy' in s)
+        or ('tíchluỹ' in s)
+        or ('tích luỹ' in s)
+    )
 
   # Thứ trong tuần: Mon=2 ... Sat=7 (CN bỏ)
   try:
