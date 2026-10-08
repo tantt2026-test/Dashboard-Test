@@ -6283,7 +6283,7 @@ def render_perf_table_html(df, month_label, use_timegone=False):
 
 
 def render_perf_chart(df, month_label):
-  """Bullet Chart: Target (xanh dương đậm nền) vs MTD SellOut (cam) theo CAT."""
+  """Combo Chart: Cột xanh MTD SellOut + Đường đỏ % hoàn thành Target."""
   if df is None or df.empty:
     return
   d = df[~df['CAT'].astype(str).str.lower().isin(
@@ -6294,84 +6294,110 @@ def render_perf_chart(df, month_label):
   import altair as alt
 
   d = d.copy()
-  d['Target'] = pd.to_numeric(d['Target'], errors='coerce').fillna(0) / 1_000_000.0
   d['SellOut'] = pd.to_numeric(d['SellOut'], errors='coerce').fillna(0) / 1_000_000.0
+  d['Target'] = pd.to_numeric(d['Target'], errors='coerce').fillna(0) / 1_000_000.0
+  # % MTD từ cột sẵn có hoặc tính lại
+  if '%MTD' in d.columns:
+    d['Pct'] = pd.to_numeric(d['%MTD'], errors='coerce').fillna(0)
+  else:
+    d['Pct'] = d.apply(
+        lambda r: round(r['SellOut'] / r['Target'] * 100, 1) if r['Target'] > 0 else 0.0,
+        axis=1,
+    )
+  d['PctLabel'] = d['Pct'].map(lambda x: f'{x:.1f}%')
   cat_order = list(d['CAT'].tolist())
 
-  # Nền = Chỉ tiêu (Target) — xanh dương đậm
-  bars_target = (
+  # Trục Y phải: scale % (để line nằm cùng frame)
+  max_so = float(d['SellOut'].max()) if len(d) else 1.0
+  max_pct = float(d['Pct'].max()) if len(d) else 1.0
+  max_so = max(max_so, 1.0)
+  max_pct = max(max_pct, 1.0)
+  # Map Pct → cùng scale với SellOut để vẽ line trên bar chart
+  # Dùng dual axis Altair resolve_scale
+  bars = (
       alt.Chart(d)
-      .mark_bar(size=22, cornerRadiusEnd=2)
+      .mark_bar(size=28, cornerRadiusEnd=3, color='#22c55e')
       .encode(
-          y=alt.Y(
+          x=alt.X(
               'CAT:N',
               title=None,
               sort=cat_order,
-              axis=alt.Axis(labelFontSize=12, labelLimit=160),
+              axis=alt.Axis(labelAngle=-25, labelFontSize=11, labelLimit=120),
           ),
-          x=alt.X(
-              'Target:Q',
-              title='Giá trị (Triệu đồng)',
-              axis=alt.Axis(grid=True, tickCount=6, labelFontSize=11),
+          y=alt.Y(
+              'SellOut:Q',
+              title='MTD Sell Out (Triệu đồng)',
+              axis=alt.Axis(
+                  titleColor='#16a34a',
+                  labelColor='#16a34a',
+                  grid=True,
+                  tickCount=6,
+              ),
           ),
-          color=alt.value('#1a365d'),  # Xanh dương đậm — Chỉ tiêu
           tooltip=[
               alt.Tooltip('CAT:N', title='CAT'),
-              alt.Tooltip('Target:Q', title='Chỉ tiêu (triệu)', format=',.1f'),
               alt.Tooltip('SellOut:Q', title='MTD SellOut (triệu)', format=',.1f'),
+              alt.Tooltip('Target:Q', title='Target (triệu)', format=',.1f'),
+              alt.Tooltip('Pct:Q', title='% Hoàn thành', format='.1f'),
           ],
       )
   )
 
-  # Thanh MTD SellOut — cam (nằm trên nền Target)
-  bars_mtd = (
+  line = (
       alt.Chart(d)
-      .mark_bar(size=12, cornerRadiusEnd=2)
+      .mark_line(color='#e11d48', strokeWidth=2.5, point=False)
       .encode(
-          y=alt.Y('CAT:N', sort=cat_order),
-          x=alt.X('SellOut:Q'),
-          color=alt.value('#ed7d31'),  # Cam — MTD SellOut
+          x=alt.X('CAT:N', sort=cat_order),
+          y=alt.Y(
+              'Pct:Q',
+              title='% Hoàn thành MTD (%)',
+              axis=alt.Axis(
+                  titleColor='#e11d48',
+                  labelColor='#e11d48',
+                  grid=False,
+                  tickCount=6,
+                  format='.1f',
+              ),
+          ),
+      )
+  )
+
+  points = (
+      alt.Chart(d)
+      .mark_circle(size=70, color='#e11d48')
+      .encode(
+          x=alt.X('CAT:N', sort=cat_order),
+          y=alt.Y('Pct:Q'),
           tooltip=[
               alt.Tooltip('CAT:N', title='CAT'),
-              alt.Tooltip('Target:Q', title='Chỉ tiêu (triệu)', format=',.1f'),
-              alt.Tooltip('SellOut:Q', title='MTD SellOut (triệu)', format=',.1f'),
+              alt.Tooltip('Pct:Q', title='% Hoàn thành', format='.1f'),
           ],
       )
   )
 
-  # Legend giả bằng điểm 0
-  legend_df = pd.DataFrame({
-      'Loại': ['Chỉ tiêu (Target)', 'MTD Sell Out'],
-      'x': [0, 0],
-      'y': [cat_order[0], cat_order[0]] if cat_order else ['', ''],
-  })
-  legend = (
-      alt.Chart(legend_df)
-      .mark_point(size=80, filled=True)
+  labels = (
+      alt.Chart(d)
+      .mark_text(
+          align='center',
+          baseline='bottom',
+          dy=-10,
+          fontSize=11,
+          fontWeight='bold',
+          color='#e11d48',
+      )
       .encode(
-          x=alt.X('x:Q', scale=alt.Scale(domain=[0, 1])),
-          y=alt.Y('y:N'),
-          color=alt.Color(
-              'Loại:N',
-              scale=alt.Scale(
-                  domain=['Chỉ tiêu (Target)', 'MTD Sell Out'],
-                  range=['#1a365d', '#ed7d31'],
-              ),
-              legend=alt.Legend(
-                  title=None,
-                  orient='bottom',
-                  labelFontSize=12,
-                  symbolType='square',
-              ),
-          ),
+          x=alt.X('CAT:N', sort=cat_order),
+          y=alt.Y('Pct:Q'),
+          text='PctLabel:N',
       )
   )
 
   chart = (
-      (bars_target + bars_mtd + legend)
+      alt.layer(bars, line, points, labels)
+      .resolve_scale(y='independent')
       .properties(
-          height=max(280, 36 * len(cat_order) + 40),
-          title=f'Bullet Chart — {month_label} (Chỉ tiêu vs MTD SellOut)',
+          height=360,
+          title=f'Combo Chart — {month_label} (MTD SellOut & % Hoàn thành Target)',
       )
       .configure_title(fontSize=14, fontWeight='bold', color='#1a365d', anchor='middle')
       .configure_view(strokeWidth=0)
