@@ -6843,52 +6843,60 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date, df_m
       return s
 
   def _is_allowed_ct(ct):
-    """Chỉ đếm CT permanent có chụp hình daily (whitelist)."""
+    """Chỉ đếm đúng 6 CT permanent Đại sứ ngành hàng (whitelist chặt).
+
+    1. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Hóa mỹ phẩm
+    2. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Gia Vị
+    3. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Mì
+    4. MSC_BEV_Cuộc thi ảnh Đại sứ ngành hàng Nước giải khát
+    5. MSJ_Cuộc thi ảnh Đại sứ Ngành hàng Thịt chế biến
+    6. MSC_POW_Cuộc thi ảnh Đại sứ Ngành hàng Cà phê
+
+    Loại: Sampling, Tích Lũy, TBTN, Khách hàng trọng điểm, và mọi CT khác.
+    """
     s = str(ct or '').lower().replace('_', ' ')
-    # 6 CT áp dụng
-    keywords = [
-        'đại sứ ngành hàng hóa mỹ phẩm',
-        'dai su nganh hang hoa my pham',
-        'đại sứ ngành hàng gia vị',
-        'dai su nganh hang gia vi',
-        'đại sứ ngành hàng mì',
-        'dai su nganh hang mi',
-        'đại sứ ngành hàng nước giải khát',
-        'dai su nganh hang nuoc giai khat',
-        'đại sứ ngành hàng thịt chế biến',
-        'dai su nganh hang thit che bien',
-        'đại sứ ngành hàng cà phê',
-        'dai su nganh hang ca phe',
+    s = ' '.join(s.split())  # normalize spaces
+
+    # Loại rõ ràng
+    deny = [
+        'trọng điểm', 'trong diem',
+        'sampling', 'tbtn',
+        'tích lũy', 'tich luy', 'tichluy', 'tích luỹ',
     ]
-    # Match ngắn gọn theo ngành
-    short = [
-        'hóa mỹ phẩm', 'hoa my pham',
-        'gia vị', 'gia vi',
-        'ngành hàng mì', 'nganh hang mi',
-        'nước giải khát', 'nuoc giai khat',
-        'thịt chế biến', 'thit che bien',
-        'cà phê', 'ca phe',
+    for d in deny:
+      if d in s:
+        return False
+
+    # Bắt buộc có "đại sứ" (không chỉ "cuộc thi ảnh")
+    if 'đại sứ' not in s and 'dai su' not in s:
+      return False
+
+    # Phải khớp 1 trong 6 ngành
+    industries = [
+        ('hóa mỹ phẩm', 'hoa my pham'),
+        ('gia vị', 'gia vi'),
+        ('nước giải khát', 'nuoc giai khat'),
+        ('thịt chế biến', 'thit che bien'),
+        ('cà phê', 'ca phe'),
+        # Mì: tránh match nhầm — yêu cầu "mì" gần "ngành hàng" hoặc đứng sau đại sứ
+        ('ngành hàng mì', 'nganh hang mi'),
+        ('đại sứ ngành hàng mì', 'dai su nganh hang mi'),
     ]
-    if 'đại sứ' not in s and 'dai su' not in s and 'cuộc thi ảnh' not in s and 'cuoc thi anh' not in s:
-      # vẫn cho qua nếu có cụm ngành + MSC/MSJ
-      pass
-    for kw in keywords:
-      if kw in s:
-        return True
-    # Fallback: cuộc thi ảnh / đại sứ + 1 trong 6 ngành
-    is_contest = (
-        'đại sứ' in s or 'dai su' in s
-        or 'cuộc thi ảnh' in s or 'cuoc thi anh' in s
-        or 'cuộc thi' in s
-    )
-    if is_contest:
-      for kw in short:
+    for pair in industries:
+      for kw in pair:
         if kw in s:
           return True
+
+    # Fallback riêng cho Mì: "đại sứ" + " mì" / " mi " (word boundary-ish)
+    if (' mì' in s or s.endswith(' mì') or ' mi ' in s or s.endswith(' mi')
+            or 'hàng mì' in s or 'hang mi' in s):
+      if 'đại sứ' in s or 'dai su' in s:
+        return True
+
     return False
 
   def _is_excluded_ct(ct):
-    # Giữ tên cũ: True = loại bỏ (không thuộc whitelist)
+    # True = loại bỏ (không thuộc 6 CT whitelist)
     return not _is_allowed_ct(ct)
 
   # Thứ trong tuần: Mon=2 ... Sat=7 (CN bỏ)
