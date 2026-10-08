@@ -6283,7 +6283,7 @@ def render_perf_table_html(df, month_label, use_timegone=False):
 
 
 def render_perf_chart(df, month_label):
-  """Horizontal grouped bar: TARGET (cam) + SO (xanh) theo CAT."""
+  """Horizontal grouped bar: TARGET (cam) + SO (xanh) — không chồng lấn."""
   if df is None or df.empty:
     return
   d = df[~df['CAT'].astype(str).str.lower().isin(
@@ -6291,82 +6291,97 @@ def render_perf_chart(df, month_label):
   )].copy()
   if d.empty:
     return
-  import altair as alt
 
   d = d.copy()
   d['SellOut'] = pd.to_numeric(d['SellOut'], errors='coerce').fillna(0) / 1_000_000.0
   d['Target'] = pd.to_numeric(d['Target'], errors='coerce').fillna(0) / 1_000_000.0
-  cat_order = list(d['CAT'].tolist())
+  cats = [str(c) for c in d['CAT'].tolist()]
+  # Đảo thứ tự để CAT đầu hiện trên cùng (giống mẫu)
+  cats_plot = list(reversed(cats))
+  so_vals = [float(d.loc[d['CAT'].astype(str) == c, 'SellOut'].iloc[0]) if len(d.loc[d['CAT'].astype(str) == c]) else 0.0 for c in cats_plot]
+  tg_vals = [float(d.loc[d['CAT'].astype(str) == c, 'Target'].iloc[0]) if len(d.loc[d['CAT'].astype(str) == c]) else 0.0 for c in cats_plot]
 
-  plot = d.melt(
-      id_vars=['CAT'],
-      value_vars=['Target', 'SellOut'],
-      var_name='Chỉ số',
-      value_name='Giá trị',
-  )
-  plot['Chỉ số'] = plot['Chỉ số'].map({
-      'Target': 'Sum of TARGET SO',
-      'SellOut': 'Sum of SO',
+  try:
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=cats_plot,
+        x=tg_vals,
+        name='Sum of TARGET SO',
+        orientation='h',
+        marker_color='#ED7D31',
+        hovertemplate='<b>%{y}</b><br>TARGET: %{x:,.1f} triệu<extra></extra>',
+    ))
+    fig.add_trace(go.Bar(
+        y=cats_plot,
+        x=so_vals,
+        name='Sum of SO',
+        orientation='h',
+        marker_color='#4472C4',
+        hovertemplate='<b>%{y}</b><br>SO: %{x:,.1f} triệu<extra></extra>',
+    ))
+    fig.update_layout(
+        barmode='group',  # cạnh nhau, không chồng
+        bargap=0.25,
+        bargroupgap=0.08,
+        title_text=f'📅 Tháng {month_label}',
+        title_x=0.5,
+        title_font_size=16,
+        title_font_color='#1a365d',
+        height=max(360, 36 * len(cats) + 80),
+        margin=dict(l=10, r=20, t=50, b=40),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=-0.18,
+            xanchor='center',
+            x=0.5,
+            font_size=12,
+        ),
+        xaxis=dict(
+            gridcolor='#e2e8f0',
+            zeroline=False,
+            tickfont=dict(size=11, color='#334155'),
+        ),
+        yaxis=dict(
+            tickfont=dict(size=12, color='#334155'),
+            automargin=True,
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    return
+  except ImportError:
+    pass
+
+  # Fallback Altair nếu không có plotly
+  import altair as alt
+  plot = pd.DataFrame({
+      'CAT': cats_plot * 2,
+      'Chỉ số': ['Sum of TARGET SO'] * len(cats_plot) + ['Sum of SO'] * len(cats_plot),
+      'Giá trị': tg_vals + so_vals,
   })
-
   chart = (
       alt.Chart(plot)
-      .mark_bar(size=14, cornerRadiusEnd=2)
+      .mark_bar()
       .encode(
-          y=alt.Y(
-              'CAT:N',
-              title=None,
-              sort=cat_order,
-              axis=alt.Axis(
-                  labelFontSize=12,
-                  labelLimit=160,
-                  labelColor='#334155',
-              ),
-          ),
-          x=alt.X(
-              'Giá trị:Q',
-              title=None,
-              axis=alt.Axis(
-                  grid=True,
-                  tickCount=8,
-                  format='~s',
-                  labelFontSize=11,
-                  labelColor='#334155',
-              ),
-          ),
+          y=alt.Y('CAT:N', sort=cats_plot, title=None),
+          x=alt.X('Giá trị:Q', title=None),
           color=alt.Color(
               'Chỉ số:N',
               scale=alt.Scale(
                   domain=['Sum of TARGET SO', 'Sum of SO'],
-                  range=['#ED7D31', '#4472C4'],  # Cam + Xanh như mẫu
+                  range=['#ED7D31', '#4472C4'],
               ),
-              legend=alt.Legend(
-                  title=None,
-                  orient='bottom',
-                  labelFontSize=12,
-                  symbolType='square',
-                  direction='horizontal',
-              ),
+              legend=alt.Legend(title=None, orient='bottom'),
           ),
-          yOffset=alt.YOffset('Chỉ số:N'),
-          tooltip=[
-              alt.Tooltip('CAT:N', title='CAT'),
-              alt.Tooltip('Chỉ số:N', title='Chỉ số'),
-              alt.Tooltip('Giá trị:Q', title='Triệu đồng', format=',.1f'),
-          ],
+          yOffset='Chỉ số:N',
+          tooltip=['CAT:N', 'Chỉ số:N', alt.Tooltip('Giá trị:Q', format=',.1f')],
       )
-      .properties(
-          height=max(320, 28 * len(cat_order) + 60),
-          title=f'📅 Tháng {month_label}',
-      )
-      .configure_title(
-          fontSize=16,
-          fontWeight='bold',
-          color='#1a365d',
-          anchor='middle',
-      )
-      .configure_view(strokeWidth=0)
-      .configure_axis(gridColor='#e2e8f0', domainColor='#94a3b8')
+      .properties(height=max(320, 28 * len(cats) + 60), title=f'📅 Tháng {month_label}')
+      .configure_title(fontSize=16, fontWeight='bold', color='#1a365d', anchor='middle')
   )
   st.altair_chart(chart, use_container_width=True)
 
