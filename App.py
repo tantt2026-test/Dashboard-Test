@@ -6483,6 +6483,106 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date
   return out, cats
 
 
+
+def render_perf_subdiv_charts(df_mat, cats):
+  """8 chart ngang theo từng SUB DIV — 2 dòng × 4 cột, dưới bảng tổng hợp.
+
+  Trục Y: Tên NVBH | Trục X: Doanh số (triệu).
+  Cam = TARGET, Xanh = SO. Tự co theo container (mobile OK).
+  """
+  if df_mat is None or df_mat.empty or not cats:
+    return
+
+  d = df_mat.copy()
+  if 'Tên NVBH' not in d.columns:
+    return
+  mask_tot = d['Tên NVBH'].astype(str).str.upper().str.contains(
+      'TỔNG|TOTAL|SS ', na=False
+  )
+  d = d[~mask_tot].copy()
+  if d.empty:
+    return
+
+  nvs = [str(x) for x in d['Tên NVBH'].tolist()]
+  # Tối đa 8 ngành, layout 2×4
+  cats_show = list(cats)[:8]
+  while len(cats_show) < 8:
+    cats_show.append(None)
+
+  try:
+    import plotly.graph_objects as go
+  except ImportError:
+    st.caption('Cần plotly để xem chart SUB DIV.')
+    return
+
+  st.markdown(
+      '<h4 style="color:#1a365d;font-weight:800;margin:16px 0 8px 0;">'
+      '📊 CHART THEO TỪNG NGÀNH HÀNG (SUB DIV)</h4>',
+      unsafe_allow_html=True,
+  )
+
+  def _one_chart(cat):
+    if not cat:
+      st.empty()
+      return
+    col_tg = f'{cat}|TARGET'
+    col_so = f'{cat}|SELL OUT'
+    tg = []
+    so = []
+    for _, r in d.iterrows():
+      v_tg = r.get(col_tg, 0)
+      v_so = r.get(col_so, 0)
+      try:
+        tg.append(float(v_tg or 0) / 1_000_000.0)
+      except Exception:
+        tg.append(0.0)
+      try:
+        so.append(float(v_so or 0) / 1_000_000.0)
+      except Exception:
+        so.append(0.0)
+    # Đảo để NV đầu ở trên
+    nvs_p = list(reversed(nvs))
+    tg_p = list(reversed(tg))
+    so_p = list(reversed(so))
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=nvs_p, x=tg_p, name='TARGET', orientation='h',
+        marker_color='#ED7D31',
+        hovertemplate='<b>%{y}</b><br>TARGET: %{x:,.1f} tr<extra></extra>',
+    ))
+    fig.add_trace(go.Bar(
+        y=nvs_p, x=so_p, name='SO', orientation='h',
+        marker_color='#4472C4',
+        hovertemplate='<b>%{y}</b><br>SO: %{x:,.1f} tr<extra></extra>',
+    ))
+    fig.update_layout(
+        barmode='group',
+        bargap=0.2,
+        bargroupgap=0.05,
+        title=dict(text=str(cat), font=dict(size=13, color='#1a365d'), x=0.5, xanchor='center'),
+        height=max(260, 22 * len(nvs) + 70),
+        margin=dict(l=4, r=8, t=36, b=8),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        showlegend=True,
+        legend=dict(
+            orientation='h', y=1.02, yanchor='bottom', x=0.5, xanchor='center',
+            font=dict(size=10),
+        ),
+        xaxis=dict(gridcolor='#e2e8f0', zeroline=False, tickfont=dict(size=9)),
+        yaxis=dict(tickfont=dict(size=10), automargin=True),
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+  # 2 dòng × 4 cột — trên mobile Streamlit xếp dọc tự động khi hẹp
+  for row_i in range(2):
+    cols = st.columns(4)
+    for col_i in range(4):
+      with cols[col_i]:
+        _one_chart(cats_show[row_i * 4 + col_i])
+
+
 def render_perf_nv_matrix_html(df, cats, month_label, use_timegone=True):
   """Bảng tổng hợp NV × ngành — sticky STT/Tên NVBH + header, cuộn ngang như Trưng bày."""
   if df is None or df.empty or not cats:
@@ -10133,6 +10233,8 @@ with tab_kpi:
               ),
               unsafe_allow_html=True,
           )
+          # 8 chart SUB DIV ngay dưới bảng tổng hợp (2×4)
+          render_perf_subdiv_charts(df_mat, cats_union)
         elif use_months:
           st.info('Không có dữ liệu tổng hợp với bộ lọc hiện tại.')
 
