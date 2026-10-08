@@ -5245,9 +5245,13 @@ def build_dskh_exempt_lookup(df_f4, df_f2):
 
 
 def check_dskh_bo_sung(ma_kh, report_date, rules_lookup):
-  """✓ nếu Mã KH trong DSKH và thứ của ngày BC nằm trong NGÀY VT KO TÍNH TRÁI TUYẾN.
+  """✓ nếu Mã KH trong DSKH và thứ của ngày BC khớp NGÀY VT KO TÍNH TRÁI TUYẾN.
 
-  Ví dụ: ngày BC = Thứ 7 → chỉ tick CH có mã 47 (T4 & T7).
+  Rule nghiệp vụ (chỉ check THỨ, không filter Even/Odd Week):
+    25 → T2 & T5 | 36 → T3 & T6 | 47 → T4 & T7 | 2..7 → đúng thứ đó
+  Ví dụ: 08/10/2026 = Thứ 5 → tick CH có mã 5 hoặc 25.
+
+  Cột "Tuần hiện tại" (Even/Odd) mô tả lịch gốc F2, KHÔNG dùng để chặn tick.
   """
   if not rules_lookup:
     return False
@@ -5259,6 +5263,9 @@ def check_dskh_bo_sung(ma_kh, report_date, rules_lookup):
     candidates.add(str(int(float(ma))))
   except Exception:
     pass
+  # Thêm biến thể bỏ leading zeros
+  if ma.lstrip('0') and ma.lstrip('0') != ma:
+    candidates.add(ma.lstrip('0'))
 
   matched = None
   for c in candidates:
@@ -5276,9 +5283,7 @@ def check_dskh_bo_sung(ma_kh, report_date, rules_lookup):
   for rule in matched:
     days = rule.get('days') or set()
     if wd in days:
-      # week: Both / Even / Odd
-      if _week_ok(rule.get('week'), report_date):
-        return True
+      return True  # chỉ cần khớp thứ — không check Even/Odd
   return False
 
 
