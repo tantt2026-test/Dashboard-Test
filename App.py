@@ -6485,12 +6485,7 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date
 
 
 def render_perf_subdiv_charts(df_mat, cats):
-  """8 chart ngang theo từng SUB DIV — 2 dòng × 4 cột, dưới bảng tổng hợp.
-
-  - Khung tách từng chart
-  - Title không trùng legend
-  - NV có % SO/Target < Timegone → tên đỏ in đậm trên trục Y
-  """
+  """8 chart ngang theo SUB DIV — Show/Hide + slicer fullsize + màu tên NV."""
   if df_mat is None or df_mat.empty or not cats:
     return
 
@@ -6505,9 +6500,8 @@ def render_perf_subdiv_charts(df_mat, cats):
     return
 
   nvs = [str(x) for x in d['Tên NVBH'].tolist()]
-  cats_show = list(cats)[:8]
-  while len(cats_show) < 8:
-    cats_show.append(None)
+  cats_real = [c for c in cats if c]
+  cats_show = list(cats_real)[:8]
 
   try:
     import plotly.graph_objects as go
@@ -6520,29 +6514,44 @@ def render_perf_subdiv_charts(df_mat, cats):
   except Exception:
     moc = 100.0
 
+  # ---- Header + Show/Hide ----
+  h1, h2 = st.columns([5, 1])
+  with h1:
+    st.markdown(
+        '<h4 style="color:#1a365d;font-weight:800;margin:16px 0 4px 0;">'
+        '📊 CHART THEO TỪNG NGÀNH HÀNG (SUB DIV)</h4>',
+        unsafe_allow_html=True,
+    )
+  with h2:
+    show_charts = st.toggle(
+        'Hiện chart',
+        value=True,
+        key='perf_subdiv_show_hide',
+        help='Ẩn / Hiện toàn bộ chart SUB DIV',
+    )
+  if not show_charts:
+    st.caption('Chart SUB DIV đang ẩn — bật **Hiện chart** để xem lại.')
+    return
+
   st.markdown(
-      '<h4 style="color:#1a365d;font-weight:800;margin:16px 0 4px 0;">'
-      '📊 CHART THEO TỪNG NGÀNH HÀNG (SUB DIV)</h4>'
-      '<p style="font-size:12px;color:#64748b;margin:0 0 10px 0;">'
+      '<p style="font-size:12px;color:#64748b;margin:0 0 8px 0;">'
       '🟠 TARGET &nbsp;|&nbsp; 🔵 SO'
-      ' &nbsp;·&nbsp; Tên NV <b style="color:#c53030;">đỏ đậm</b> = % SO/Target &lt; Timegone'
-      f' ({moc:.0f}%)</p>',
+      ' &nbsp;·&nbsp; Tên <b style="color:#c53030;">đỏ đậm</b> = dưới Timegone'
+      ' &nbsp;·&nbsp; Tên <b style="color:#1a56db;">xanh dương đậm</b> = kịp / vượt Timegone'
+      f' &nbsp;({moc:.0f}%)</p>',
       unsafe_allow_html=True,
   )
 
-  st.markdown(
-      '<style>'
-      'div.perf-subdiv-wrap{border:1px solid #cbd5e0;border-radius:8px;'
-      'padding:8px 6px 4px 6px;margin-bottom:10px;background:#fafbfc;'
-      'box-shadow:0 1px 3px rgba(0,0,0,0.06);}'
-      '</style>',
-      unsafe_allow_html=True,
+  # ---- Slicer fullsize ----
+  full_opts = ['(Lưới 2×4)'] + cats_show
+  f_full = st.selectbox(
+      '🔍 Xem fullsize 1 ngành',
+      options=full_opts,
+      index=0,
+      key='perf_subdiv_fullsize',
   )
 
-  def _one_chart(cat):
-    if not cat:
-      st.empty()
-      return
+  def _build_fig(cat, tall=False):
     col_tg = f'{cat}|TARGET'
     col_so = f'{cat}|SELL OUT'
     tg, so, pcts = [], [], []
@@ -6564,66 +6573,100 @@ def render_perf_subdiv_charts(df_mat, cats):
     so_p = list(reversed(so))
     pct_p = list(reversed(pcts))
 
-    tick_colors = ['#c53030' if p < moc else '#1a202c' for p in pct_p]
+    ticktext = []
+    for i, name in enumerate(nvs_p):
+      if pct_p[i] < moc:
+        ticktext.append(
+            f'<span style="color:#c53030;font-weight:700">{name}</span>'
+        )
+      else:
+        ticktext.append(
+            f'<span style="color:#1a56db;font-weight:700">{name}</span>'
+        )
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
         y=nvs_p, x=tg_p, name='TARGET', orientation='h',
         marker_color='#ED7D31',
-        hovertemplate='<b>%{y}</b><br>TARGET: %{x:,.1f} tr<extra></extra>',
+        hovertemplate='<b>%{y}</b><br>TARGET: %{x:,.1f} tr'
+                      '<br>%: %{customdata:.1f}%<extra></extra>',
+        customdata=pct_p,
     ))
     fig.add_trace(go.Bar(
         y=nvs_p, x=so_p, name='SO', orientation='h',
         marker_color='#4472C4',
         hovertemplate='<b>%{y}</b><br>SO: %{x:,.1f} tr<extra></extra>',
     ))
+    h = max(420, 28 * len(nvs) + 80) if tall else max(280, 24 * len(nvs) + 50)
     fig.update_layout(
         barmode='group',
         bargap=0.2,
         bargroupgap=0.05,
         title=dict(
-            text='<b>' + str(cat) + '</b>',
-            font=dict(size=13, color='#1a365d'),
-            x=0.5,
-            xanchor='center',
-            y=0.98,
-            yanchor='top',
+            text=f'<b>{cat}</b>',
+            font=dict(size=15 if tall else 13, color='#1a365d'),
+            x=0.5, xanchor='center', y=0.98, yanchor='top',
         ),
-        height=max(280, 24 * len(nvs) + 50),
-        margin=dict(l=4, r=8, t=40, b=8),
+        height=h,
+        margin=dict(l=8, r=12, t=44, b=12),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='white',
-        showlegend=False,
+        showlegend=True if tall else False,
+        legend=dict(
+            orientation='h', y=1.08, yanchor='bottom',
+            x=0.5, xanchor='center', font=dict(size=11),
+        ) if tall else None,
         xaxis=dict(
-            gridcolor='#e2e8f0',
-            zeroline=False,
-            tickfont=dict(size=9),
+            gridcolor='#e2e8f0', zeroline=False,
+            tickfont=dict(size=10 if tall else 9),
+            title='Triệu đồng' if tall else None,
         ),
         yaxis=dict(
             tickmode='array',
             tickvals=nvs_p,
-            ticktext=[
-                ('<span style="color:#c53030;font-weight:700">' + nvs_p[i] + '</span>')
-                if pct_p[i] < moc
-                else ('<span style="color:#1a202c">' + nvs_p[i] + '</span>')
-                for i in range(len(nvs_p))
-            ],
-            tickfont=dict(size=10),
+            ticktext=ticktext,
+            tickfont=dict(size=12 if tall else 10),
             automargin=True,
         ),
     )
+    return fig
+
+  # Fullsize mode
+  if f_full and f_full != '(Lưới 2×4)':
     try:
       box = st.container(border=True)
     except TypeError:
       box = st.container()
     with box:
-      st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+      st.plotly_chart(
+          _build_fig(f_full, tall=True),
+          use_container_width=True,
+          config={'displayModeBar': False},
+      )
+    return
+
+  # Grid 2×4
+  while len(cats_show) < 8:
+    cats_show.append(None)
 
   for row_i in range(2):
     cols = st.columns(4)
     for col_i in range(4):
+      cat = cats_show[row_i * 4 + col_i]
       with cols[col_i]:
-        _one_chart(cats_show[row_i * 4 + col_i])
+        if not cat:
+          st.empty()
+          continue
+        try:
+          box = st.container(border=True)
+        except TypeError:
+          box = st.container()
+        with box:
+          st.plotly_chart(
+              _build_fig(cat, tall=False),
+              use_container_width=True,
+              config={'displayModeBar': False},
+          )
 
 
 
