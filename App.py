@@ -6534,7 +6534,7 @@ def render_perf_subdiv_charts(df_mat, cats):
       '<p style="font-size:12px;color:#64748b;margin:4px 0 8px 0;">'
       '🟠 TARGET &nbsp;|&nbsp; 🔵 SO'
       ' &nbsp;·&nbsp; Tên <b style="color:#c53030;">đỏ đậm</b> = dưới Timegone'
-      ' &nbsp;·&nbsp; Tên <b style="color:#1a56db;">xanh dương đậm</b> = kịp / vượt'
+      ' &nbsp;·&nbsp; Tên <b style="color:#0b1f4a;">xanh dương đậm</b> = kịp / vượt'
       f' ({moc:.0f}%)'
       ' &nbsp;·&nbsp; Bấm icon <b>⛶</b> trên từng chart để xem fullsize</p>',
       unsafe_allow_html=True,
@@ -6571,7 +6571,7 @@ def render_perf_subdiv_charts(df_mat, cats):
       else:
         # Kịp / vượt Timegone → xanh dương đậm
         ticktext.append(
-            f'<span style="color:#1a56db;font-weight:700">{name}</span>'
+            f'<span style="color:#0b1f4a;font-weight:700">{name}</span>'
         )
 
     fig = go.Figure()
@@ -6615,9 +6615,9 @@ def render_perf_subdiv_charts(df_mat, cats):
     )
     return fig
 
-  # Modebar: mỗi chart có nút fullsize (⛶)
+  # Modebar chỉ hiện khi hover/click — giống chart tháng bên dưới
   plot_cfg = {
-      'displayModeBar': True,
+      'displayModeBar': 'hover',
       'displaylogo': False,
       'modeBarButtonsToRemove': [
           'select2d', 'lasso2d', 'autoScale2d',
