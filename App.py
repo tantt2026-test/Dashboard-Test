@@ -6292,22 +6292,22 @@ def render_perf_chart(df, month_label):
   if d.empty:
     return
 
-  import plotly.graph_objects as go
-  import numpy as np
+  try:
+    import plotly.graph_objects as go
+  except ImportError:
+    st.warning('Cần cài **plotly** (`pip install plotly`) để xem chart 3D.')
+    return
 
   d = d.copy()
   d['SellOut'] = pd.to_numeric(d['SellOut'], errors='coerce').fillna(0) / 1_000_000.0
   d['Target'] = pd.to_numeric(d['Target'], errors='coerce').fillna(0) / 1_000_000.0
-  cats = list(d['CAT'].tolist())
+  cats = [str(c) for c in d['CAT'].tolist()]
   n = len(cats)
 
-  def _box_mesh(x0, y0, z0, dx, dy, dz, color, name, showlegend):
-    """Tạo 1 cột 3D (hộp chữ nhật) bằng Mesh3d."""
-    # 8 đỉnh
-    x = [x0, x0+dx, x0+dx, x0, x0, x0+dx, x0+dx, x0]
-    y = [y0, y0, y0+dy, y0+dy, y0, y0, y0+dy, y0+dy]
-    z = [z0, z0, z0, z0, z0+dz, z0+dz, z0+dz, z0+dz]
-    # 12 tam giác (2 mặt × 6 mặt)
+  def _box_mesh(x0, y0, z0, dx, dy, dz, color, name, showlegend, cat_label):
+    x = [x0, x0 + dx, x0 + dx, x0, x0, x0 + dx, x0 + dx, x0]
+    y = [y0, y0, y0 + dy, y0 + dy, y0, y0, y0 + dy, y0 + dy]
+    z = [z0, z0, z0, z0, z0 + dz, z0 + dz, z0 + dz, z0 + dz]
     i = [0, 0, 4, 4, 0, 0, 1, 1, 2, 2, 3, 3]
     j = [1, 3, 5, 7, 1, 4, 2, 5, 3, 6, 0, 7]
     k = [3, 4, 7, 6, 5, 5, 5, 6, 6, 7, 7, 4]
@@ -6319,52 +6319,52 @@ def render_perf_chart(df, month_label):
         name=name,
         showlegend=showlegend,
         hovertemplate=(
-            f'<b>{name}</b><br>'
-            + 'Giá trị: %{z:.1f} triệu<extra></extra>'
+            f'<b>{cat_label}</b><br>{name}: %{{z:.1f}} triệu<extra></extra>'
         ),
         flatshading=True,
     )
 
   fig = go.Figure()
-  bar_w = 0.32  # độ rộng cột trên trục X
+  bar_w = 0.32
   gap = 0.08
 
   for idx, row in enumerate(d.itertuples()):
-    # Trục X = category index
-    # SO (xanh) lệch trái, TARGET (cam) lệch phải
-    so = float(row.SellOut)
-    tg = float(row.Target)
-    # SO
+    so = float(getattr(row, 'SellOut', 0) or 0)
+    tg = float(getattr(row, 'Target', 0) or 0)
+    cat_label = cats[idx]
     fig.add_trace(_box_mesh(
-        x0=idx - bar_w - gap / 2,
-        y0=0,
-        z0=0,
-        dx=bar_w,
-        dy=0.55,
-        dz=max(so, 0.001),
-        color='#4472C4',
-        name='Sum of SO',
-        showlegend=(idx == 0),
+        x0=idx - bar_w - gap / 2, y0=0, z0=0,
+        dx=bar_w, dy=0.55, dz=max(so, 0.001),
+        color='#4472C4', name='Sum of SO',
+        showlegend=(idx == 0), cat_label=cat_label,
     ))
-    # TARGET
     fig.add_trace(_box_mesh(
-        x0=idx + gap / 2,
-        y0=0,
-        z0=0,
-        dx=bar_w,
-        dy=0.55,
-        dz=max(tg, 0.001),
-        color='#ED7D31',
-        name='Sum of TARGET SO',
-        showlegend=(idx == 0),
+        x0=idx + gap / 2, y0=0, z0=0,
+        dx=bar_w, dy=0.55, dz=max(tg, 0.001),
+        color='#ED7D31', name='Sum of TARGET SO',
+        showlegend=(idx == 0), cat_label=cat_label,
     ))
 
+  # Layout tương thích Plotly 5/6 — tránh titlefont / title=dict lồng lỗi
   fig.update_layout(
-      title=dict(
-          text=f'📅 Tháng {month_label}',
-          font=dict(size=16, color='#1a365d', family='Arial'),
-          x=0.5,
+      title_text=f'📅 Tháng {month_label}',
+      title_x=0.5,
+      title_font_size=16,
+      title_font_color='#1a365d',
+      paper_bgcolor='#1a202c',
+      plot_bgcolor='#1a202c',
+      font_color='#e2e8f0',
+      height=420,
+      margin=dict(l=10, r=10, t=50, b=40),
+      legend=dict(
+          orientation='h',
+          yanchor='bottom',
+          y=-0.14,
           xanchor='center',
+          x=0.5,
+          font_size=12,
+          font_color='#e2e8f0',
+          bgcolor='rgba(0,0,0,0)',
       ),
       scene=dict(
           xaxis=dict(
@@ -6385,8 +6385,7 @@ def render_perf_chart(df, month_label):
               range=[-0.2, 1.2],
           ),
           zaxis=dict(
-              title='Triệu đồng',
-              titlefont=dict(size=11, color='#e2e8f0'),
+              title=dict(text='Triệu đồng', font=dict(size=11, color='#e2e8f0')),
               tickfont=dict(size=10, color='#e2e8f0'),
               backgroundcolor='#2d3748',
               gridcolor='#4a5568',
@@ -6400,20 +6399,6 @@ def render_perf_chart(df, month_label):
           aspectmode='manual',
           aspectratio=dict(x=1.6, y=0.5, z=1.0),
       ),
-      paper_bgcolor='#1a202c',
-      plot_bgcolor='#1a202c',
-      font=dict(color='#e2e8f0'),
-      legend=dict(
-          orientation='h',
-          yanchor='bottom',
-          y=-0.12,
-          xanchor='center',
-          x=0.5,
-          font=dict(size=12, color='#e2e8f0'),
-          bgcolor='rgba(0,0,0,0)',
-      ),
-      margin=dict(l=10, r=10, t=50, b=40),
-      height=420,
   )
   st.plotly_chart(fig, use_container_width=True)
 
