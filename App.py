@@ -8283,6 +8283,11 @@ def build_orders_meat_ge4_detail(df_rpt, report_date, filter_nv=None, df_mcp=Non
   rows = []
   for dh, g in d.groupby('_dh', sort=False):
     n_meat = int(lines.get(dh, 0))
+    # LPPC Total = tổng line (SKU unique) cả đơn
+    if sku_col and sku_col in g.columns:
+      n_total = int(g[sku_col].astype(str).str.strip().nunique())
+    else:
+      n_total = int(g['_sku'].nunique()) if '_sku' in g.columns else n_meat
     nv = str(g[nv_col].iloc[0]).strip() if nv_col else ''
     ma_kh = _norm(g[ma_ch_col].iloc[0]) if ma_ch_col else ''
     ten_kh = str(g[ten_col].iloc[0]).strip() if ten_col else ''
@@ -8304,7 +8309,8 @@ def build_orders_meat_ge4_detail(df_rpt, report_date, filter_nv=None, df_mcp=Non
         'Mã KH': ma_kh,
         'Tên KH': ten_kh,
         'Mã ĐH': dh,
-        'Line Meat': n_meat,
+        'LPPC Meat': n_meat,
+        'LPPC Total': n_total,
         'Giá trị ĐH [Doanh Số]': format_number_vn(ds),
         'Ngày ĐH': ngay_str,
     })
@@ -8364,7 +8370,7 @@ def _render_order_detail_html(df, title, cols, table_cls='ord-detail-table'):
         val = ''
       al = 'left' if c in ('Tên NVBH', 'Tên KH') else 'center'
       # highlight line count
-      if c in ('Tổng Line', 'Line Meat') and str(val).strip():
+      if c in ('Tổng Line', 'Line Meat', 'LPPC Meat', 'LPPC Total') and str(val).strip():
         html.append(
             f'<td style="{td_base}background-color:#fef3c7 !important;'
             f'color:#92400e !important;font-weight:700 !important;'
@@ -8396,7 +8402,7 @@ def render_orders_line_lt3_html(df):
 def render_orders_meat_ge4_html(df):
   cols = [
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
-      'Line Meat', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
+      'LPPC Meat', 'LPPC Total', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
   ]
   return _render_order_detail_html(
       df,
