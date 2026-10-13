@@ -1689,6 +1689,11 @@ def build_report(
 ):
   title = str(report_type)
   key = str(report_type)
+  try:
+    _rd0 = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+    _, _, _remain_days, _ = get_timegone_stats(_rd0)
+  except Exception:
+    _remain_days = 0
   mtd, ngay = pd.Series(dtype=float), pd.Series(dtype=float)
   on_targets = {}
   mcp_off_tgt, mcp_on_tgt = {}, {}
@@ -2142,6 +2147,10 @@ def build_report(
         '% MTD': f'{pct}%',
         '_ratio': ratio,
     }
+    if report_type not in ('LPPC', 'LPPC_MEAT'):
+      _g, _b = _gap_and_bq_day(tgt, m, _remain_days, as_int=True)
+      row['GAP'] = _g
+      row['Bình quân ngày'] = _b
 
     if report_type == 'ASO_ALL':
       # Chỉ Tiêu MCP lấy từ Target_KPI (key ASO_ALL)
@@ -2159,6 +2168,7 @@ def build_report(
       ratio = m / tgt_mcp if tgt_mcp else 0
       pct_off = round(m_off / t_off * 100, 1) if t_off else 0
       pct_on = round(m_on / t_on * 100, 1) if t_on else 0
+      _gap, _bq = _gap_and_bq_day(tgt_mcp, m, _remain_days, as_int=True)
       row = {
           'Mã NVBH': sm,
           'Tên NVBH': nv_name,
@@ -2166,6 +2176,8 @@ def build_report(
           'Thực Hiện Ngày': n,
           'MTD': m,
           '% MTD': f'{pct}%',
+          'GAP': _gap,
+          'Bình quân ngày': _bq,
           'MCP OFF': t_off,
           'Thực hiện ngày OFF': n_off,
           'MTD OFF': m_off,
@@ -2187,10 +2199,18 @@ def build_report(
             '% MTD OFF', 'MCP ON', 'Thực hiện ngày ON', 'MTD ON', '% MTD ON',
         ]
         if report_type == 'ASO_ALL'
-        else [
-            'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
-            'Thực Hiện Ngày', 'MTD', '% MTD',
-        ]
+        else (
+            [
+                'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+                'Thực Hiện Ngày', 'MTD', '% MTD',
+            ]
+            if report_type in ('LPPC', 'LPPC_MEAT')
+            else [
+                'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+                'Thực Hiện Ngày', 'MTD', '% MTD',
+                'GAP', 'Bình quân ngày',
+            ]
+        )
     )
     return pd.DataFrame(columns=empty_cols), 0, title
 
@@ -2229,6 +2249,8 @@ def build_report(
         'Thực Hiện Ngày': total_ngay,
         'MTD': total_mtd,
         '% MTD': f'{total_pct}%',
+        'GAP': _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=True)[0],
+        'Bình quân ngày': _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=True)[1],
         'MCP OFF': sum_off,
         'Thực hiện ngày OFF': sum_ngay_off,
         'MTD OFF': sum_mtd_off,
@@ -2263,7 +2285,7 @@ def build_report(
     total_mtd = int(df_out['MTD'].sum()) if not df_out.empty else 0
     team_tgt = int(df_out['Chỉ Tiêu KPI'].sum()) if not df_out.empty else 0
   total_pct = round(total_mtd / team_tgt * 100, 1) if team_tgt else 0
-  total_row = pd.DataFrame([{
+  _tot = {
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
@@ -2275,8 +2297,32 @@ def build_report(
       'Thực Hiện Ngày': total_ngay,
       'MTD': total_mtd,
       '% MTD': f'{total_pct}%',
-  }])
+  }
+  if report_type not in ('LPPC', 'LPPC_MEAT'):
+    _g, _b = _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=True)
+    _tot['GAP'] = _g
+    _tot['Bình quân ngày'] = _b
+  total_row = pd.DataFrame([_tot])
   return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
+
+
+
+def _gap_and_bq_day(target, mtd, remain_days, as_int=True):
+  """GAP = Chỉ tiêu - MTD; Bình quân ngày = GAP / số ngày bán hàng còn lại.
+  remain_days <= 0 → BQ = GAP.
+  """
+  try:
+    gap = float(target or 0) - float(mtd or 0)
+  except Exception:
+    gap = 0.0
+  try:
+    rd = int(remain_days or 0)
+  except Exception:
+    rd = 0
+  bq = (gap / rd) if rd > 0 else gap
+  if as_int:
+    return int(round(gap)), round(bq, 1)
+  return gap, round(bq, 1)
 
 
 def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
@@ -2285,8 +2331,14 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
     return pd.DataFrame(columns=[
         'STT', 'Tên NVBH', 'Chỉ Tiêu Doanh Số',
         'Thực Hiện Ngày', 'Doanh Số MTD', '% MTD',
+        'GAP', 'Bình quân ngày',
     ]), 0.0, title
 
+  try:
+    _rd0 = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+    _, _, _remain_days, _ = get_timegone_stats(_rd0)
+  except Exception:
+    _remain_days = 0
   df_mtd = df[
       df['date'] >= date(report_date.year, report_date.month, 1)
   ].copy()
@@ -2336,6 +2388,7 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
     m = float(mtd_sales.get(sm, 0.0))
     t_val = float(today_sales.get(sm, 0.0))
     pct = round(m / tgt * 100, 1) if tgt else 0.0
+    _gap, _bq = _gap_and_bq_day(tgt, m, _remain_days, as_int=False)
     results.append({
         'Mã NVBH': sm,
         'Tên NVBH': sm_names.get(sm, ''),
@@ -2343,6 +2396,8 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
         'Thực Hiện Ngày': t_val,
         'Doanh Số MTD': m,
         '% MTD': f'{pct}%',
+        'GAP': _gap,
+        'Bình quân ngày': _bq,
         '_ratio': (m / tgt if tgt else 0),
     })
 
@@ -2375,6 +2430,8 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
       'Thực Hiện Ngày': total_today,
       'Doanh Số MTD': total_mtd,
       '% MTD': f'{total_pct}%',
+      'GAP': _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=False)[0],
+      'Bình quân ngày': _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=False)[1],
   }])
   return (
       pd.concat([df_out, total_row], ignore_index=True),
@@ -10169,11 +10226,18 @@ with tab_kpi:
       )
 
     df_display = df_r.copy()
-    for col in ['Chỉ Tiêu Doanh Số', 'Thực Hiện Ngày', 'Doanh Số MTD']:
-      df_display[col] = df_display[col].apply(
-          lambda x: f'{x:,.0f}'.replace(',', '.')
-          if isinstance(x, (int, float)) and x > 0
-          else ('0' if x == 0 else x)
+    for col in ['Chỉ Tiêu Doanh Số', 'Thực Hiện Ngày', 'Doanh Số MTD', 'GAP']:
+      if col in df_display.columns:
+        df_display[col] = df_display[col].apply(
+            lambda x: f'{x:,.0f}'.replace(',', '.')
+            if isinstance(x, (int, float))
+            else x
+        )
+    if 'Bình quân ngày' in df_display.columns:
+      df_display['Bình quân ngày'] = df_display['Bình quân ngày'].apply(
+          lambda x: f'{x:,.1f}'.replace(',', '.')
+          if isinstance(x, (int, float))
+          else x
       )
 
     st.markdown(render_html_table(df_display), unsafe_allow_html=True)
@@ -10839,7 +10903,21 @@ with tab_kpi:
         render_metric_card('📊 % MTD', pct_team)
       with c4:
         render_metric_card('🆕 Ngày', f'+{total_ngay}')
-    st.markdown(render_html_table(df_r), unsafe_allow_html=True)
+    _df_show = df_r.copy()
+    for _c in ['GAP']:
+      if _c in _df_show.columns:
+        _df_show[_c] = _df_show[_c].apply(
+            lambda x: f'{int(round(float(x))):,}'.replace(',', '.')
+            if isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.','').replace('-','').isdigit())
+            else x
+        )
+    if 'Bình quân ngày' in _df_show.columns:
+      _df_show['Bình quân ngày'] = _df_show['Bình quân ngày'].apply(
+          lambda x: f'{float(x):,.1f}'.replace(',', '.')
+          if isinstance(x, (int, float))
+          else x
+      )
+    st.markdown(render_html_table(_df_show), unsafe_allow_html=True)
     df_eval = df_r.iloc[:-1].copy()
     _pc = '% MTD'
     df_eval['_pct_val'] = (
