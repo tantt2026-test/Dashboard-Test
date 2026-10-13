@@ -7991,8 +7991,8 @@ def _df_display_export(df, kind='summary'):
 
 
 
-def build_orders_line_lt3_detail(df_rpt, report_date, filter_nv=None):
-  """Chi tiết ĐH ngày BC có tổng line (SKU unique) < 3."""
+def build_orders_line_lt3_detail(df_rpt, report_date, filter_nv=None, df_mcp=None):
+  """Chi tiết ĐH ngày BC có tổng line (SKU unique) < 3 — chỉ Kênh OFF."""
   empty = pd.DataFrame(columns=[
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
       'Tổng Line', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
@@ -8004,6 +8004,34 @@ def build_orders_line_lt3_detail(df_rpt, report_date, filter_nv=None):
   d = df_rpt[df_rpt['date'] == rd].copy()
   if d.empty:
     return empty
+
+  # Chỉ Kênh OFF (map MCP L1)
+  try:
+    ch_l1 = build_mcp_channel_map(df_mcp) if df_mcp is not None else {}
+  except Exception:
+    ch_l1 = {}
+  if ch_l1:
+    def _norm_ma(x):
+      if pd.isna(x):
+        return ''
+      s = str(x).strip()
+      if s.endswith('.0'):
+        s = s[:-2]
+      try:
+        return str(int(float(s)))
+      except Exception:
+        return s
+    # Chuẩn hoá key map
+    ch_l1_n = {_norm_ma(k): v for k, v in ch_l1.items()}
+    def _is_off(ma):
+      s = _norm_ma(ma)
+      ch = str(ch_l1_n.get(s, ch_l1.get(str(ma).strip(), '')) or '').upper()
+      return ch != 'ON'  # OFF hoặc không map → giữ; chỉ loại ON
+    ma_col0 = find_col(d, ['Mã CH', 'Mã Cửa hàng', 'Outlet Code', 'Outlet_code'])
+    if ma_col0:
+      d = d[d[ma_col0].map(_is_off)]
+      if d.empty:
+        return empty
 
   def _norm(x):
     if pd.isna(x):
@@ -8081,8 +8109,8 @@ def build_orders_line_lt3_detail(df_rpt, report_date, filter_nv=None):
   return out
 
 
-def build_orders_meat_ge4_detail(df_rpt, report_date, filter_nv=None):
-  """Chi tiết ĐH ngày BC có tổng line Meat (Processed Meats) >= 4."""
+def build_orders_meat_ge4_detail(df_rpt, report_date, filter_nv=None, df_mcp=None):
+  """Chi tiết ĐH ngày BC có tổng line Meat (Processed Meats) >= 4 — chỉ Kênh OFF."""
   empty = pd.DataFrame(columns=[
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
       'Line Meat', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
@@ -8094,6 +8122,34 @@ def build_orders_meat_ge4_detail(df_rpt, report_date, filter_nv=None):
   d = df_rpt[df_rpt['date'] == rd].copy()
   if d.empty:
     return empty
+
+  # Chỉ Kênh OFF (map MCP L1)
+  try:
+    ch_l1 = build_mcp_channel_map(df_mcp) if df_mcp is not None else {}
+  except Exception:
+    ch_l1 = {}
+  if ch_l1:
+    def _norm_ma(x):
+      if pd.isna(x):
+        return ''
+      s = str(x).strip()
+      if s.endswith('.0'):
+        s = s[:-2]
+      try:
+        return str(int(float(s)))
+      except Exception:
+        return s
+    # Chuẩn hoá key map
+    ch_l1_n = {_norm_ma(k): v for k, v in ch_l1.items()}
+    def _is_off(ma):
+      s = _norm_ma(ma)
+      ch = str(ch_l1_n.get(s, ch_l1.get(str(ma).strip(), '')) or '').upper()
+      return ch != 'ON'  # OFF hoặc không map → giữ; chỉ loại ON
+    ma_col0 = find_col(d, ['Mã CH', 'Mã Cửa hàng', 'Outlet Code', 'Outlet_code'])
+    if ma_col0:
+      d = d[d[ma_col0].map(_is_off)]
+      if d.empty:
+        return empty
 
   def _norm(x):
     if pd.isna(x):
@@ -10175,12 +10231,12 @@ with tab_kpi:
         st.markdown(render_vip_ko_dh_html(df_vip_ko), unsafe_allow_html=True)
         # Chi tiết ĐH line < 3 & Meat >= 4
         try:
-          df_lt3 = build_orders_line_lt3_detail(df, report_date, filter_nv)
+          df_lt3 = build_orders_line_lt3_detail(df, report_date, filter_nv, mcp)
           st.markdown(render_orders_line_lt3_html(df_lt3), unsafe_allow_html=True)
         except Exception:
           pass
         try:
-          df_meat4 = build_orders_meat_ge4_detail(df, report_date, filter_nv)
+          df_meat4 = build_orders_meat_ge4_detail(df, report_date, filter_nv, mcp)
           st.markdown(render_orders_meat_ge4_html(df_meat4), unsafe_allow_html=True)
         except Exception:
           pass
