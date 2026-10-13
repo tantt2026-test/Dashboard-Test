@@ -8361,16 +8361,45 @@ def _render_order_detail_html(df, title, cols, table_cls='ord-detail-table'):
   for c in cols:
     html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
+  has_meat_gap = ('LPPC Meat' in cols) and ('LPPC Total' in cols)
+
+  def _meat_row_color(r):
+    """Rule màu chữ theo (LPPC Total - LPPC Meat):
+    = 3 → Vàng đậm | = 4 → Xanh lá đậm | > 4 → Tím đậm | < 4 (0/1/2) → Đỏ đậm
+    """
+    try:
+      meat = float(str(r.get('LPPC Meat', 0)).replace('.', '').replace(',', ''))
+      total = float(str(r.get('LPPC Total', 0)).replace('.', '').replace(',', ''))
+      diff = total - meat
+    except Exception:
+      return None
+    if diff == 3:
+      return '#ca8a04'  # vàng in đậm
+    if diff == 4:
+      return '#15803d'  # xanh lá in đậm
+    if diff > 4:
+      return '#7c3aed'  # tím in đậm
+    if diff < 4:
+      return '#dc2626'  # đỏ in đậm
+    return None
+
   for pos, (_, row) in enumerate(df.iterrows()):
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    row_color = _meat_row_color(row) if has_meat_gap else None
     html.append('<tr>')
     for c in cols:
       val = row.get(c, '')
       if pd.isna(val):
         val = ''
       al = 'left' if c in ('Tên NVBH', 'Tên KH') else 'center'
-      # highlight line count
-      if c in ('Tổng Line', 'Line Meat', 'LPPC Meat', 'LPPC Total') and str(val).strip():
+      if row_color:
+        # Toàn bộ chữ dòng theo rule (LPPC Total - LPPC Meat)
+        html.append(
+            f'<td style="{td_base}background-color:{bg} !important;'
+            f'color:{row_color} !important;font-weight:800 !important;'
+            f'text-align:{al} !important;">{val}</td>'
+        )
+      elif c in ('Tổng Line', 'Line Meat') and str(val).strip():
         html.append(
             f'<td style="{td_base}background-color:#fef3c7 !important;'
             f'color:#92400e !important;font-weight:700 !important;'
