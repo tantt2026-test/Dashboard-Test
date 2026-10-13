@@ -7990,6 +7990,296 @@ def _df_display_export(df, kind='summary'):
 
 
 
+
+def build_orders_line_lt3_detail(df_rpt, report_date, filter_nv=None):
+  """Chi tiết ĐH ngày BC có tổng line (SKU unique) < 3."""
+  empty = pd.DataFrame(columns=[
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Tổng Line', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
+  ])
+  if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
+    return empty
+
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  d = df_rpt[df_rpt['date'] == rd].copy()
+  if d.empty:
+    return empty
+
+  def _norm(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  ma_dh_col = find_col(d, ['Mã đơn hàng', 'Mã ĐH', 'Order Code', 'Order No'])
+  ma_ch_col = find_col(d, ['Mã CH', 'Mã Cửa hàng', 'Outlet Code', 'Outlet_code'])
+  nv_col = find_col(d, ['Tên NVBH', 'Tên NV', 'SM Name', 'Salesman'])
+  ten_col = find_col(d, ['Tên cửa hàng', 'Tên CH', 'Tên KH', 'Outlet Name', 'Outlet_name'])
+  sku_col = find_col(d, ['Mã sản phẩm', 'Mã SP', 'SKU', 'Product Code']) or (
+      'Tên sản phẩm' if 'Tên sản phẩm' in d.columns else None
+  )
+  val_col = find_col(d, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu',
+                         'Tổng tiền', 'Doanh số', 'Amount'])
+  ngay_col = find_col(d, ['Ngày ĐH', 'Ngày tạo', 'Order Date', 'Created Date'])
+
+  if not ma_dh_col or not sku_col:
+    return empty
+
+  d['_dh'] = d[ma_dh_col].astype(str).str.strip()
+  d['_sku'] = d[sku_col].astype(str).str.strip()
+  lines = d.groupby('_dh')['_sku'].nunique()
+  low = set(lines[lines < 3].index.tolist())
+  if not low:
+    return empty
+
+  d = d[d['_dh'].isin(low)].copy()
+  if nv_selected(filter_nv) and nv_col:
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    d = d[d[nv_col].astype(str).str.strip().isin(vals)]
+  if d.empty:
+    return empty
+
+  rows = []
+  for dh, g in d.groupby('_dh', sort=False):
+    n_line = int(lines.get(dh, 0))
+    nv = str(g[nv_col].iloc[0]).strip() if nv_col else ''
+    ma_kh = _norm(g[ma_ch_col].iloc[0]) if ma_ch_col else ''
+    ten_kh = str(g[ten_col].iloc[0]).strip() if ten_col else ''
+    try:
+      ds = float(pd.to_numeric(g[val_col], errors='coerce').sum()) if val_col else 0.0
+    except Exception:
+      ds = 0.0
+    if ngay_col and pd.notna(g[ngay_col].iloc[0]):
+      try:
+        ngay_str = pd.to_datetime(g[ngay_col].iloc[0], dayfirst=True, errors='coerce')
+        ngay_str = ngay_str.strftime('%d/%m/%Y %H:%M') if pd.notna(ngay_str) else str(rd)
+      except Exception:
+        ngay_str = str(rd)
+    else:
+      ngay_str = rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd)
+    rows.append({
+        'STT': 0,
+        'Tên NVBH': nv,
+        'Mã KH': ma_kh,
+        'Tên KH': ten_kh,
+        'Mã ĐH': dh,
+        'Tổng Line': n_line,
+        'Giá trị ĐH [Doanh Số]': format_number_vn(ds),
+        'Ngày ĐH': ngay_str,
+    })
+
+  out = pd.DataFrame(rows)
+  if out.empty:
+    return empty
+  out = out.sort_values(['Tên NVBH', 'Mã ĐH']).reset_index(drop=True)
+  out['STT'] = range(1, len(out) + 1)
+  return out
+
+
+def build_orders_meat_ge4_detail(df_rpt, report_date, filter_nv=None):
+  """Chi tiết ĐH ngày BC có tổng line Meat (Processed Meats) >= 4."""
+  empty = pd.DataFrame(columns=[
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Line Meat', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
+  ])
+  if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
+    return empty
+
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  d = df_rpt[df_rpt['date'] == rd].copy()
+  if d.empty:
+    return empty
+
+  def _norm(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  ma_dh_col = find_col(d, ['Mã đơn hàng', 'Mã ĐH', 'Order Code', 'Order No'])
+  ma_ch_col = find_col(d, ['Mã CH', 'Mã Cửa hàng', 'Outlet Code', 'Outlet_code'])
+  nv_col = find_col(d, ['Tên NVBH', 'Tên NV', 'SM Name', 'Salesman'])
+  ten_col = find_col(d, ['Tên cửa hàng', 'Tên CH', 'Tên KH', 'Outlet Name', 'Outlet_name'])
+  sku_col = find_col(d, ['Mã sản phẩm', 'Mã SP', 'SKU', 'Product Code']) or (
+      'Tên sản phẩm' if 'Tên sản phẩm' in d.columns else None
+  )
+  val_col = find_col(d, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu',
+                         'Tổng tiền', 'Doanh số', 'Amount'])
+  ngay_col = find_col(d, ['Ngày ĐH', 'Ngày tạo', 'Order Date', 'Created Date'])
+  sub_col = find_col(d, ['Sub Division', 'SubDivision', 'Phân nhóm', 'Ngành hàng'])
+
+  if not ma_dh_col or not sku_col:
+    return empty
+
+  # Lọc dòng Meat
+  if 'Tên SP lower' not in d.columns and 'Tên sản phẩm' in d.columns:
+    d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+  name = d['Tên SP lower'] if 'Tên SP lower' in d.columns else pd.Series('', index=d.index)
+  if sub_col:
+    sub = d[sub_col].astype(str)
+  else:
+    sub = pd.Series('', index=d.index)
+  is_meat = sub.str.contains(
+      'Processed Meats|Thịt chế biến', case=False, na=False
+  ) | name.str.contains(
+      'xúc xích|ponnie|cao bồi|hotdog|thịt nguội|ham |pate', na=False
+  )
+  meat = d[is_meat].copy()
+  if meat.empty:
+    return empty
+
+  meat['_dh'] = meat[ma_dh_col].astype(str).str.strip()
+  meat['_sku'] = meat[sku_col].astype(str).str.strip()
+  lines = meat.groupby('_dh')['_sku'].nunique()
+  ok = set(lines[lines >= 4].index.tolist())
+  if not ok:
+    return empty
+
+  # Lấy full order rows (để tính doanh số cả đơn) cho các ĐH đủ điều kiện
+  d['_dh'] = d[ma_dh_col].astype(str).str.strip()
+  d = d[d['_dh'].isin(ok)].copy()
+  if nv_selected(filter_nv) and nv_col:
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    d = d[d[nv_col].astype(str).str.strip().isin(vals)]
+  if d.empty:
+    return empty
+
+  rows = []
+  for dh, g in d.groupby('_dh', sort=False):
+    n_meat = int(lines.get(dh, 0))
+    nv = str(g[nv_col].iloc[0]).strip() if nv_col else ''
+    ma_kh = _norm(g[ma_ch_col].iloc[0]) if ma_ch_col else ''
+    ten_kh = str(g[ten_col].iloc[0]).strip() if ten_col else ''
+    try:
+      ds = float(pd.to_numeric(g[val_col], errors='coerce').sum()) if val_col else 0.0
+    except Exception:
+      ds = 0.0
+    if ngay_col and pd.notna(g[ngay_col].iloc[0]):
+      try:
+        ngay_str = pd.to_datetime(g[ngay_col].iloc[0], dayfirst=True, errors='coerce')
+        ngay_str = ngay_str.strftime('%d/%m/%Y %H:%M') if pd.notna(ngay_str) else str(rd)
+      except Exception:
+        ngay_str = str(rd)
+    else:
+      ngay_str = rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd)
+    rows.append({
+        'STT': 0,
+        'Tên NVBH': nv,
+        'Mã KH': ma_kh,
+        'Tên KH': ten_kh,
+        'Mã ĐH': dh,
+        'Line Meat': n_meat,
+        'Giá trị ĐH [Doanh Số]': format_number_vn(ds),
+        'Ngày ĐH': ngay_str,
+    })
+
+  out = pd.DataFrame(rows)
+  if out.empty:
+    return empty
+  out = out.sort_values(['Tên NVBH', 'Mã ĐH']).reset_index(drop=True)
+  out['STT'] = range(1, len(out) + 1)
+  return out
+
+
+def _render_order_detail_html(df, title, cols, table_cls='ord-detail-table'):
+  """Render bảng chi tiết ĐH — format giống Trái Tuyến / VIP KO ĐH."""
+  if df is None or df.empty:
+    return ''
+  for c in cols:
+    if c not in df.columns:
+      df[c] = ''
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:8px 6px;font-size:12px;'
+      'white-space:nowrap;'
+  )
+  td_base = (
+      'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
+      'text-align:center !important;white-space:nowrap;'
+  )
+  css = (
+      '<style>'
+      f'.{table_cls}-wrap{{margin-top:20px;width:100%;}}'
+      f'.{table_cls}-scroll{{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;}}'
+      f'.{table_cls}{{border-collapse:collapse;width:100%;min-width:720px;'
+      'font-family:Arial,sans-serif;}}'
+      f'@media (max-width:768px){{.{table_cls}{{min-width:640px;}}'
+      f'.{table_cls} th,.{table_cls} td{{padding:5px 4px !important;font-size:11px !important;}}}}'
+      '</style>'
+  )
+  html = [
+      css,
+      f'<div class="{table_cls}-wrap">',
+      f'<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">{title}</h4>',
+      f'<div class="{table_cls}-scroll">',
+      f'<table class="custom-kpi-table {table_cls}">',
+      '<thead><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      al = 'left' if c in ('Tên NVBH', 'Tên KH') else 'center'
+      # highlight line count
+      if c in ('Tổng Line', 'Line Meat') and str(val).strip():
+        html.append(
+            f'<td style="{td_base}background-color:#fef3c7 !important;'
+            f'color:#92400e !important;font-weight:700 !important;'
+            f'text-align:center;">{val}</td>'
+        )
+      else:
+        html.append(
+            f'<td style="{td_base}background-color:{bg} !important;'
+            f'text-align:{al} !important;">{val}</td>'
+        )
+    html.append('</tr>')
+  html.append('</tbody></table></div></div>')
+  return ''.join(html)
+
+
+def render_orders_line_lt3_html(df):
+  cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Tổng Line', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
+  ]
+  return _render_order_detail_html(
+      df,
+      '📋 CHI TIẾT ĐƠN HÀNG TỔNG LINE &lt; 3',
+      cols,
+      'ord-lt3',
+  )
+
+
+def render_orders_meat_ge4_html(df):
+  cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Line Meat', 'Giá trị ĐH [Doanh Số]', 'Ngày ĐH',
+  ]
+  return _render_order_detail_html(
+      df,
+      '🥩 CHI TIẾT ĐƠN HÀNG MEAT ≥ 4 LINE',
+      cols,
+      'ord-meat4',
+  )
+
+
 def build_vip_ko_dh_detail(df_visit, df_mcp, report_date, filter_nv=None):
   """Chi tiết CH VIP đã VT trong ngày BC nhưng KHÔNG có đơn hàng."""
   empty = pd.DataFrame(columns=[
@@ -9883,7 +10173,18 @@ with tab_kpi:
             df_visit_sched, mcp, report_date, filter_nv
         )
         st.markdown(render_vip_ko_dh_html(df_vip_ko), unsafe_allow_html=True)
-        # Nhận xét nằm dưới bảng VIP KO ĐH
+        # Chi tiết ĐH line < 3 & Meat >= 4
+        try:
+          df_lt3 = build_orders_line_lt3_detail(df, report_date, filter_nv)
+          st.markdown(render_orders_line_lt3_html(df_lt3), unsafe_allow_html=True)
+        except Exception:
+          pass
+        try:
+          df_meat4 = build_orders_meat_ge4_detail(df, report_date, filter_nv)
+          st.markdown(render_orders_meat_ge4_html(df_meat4), unsafe_allow_html=True)
+        except Exception:
+          pass
+        # Nhận xét nằm dưới các bảng chi tiết
         st.markdown(build_performance_comments(df_perf), unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         with c1:
