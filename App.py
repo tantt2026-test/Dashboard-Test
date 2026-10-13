@@ -4419,6 +4419,16 @@ def build_performance_report(
     )
     n_line_off = len(d_off)
     lppc_off = round(n_line_off / n_dh_off, 2) if n_dh_off else 0.0
+    # PC < 3line OFF: số ĐH kênh OFF có tổng line (SKU unique) < 3
+    pc_lt3_off = 0
+    if not d_off.empty and 'Mã đơn hàng' in d_off.columns:
+      _sku = (
+          'Mã sản phẩm' if 'Mã sản phẩm' in d_off.columns
+          else ('Tên sản phẩm' if 'Tên sản phẩm' in d_off.columns else None)
+      )
+      if _sku:
+        _lines = d_off.groupby('Mã đơn hàng')[_sku].nunique()
+        pc_lt3_off = int((_lines < 3).sum())
 
     # SellOut
     sm_code = _norm_code(nv_code)
@@ -4574,6 +4584,7 @@ def build_performance_report(
         'Plan VT OFF': len(plan_off),
         'Đã VT OFF': len(da_off),
         'PC OFF': len(pc_off),
+        'PC < 3line OFF': pc_lt3_off,
         '% PC/VT OFF': f'{pct_off}%',
         'VIP KO ĐH': len(vip_ko),
         'KO ĐH OFF': len(ko_off),
@@ -4653,6 +4664,7 @@ def build_performance_report(
       'Plan VT OFF': _sum('Plan VT OFF'),
       'Đã VT OFF': tot_da_off,
       'PC OFF': tot_pc_off,
+      'PC < 3line OFF': _sum('PC < 3line OFF'),
       '% PC/VT OFF': f'{round(tot_pc_off / tot_da_off * 100, 1) if tot_da_off else 0}%',
       'VIP KO ĐH': _sum('VIP KO ĐH'),
       'KO ĐH OFF': _sum('KO ĐH OFF'),
@@ -4699,6 +4711,7 @@ def _perf_table_html(df, section='call'):
             ('Plan VT OFF', 'Plan VT'),
             ('Đã VT OFF', 'Đã VT'),
             ('PC OFF', 'PC'),
+            ('PC < 3line OFF', 'PC < 3line'),
             ('% PC/VT OFF', '% PC/ VT'),
             ('VIP KO ĐH', 'VIP KO ĐH'),
             ('KO ĐH OFF', 'KO ĐH'),
