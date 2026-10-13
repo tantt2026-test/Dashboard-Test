@@ -8303,6 +8303,9 @@ def build_orders_meat_ge4_detail(df_rpt, report_date, filter_nv=None, df_mcp=Non
         ngay_str = str(rd)
     else:
       ngay_str = rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd)
+    # Chỉ hiển thị khi (LPPC Total - LPPC Meat) < 4 (gồm = 3, 2, 1, 0...)
+    if (n_total - n_meat) >= 4:
+      continue
     rows.append({
         'STT': 0,
         'Tên NVBH': nv,
@@ -8361,69 +8364,18 @@ def _render_order_detail_html(df, title, cols, table_cls='ord-detail-table'):
   for c in cols:
     html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
-  has_meat_gap = ('LPPC Meat' in cols) and ('LPPC Total' in cols)
-
-  def _meat_gap_info(r):
-    """(diff, color, css_class) theo LPPC Total - LPPC Meat."""
-    try:
-      raw_m = r['LPPC Meat'] if 'LPPC Meat' in r.index else r.get('LPPC Meat', 0)
-      raw_t = r['LPPC Total'] if 'LPPC Total' in r.index else r.get('LPPC Total', 0)
-      meat = float(str(raw_m).strip().replace('.', '').replace(',', '') or 0)
-      total = float(str(raw_t).strip().replace('.', '').replace(',', '') or 0)
-      diff = total - meat
-    except Exception:
-      return None, None, None
-    if diff == 3:
-      return diff, '#b45309', 'meat-gap-yellow'   # vàng đậm
-    if diff == 4:
-      return diff, '#15803d', 'meat-gap-green'    # xanh lá đậm
-    if diff > 4:
-      return diff, '#6d28d9', 'meat-gap-purple'   # tím đậm
-    # diff < 4 (0,1,2,...)
-    return diff, '#dc2626', 'meat-gap-red'        # đỏ đậm
-
-  # CSS rule màu chữ (priority cao, scoped)
-  if has_meat_gap:
-    html.insert(0,
-        '<style>'
-        '.meat-gap-red{color:#dc2626 !important;font-weight:900 !important;}'
-        '.meat-gap-yellow{color:#b45309 !important;font-weight:900 !important;}'
-        '.meat-gap-green{color:#15803d !important;font-weight:900 !important;}'
-        '.meat-gap-purple{color:#6d28d9 !important;font-weight:900 !important;}'
-        'td.meat-gap-red,td.meat-gap-yellow,td.meat-gap-green,td.meat-gap-purple'
-        '{font-weight:900 !important;}'
-        '</style>'
-    )
-
   for pos, (_, row) in enumerate(df.iterrows()):
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
-    _diff, row_color, gap_cls = (
-        _meat_gap_info(row) if has_meat_gap else (None, None, None)
-    )
     html.append('<tr>')
     for c in cols:
-      val = row.get(c, '') if hasattr(row, 'get') else row[c] if c in row.index else ''
+      val = row.get(c, '') if hasattr(row, 'get') else (row[c] if c in getattr(row, 'index', []) else '')
       if pd.isna(val):
         val = ''
       al = 'left' if c in ('Tên NVBH', 'Tên KH') else 'center'
-      if row_color and gap_cls:
-        html.append(
-            f'<td data-colored="1" class="{gap_cls}" '
-            f'style="{td_base}background-color:{bg} !important;'
-            f'color:{row_color} !important;font-weight:900 !important;'
-            f'text-align:{al} !important;">{val}</td>'
-        )
-      elif c in ('Tổng Line', 'Line Meat') and str(val).strip():
-        html.append(
-            f'<td data-colored="1" style="{td_base}background-color:#fef3c7 !important;'
-            f'color:#92400e !important;font-weight:700 !important;'
-            f'text-align:center;">{val}</td>'
-        )
-      else:
-        html.append(
-            f'<td style="{td_base}background-color:{bg} !important;'
-            f'text-align:{al} !important;">{val}</td>'
-        )
+      html.append(
+          f'<td style="{td_base}background-color:{bg} !important;'
+          f'text-align:{al} !important;">{val}</td>'
+      )
     html.append('</tr>')
   html.append('</tbody></table></div></div>')
   return ''.join(html)
