@@ -7572,6 +7572,124 @@ def _disp_pct_style(col_name, v):
   return 'pct-purple', purple
 
 
+
+def rebuild_display_summary(
+    df_disp, mcp=None, filter_nv=None, filter_thu=None, filter_nv_list=None, filter_prog=None
+):
+  """Build bảng 1 (tổng hợp NV) với lọc Chương trình / Thứ VT / Tên NVBH."""
+  empty = pd.DataFrame()
+  if df_disp is None or df_disp.empty:
+    return empty
+
+  d = df_disp.copy()
+  c_nv = find_col(d, ['Nhân viên BH', 'Tên NVBH', 'NVBH'])
+  c_ma = find_col(d, ['Mã CH', 'Mã KH', 'Mã cửa hàng'])
+  c_ct = find_col(d, ['Tên chương trình', 'Chương trình', 'Tên CT'])
+  c_anh = find_col(d, ['Số bộ ảnh đã chụp', 'Số bộ ảnh duyệt'])
+  if not c_nv or not c_ma:
+    return empty
+
+  def _nma(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  d['_nv'] = d[c_nv].astype(str).str.strip()
+  d['_ma'] = d[c_ma].map(_nma)
+  d['_ct'] = d[c_ct].astype(str).str.strip() if c_ct else ''
+  d['_anh'] = (
+      pd.to_numeric(d[c_anh], errors='coerce').fillna(0).astype(int)
+      if c_anh else 0
+  )
+
+  if nv_selected(filter_nv):
+    vals = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+    d = d[d['_nv'].isin([str(v).strip() for v in vals])]
+
+  if filter_nv_list:
+    d = d[d['_nv'].isin([str(v).strip() for v in filter_nv_list])]
+
+  if filter_prog:
+    # khớp full name hoặc short name
+    prog_sel = [str(p).strip() for p in filter_prog if str(p).strip()]
+    if prog_sel:
+      def _match_prog(ct):
+        ct = str(ct).strip()
+        if ct in prog_sel:
+          return True
+        short = _short_program_name(ct) if ct else ''
+        return short in prog_sel
+      d = d[d['_ct'].map(_match_prog)]
+
+  # Map CH → Thứ từ MCP
+  thu_map = {}
+  if mcp is not None and not getattr(mcp, 'empty', True):
+    c_m = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+    c_t = find_col(mcp, ['Thứ', 'Thứ VT', 'Thu VT', 'THỨ'])
+    if c_m and c_t:
+      for _, r in mcp.iterrows():
+        ma = _nma(r[c_m])
+        if ma:
+          thu_map[ma] = str(r[c_t]).strip()
+
+  if filter_thu:
+    thu_sel = set(str(t).strip() for t in filter_thu if str(t).strip())
+    if thu_sel and thu_map:
+      def _ok_thu(ma):
+        t = str(thu_map.get(str(ma).strip(), '')).strip()
+        if not t:
+          return False
+        if t in thu_sel:
+          return True
+        # match single digit in codes like 25/36/47
+        for code in thu_sel:
+          if code in t or t in code:
+            return True
+        return False
+      d = d[d['_ma'].map(_ok_thu)]
+
+  if d.empty:
+    return empty
+
+  def _agg(g):
+    n_dk = len(g)
+    n_chup = int((g['_anh'] >= 1).sum())
+    n_chua = int((g['_anh'] < 1).sum())
+    n_ge6 = int((g['_anh'] >= 6).sum())
+    n_lt6 = int((g['_anh'] < 6).sum())
+    return {
+        'CH ĐK': n_dk,
+        'CH ĐÃ CHỤP': n_chup,
+        '% ĐÃ CHỤP': round(n_chup / n_dk * 100, 1) if n_dk else 0.0,
+        'CH CHƯA CHỤP': n_chua,
+        '% CHƯA CHỤP': round(n_chua / n_dk * 100, 1) if n_dk else 0.0,
+        'CH >= 6 BỘ ẢNH': n_ge6,
+        '% CH >= 6 BỘ ẢNH': round(n_ge6 / n_dk * 100, 1) if n_dk else 0.0,
+        'SỐ CH < 6 BỘ ẢNH': n_lt6,
+        '% CH < 6 BỘ ẢNH': round(n_lt6 / n_dk * 100, 1) if n_dk else 0.0,
+    }
+
+  rows = []
+  for nv, g in d.groupby('_nv', sort=False):
+    r = _agg(g)
+    r['Tên NVBH'] = nv
+    rows.append(r)
+  df1 = pd.DataFrame(rows)
+  if df1.empty:
+    return empty
+  df1 = df1.sort_values('% CHƯA CHỤP', ascending=False).reset_index(drop=True)
+  df1.insert(0, 'STT', range(1, len(df1) + 1))
+  tot = {'STT': '-', 'Tên NVBH': 'TỔNG CỘNG', **_agg(d)}
+  df1 = pd.concat([df1, pd.DataFrame([tot])], ignore_index=True)
+  return df1
+
+
 def rebuild_display_by_program(
     df_disp, mcp=None, filter_nv=None, filter_thu=None, filter_nv_list=None, filter_prog=None
 ):
@@ -10363,26 +10481,90 @@ with tab_kpi:
     else:
       df1, df2, df3, comments = build_display_report(df_disp, mcp, filter_nv)
 
-      # Bảng 1
-      st.markdown(render_display_summary_html(df1), unsafe_allow_html=True)
-
-      # Bộ lọc Bảng 2: Chương trình TB | Thứ VT | Tên NVBH
+      # ===== Options bộ lọc chung =====
       prog_names = []
-      if df2 is not None and not df2.empty:
+      c_ct0 = find_col(df_disp, ['Tên chương trình', 'Chương trình', 'Tên CT'])
+      if c_ct0:
+        prog_names = sorted([
+            str(p).strip() for p in df_disp[c_ct0].dropna().unique().tolist()
+            if str(p).strip() and str(p).lower() != 'nan'
+        ])
+      if not prog_names and df2 is not None and not df2.empty:
         for c in df2.columns:
           if '|' in str(c):
             prog_names.append(str(c).split('|', 1)[0])
         seen = set()
         prog_names = [p for p in prog_names if not (p in seen or seen.add(p))]
-      nv_names_tb2 = []
-      if df2 is not None and not df2.empty and 'Tên NVBH' in df2.columns:
-        nv_names_tb2 = sorted([
-            str(x).strip() for x in df2['Tên NVBH'].dropna().unique().tolist()
+      nv_names_tb = []
+      if df1 is not None and not df1.empty and 'Tên NVBH' in df1.columns:
+        nv_names_tb = sorted([
+            str(x).strip() for x in df1['Tên NVBH'].dropna().unique().tolist()
             if str(x).strip() and str(x).lower() != 'nan'
             and 'tổng' not in str(x).lower() and 'total' not in str(x).lower()
         ])
       thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
 
+      # ===== Bộ lọc Bảng 1 (Tổng hợp) =====
+      st.markdown(
+          '<p class="filter-label" style="margin-top:8px;">🏷️ Bộ lọc Bảng tổng hợp</p>',
+          unsafe_allow_html=True,
+      )
+      f1a, f1b, f1c = st.columns(3)
+      with f1a:
+        st.markdown(
+            '<p class="filter-label">Chương Trình TB</p>',
+            unsafe_allow_html=True,
+        )
+        f_prog_tb1 = st.multiselect(
+            '',
+            options=prog_names,
+            default=[],
+            key='disp_prog_tb1',
+            label_visibility='collapsed',
+            placeholder='Tất cả chương trình',
+        )
+      with f1b:
+        st.markdown(
+            '<p class="filter-label">Thứ VT</p>',
+            unsafe_allow_html=True,
+        )
+        f_thu_tb1 = st.multiselect(
+            '',
+            options=thu_opts,
+            default=[],
+            key='disp_thu_tb1',
+            label_visibility='collapsed',
+            placeholder='Tất cả các thứ (2,3,4,5,6,7,25,36,47)',
+        )
+      with f1c:
+        st.markdown(
+            '<p class="filter-label">Tên NVBH</p>',
+            unsafe_allow_html=True,
+        )
+        f_nv_tb1 = st.multiselect(
+            '',
+            options=nv_names_tb,
+            default=[],
+            key='disp_nv_tb1',
+            label_visibility='collapsed',
+            placeholder='Tất cả ĐDKD',
+        )
+
+      if f_prog_tb1 or f_thu_tb1 or f_nv_tb1:
+        df1_view = rebuild_display_summary(
+            df_disp, mcp,
+            filter_nv=filter_nv,
+            filter_thu=f_thu_tb1 or None,
+            filter_nv_list=f_nv_tb1 or None,
+            filter_prog=f_prog_tb1 or None,
+        )
+      else:
+        df1_view = df1
+
+      # Bảng 1
+      st.markdown(render_display_summary_html(df1_view), unsafe_allow_html=True)
+
+      # ===== Bộ lọc Bảng 2: Chương trình TB | Thứ VT | Tên NVBH =====
       st.markdown(
           '<p class="filter-label" style="margin-top:12px;">🏷️ Bộ lọc Bảng chi tiết theo CT</p>',
           unsafe_allow_html=True,
@@ -10421,14 +10603,14 @@ with tab_kpi:
         )
         f_nv_tb2 = st.multiselect(
             '',
-            options=nv_names_tb2,
+            options=nv_names_tb,
             default=[],
             key='disp_nv_tb2',
             label_visibility='collapsed',
             placeholder='Tất cả ĐDKD',
         )
 
-      # Rebuild bảng 2 theo bộ lọc → CH ĐK / Đã chụp / Total đúng theo dữ liệu đang chọn
+      # Rebuild bảng 2 theo bộ lọc
       if f_thu_tb2 or f_nv_tb2 or f_prog_tb2:
         df2_view = rebuild_display_by_program(
             df_disp, mcp,
