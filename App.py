@@ -2577,8 +2577,8 @@ def build_weekly_preview(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months
 
 
 
-def render_weekly_preview_html(df):
-  """Bảng Weekly Preview — header 2 tầng, format KPI."""
+def render_weekly_preview_html(df, timegone_pct=None):
+  """Bảng Weekly Preview — header 2 tầng, sticky STT/Tên, % format giống Tab KPI."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu Weekly Preview.</p>'
 
@@ -2591,12 +2591,42 @@ def render_weekly_preview_html(df):
         seen.add(lab)
         months.append(lab)
 
+  # Tháng hiện tại (cuối cùng trong list) dùng Timegone; tháng cũ mốc 100%
+  cur_lab = months[-1] if months else ''
+  try:
+    tg = float(timegone_pct) if timegone_pct is not None else float(_CURRENT_TIMEGONE or 100)
+  except Exception:
+    tg = 100.0
+
+  def _pct_style(pct, lab):
+    """Trả (class, style) theo rule KPI: đỏ / xanh / tím."""
+    moc = tg if lab == cur_lab else 100.0
+    if pct is None:
+      return '', ''
+    # Đỏ: dưới mốc; Xanh: đạt mốc đến +5; Tím: vượt >5% so với mốc
+    if pct < moc:
+      return (
+          'pct-red',
+          'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;',
+      )
+    if pct < moc + 5:
+      return (
+          'pct-green',
+          'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;',
+      )
+    return (
+        'pct-purple',
+        'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;',
+    )
+
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
       'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;'
       'white-space:nowrap;'
   )
+  th_sticky = th + 'position:sticky;left:0;z-index:3;'
+  th_sticky2 = th + 'position:sticky;left:42px;z-index:3;'
   th_mid = (
       'background-color:#2c5282 !important;color:#ffffff !important;'
       'font-weight:700 !important;text-align:center !important;'
@@ -2604,21 +2634,22 @@ def render_weekly_preview_html(df):
   )
   td = (
       'border:1px solid #bce2f5 !important;padding:5px 6px;'
-      'font-size:11px;text-align:center;white-space:nowrap;'
+      'font-size:11px;text-align:center !important;white-space:nowrap;'
   )
   td_tot = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:900 !important;text-align:center !important;'
-      'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
   )
 
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
       'width:max-content;min-width:100%;">',
-      '<thead><tr>',
-      f'<th rowspan="2" style="{th}">STT</th>',
-      f'<th rowspan="2" style="{th}">Tên NVBH</th>',
+      '<thead>',
+      '<tr>',
+      f'<th rowspan="2" style="{th_sticky}">STT</th>',
+      f'<th rowspan="2" style="{th_sticky2}">Tên NVBH</th>',
   ]
   for lab in months:
     html.append(f'<th colspan="3" style="{th}">{lab}</th>')
@@ -2636,13 +2667,23 @@ def render_weekly_preview_html(df):
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
     stt = row.get('STT', '')
-    cell_s = td_tot if is_tot else (td + f'background-color:{bg} !important;')
-    html.append(f'<td style="{cell_s}">{stt}</td>')
     ten = row.get('Tên NVBH', '')
-    html.append(
-        f'<td style="{cell_s}text-align:left !important;'
-        f'font-weight:{"900" if is_tot else "600"};">{ten}</td>'
-    )
+
+    if is_tot:
+      html.append(f'<td class="row-total-cell" style="{td_tot}position:sticky;left:0;z-index:1;">{stt}</td>')
+      html.append(
+          f'<td class="row-total-cell" style="{td_tot}position:sticky;left:42px;z-index:1;'
+          f'text-align:left !important;">{ten}</td>'
+      )
+    else:
+      html.append(
+          f'<td style="{td}background-color:{bg} !important;position:sticky;left:0;z-index:1;">{stt}</td>'
+      )
+      html.append(
+          f'<td style="{td}background-color:{bg} !important;position:sticky;left:42px;z-index:1;'
+          f'text-align:left !important;font-weight:600;">{ten}</td>'
+      )
+
     for lab in months:
       for sub in ('MCP', 'ASO', '% COV'):
         key = f'{sub}|{lab}'
@@ -2651,34 +2692,38 @@ def render_weekly_preview_html(df):
           val = ''
         if sub == '% COV':
           try:
-            pct = float(str(val).replace('%', '').strip())
+            pct = float(str(val).replace('%', '').replace(',', '.').strip())
           except Exception:
             pct = None
-          if pct is not None:
-            if pct < 100:
-              st_c = (
-                  'background-color:#fed7d7 !important;color:#742a2a !important;'
-                  'font-weight:700 !important;'
+          cls, st_c = _pct_style(pct, lab)
+          if is_tot:
+            # total: giữ nền xanh đậm chữ trắng, nhưng % vẫn tô màu rule
+            if st_c:
+              html.append(
+                  f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{val}</td>'
               )
             else:
-              st_c = (
-                  'background-color:#c6f6d5 !important;color:#22543d !important;'
-                  'font-weight:700 !important;'
+              html.append(f'<td class="row-total-cell" style="{td_tot}">{val}</td>')
+          else:
+            if st_c:
+              html.append(
+                  f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{val}</td>'
               )
-            html.append(
-                f'<td data-colored="1" style="{td}{st_c}">{val}</td>'
-            )
+            else:
+              html.append(
+                  f'<td style="{td}background-color:{bg} !important;">{val}</td>'
+              )
+        else:
+          if is_tot:
+            html.append(f'<td class="row-total-cell" style="{td_tot}">{val}</td>')
           else:
             html.append(
-                f'<td style="{td_tot if is_tot else td + f"background-color:{bg} !important;"}">{val}</td>'
+                f'<td style="{td}background-color:{bg} !important;">{val}</td>'
             )
-        else:
-          html.append(
-              f'<td style="{td_tot if is_tot else td + f"background-color:{bg} !important;"}">{val}</td>'
-          )
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
+
 
 
 def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
@@ -11447,7 +11492,7 @@ with tab_kpi:
       st.warning('Chưa có dữ liệu Weekly Preview — Kênh OFF.')
       _diag()
     else:
-      st.markdown(render_weekly_preview_html(df_off), unsafe_allow_html=True)
+      st.markdown(render_weekly_preview_html(df_off, timegone_pct=_CURRENT_TIMEGONE), unsafe_allow_html=True)
       st.download_button(
           '📥 Tải CSV Weekly Preview OFF',
           data=df_off.to_csv(index=False).encode('utf-8-sig'),
@@ -11465,7 +11510,7 @@ with tab_kpi:
     if df_on is None or df_on.empty:
       st.warning('Chưa có dữ liệu Weekly Preview — Kênh ON.')
     else:
-      st.markdown(render_weekly_preview_html(df_on), unsafe_allow_html=True)
+      st.markdown(render_weekly_preview_html(df_on, timegone_pct=_CURRENT_TIMEGONE), unsafe_allow_html=True)
       st.download_button(
           '📥 Tải CSV Weekly Preview ON',
           data=df_on.to_csv(index=False).encode('utf-8-sig'),
@@ -11479,11 +11524,11 @@ with tab_kpi:
         <div class="note-box">
           <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC</div>
           <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
-            <li><b>Đối chiếu theo Position code</b> (không theo tên NV) để tránh lệch khi NV mới nhận tuyến.</li>
+            <li><b>Đối chiếu theo Position code</b> (không theo tên NV) — ASO/MCP gắn với mã vị trí tuyến.</li>
             <li><b>MCP (tháng M):</b> Số CH trên MCP có Created_date ≤ ngày 4 tháng M, theo L1 OFF/ON.</li>
             <li><b>ASO (tháng M):</b> Số CH unique có đơn trong tháng M theo POS_CODE + L1 (giống ASO ALL).</li>
-            <li><b>% COV:</b> ASO / MCP × 100.</li>
-            <li>Tên NVBH hiển thị lấy từ MCP hiện tại theo Position code.</li>
+            <li><b>% COV:</b> ASO / MCP × 100. Tháng quá khứ mốc 100%; tháng hiện tại theo Timegone.</li>
+            <li><b>ASO = 0 ở tháng cũ:</b> Position code đó chưa có giao dịch trong file data-2 (tuyến mới / đổi mã vị trí). Không phải lỗi map tên.</li>
           </ul>
         </div>
         """,
