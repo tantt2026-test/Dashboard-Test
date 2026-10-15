@@ -2640,14 +2640,14 @@ def _normalize_weekly_sales_for_lppc(sales_hist):
 
 
 def _lppc_from_orders(df_lines):
-  """LPPC Weekly — khớp hệ thống Cty:
+  """LPPC Weekly:
 
   - Chỉ L1 OFF (caller đã lọc).
   - Trừ Meat & Beer.
   - Line đạt MOQ (MOQ_FLAG=Y).
-  - PC = max 1 PC / CH / ngày (unique CH+date).
-  - Line của 1 PC = số SKU MOQ unique trên CH trong ngày (gộp mọi ĐH).
-  - LPPC = Tổng line / Tổng PC.
+  - PC = max 1 PC / CH / ngày: chọn 1 đơn (ưu tiên đơn có nhiều line MOQ nhất).
+  - Line của PC = số SKU MOQ unique **trên đúng đơn được chọn** (KHÔNG gộp nhiều ĐH).
+  - LPPC = Tổng line ÷ Tổng PC.
   - Không lọc ≥4 line.
 
   Trả về dict: {pos: {'lppc': float, 'pc': int, 'lines': int}}
@@ -2656,7 +2656,7 @@ def _lppc_from_orders(df_lines):
     return {}
   d = df_lines.copy()
 
-  # Trừ Meat & Beer (vectorized)
+  # Trừ Meat & Beer
   sub = (
       d['Sub Division'].astype(str).str.lower()
       if 'Sub Division' in d.columns
@@ -2693,6 +2693,11 @@ def _lppc_from_orders(df_lines):
     return {}
   d['_ch'] = d[ch_col].astype(str).str.strip()
 
+  # Order
+  if 'Mã đơn hàng' not in d.columns:
+    return {}
+  d['_ord'] = d['Mã đơn hàng'].astype(str).str.strip()
+
   # date
   if 'date' in d.columns:
     d['_dt'] = pd.to_datetime(d['date'], errors='coerce').dt.date
@@ -2704,6 +2709,7 @@ def _lppc_from_orders(df_lines):
   d = d[
       (d['_nv'] != '') & (d['_nv'].str.lower() != 'nan')
       & (d['_ch'] != '') & (d['_ch'].str.lower() != 'nan')
+      & (d['_ord'] != '') & (d['_ord'].str.lower() != 'nan')
       & d['_dt'].notna()
   ]
   if d.empty:
@@ -2723,17 +2729,21 @@ def _lppc_from_orders(df_lines):
   if sku_col is None:
     return {}
 
-  # Line per (NV, CH, date) = nunique SKU; mỗi (NV,CH,date) = 1 PC
-  pc_lines = (
-      d.groupby(['_nv', '_ch', '_dt'], sort=False)[sku_col]
+  # Line MOQ unique theo từng ĐƠN
+  order_lines = (
+      d.groupby(['_nv', '_ch', '_dt', '_ord'], sort=False)[sku_col]
       .nunique()
       .reset_index(name='n_lines')
   )
-  if pc_lines.empty:
+  if order_lines.empty:
     return {}
 
-  total_lines = pc_lines.groupby('_nv')['n_lines'].sum()
-  total_pc = pc_lines.groupby('_nv').size()
+  # Mỗi (NV, CH, ngày): chọn 1 đơn có n_lines cao nhất → 1 PC, line = line của đúng đơn đó
+  order_lines = order_lines.sort_values('n_lines', ascending=False)
+  pc_day = order_lines.drop_duplicates(subset=['_nv', '_ch', '_dt'], keep='first')
+
+  total_lines = pc_day.groupby('_nv')['n_lines'].sum()
+  total_pc = pc_day.groupby('_nv').size()
   out = {}
   for nv in total_pc.index:
     pc = int(total_pc.loc[nv])
@@ -12277,7 +12287,7 @@ with tab_kpi:
     # ---- Bảng LPPC OFF ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
-        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | PC = max 1/CH/ngày | LPPC = Line MOQ / PC)</h4>',
+        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | 1 PC/CH/ngày | Line trên đúng ĐH PC | LPPC = Line/PC)</h4>',
         unsafe_allow_html=True,
     )
     try:
