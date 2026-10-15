@@ -2640,13 +2640,25 @@ def _normalize_weekly_sales_for_lppc(sales_hist):
 
 
 def _lppc_from_orders(df_lines):
-  """LPPC = tổng line MOQ / tổng PC; PC = đơn ≥4 line MOQ, max 1 PC/CH/ngày, trừ Meat&Beer."""
+  """LPPC Weekly (khác KPI lương):
+
+  - Chỉ L1 OFF (đã lọc ở normalize / caller).
+  - Trừ Meat & Beer.
+  - Chỉ check line đạt MOQ trên đơn.
+  - KHÔNG lọc đơn ≥4 line, KHÔNG max 1 PC/CH/ngày.
+  - PC = mọi đơn có ≥1 line đạt MOQ (sau khi trừ Meat/Beer).
+  - LPPC = Tổng line đạt MOQ / Tổng PC.
+  """
   if df_lines is None or df_lines.empty:
     return {}
   d = df_lines.copy()
+
   # Trừ Meat & Beer
   sub = d['Sub Division'].astype(str) if 'Sub Division' in d.columns else pd.Series('', index=d.index)
-  name = d['Tên SP lower'] if 'Tên SP lower' in d.columns else pd.Series('', index=d.index)
+  name = d['Tên SP lower'] if 'Tên SP lower' in d.columns else (
+      d['Tên sản phẩm'].astype(str).str.lower() if 'Tên sản phẩm' in d.columns
+      else pd.Series('', index=d.index)
+  )
   is_ex = sub.str.contains(
       'Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False
   ) | name.str.contains(
@@ -2658,11 +2670,11 @@ def _lppc_from_orders(df_lines):
   if d.empty:
     return {}
 
-  # group key: prefer Position code
-  if 'Position code' in d.columns:
-    d['_nv_key'] = d['Position code'].astype(str).str.strip()
-  elif 'Mã NVBH' in d.columns:
+  # Key NV: ưu tiên Mã NVBH đã gán (= Position code)
+  if 'Mã NVBH' in d.columns:
     d['_nv_key'] = d['Mã NVBH'].astype(str).str.strip()
+  elif 'Position code' in d.columns:
+    d['_nv_key'] = d['Position code'].astype(str).str.strip()
   else:
     d['_nv_key'] = d.get('Tên NVBH', pd.Series('', index=d.index)).astype(str).str.strip()
 
@@ -2670,65 +2682,57 @@ def _lppc_from_orders(df_lines):
   if not all(c in d.columns for c in need):
     return {}
 
-  # date fallback
-  if 'date' not in d.columns or d['date'].isna().all():
-    if 'Month' in d.columns:
-      # dùng Month làm "ngày" giả để max 1 PC/CH/tháng-bucket — không đúng ngày
-      # Tốt hơn: parse ORDER_DT
-      pass
-    d['date'] = d.get('date', pd.Series([None]*len(d)))
-
-  d = d[d['Mã CH'].notna() & d['Mã đơn hàng'].notna()]
+  d = d[d['Mã CH'].notna() & d['Mã đơn hàng'].notna() & (d['_nv_key'] != '') & (d['_nv_key'].str.lower() != 'nan')]
   if d.empty:
     return {}
 
-  # count MOQ lines
+  # Đếm line đạt MOQ trên từng đơn (chỉ check MOQ SP)
+  order_moq = None
   try:
+    # count_moq_lines_per_order groupby Mã NVBH → tạm gán
+    d = d.copy()
+    d['Mã NVBH'] = d['_nv_key']
+    if 'date' not in d.columns:
+      d['date'] = pd.NaT
     order_moq = count_moq_lines_per_order(d)
   except Exception:
-    # fallback MOQ_FLAG
+    order_moq = None
+
+  if order_moq is None or order_moq.empty:
+    # Fallback: MOQ_FLAG = Y
     if 'MOQ_FLAG' in d.columns:
       ok_lines = d[d['MOQ_FLAG'].astype(str).str.upper().str.strip() == 'Y']
-      sku = 'Mã sản phẩm' if 'Mã sản phẩm' in ok_lines.columns else 'Tên sản phẩm'
+      sku = 'Mã sản phẩm' if 'Mã sản phẩm' in ok_lines.columns else (
+          'Tên sản phẩm' if 'Tên sản phẩm' in ok_lines.columns else None
+      )
+      if sku is None or ok_lines.empty:
+        return {}
       order_moq = (
-          ok_lines.groupby(['_nv_key', 'Mã CH', 'date', 'Mã đơn hàng'])[sku]
+          ok_lines.groupby(['_nv_key', 'Mã đơn hàng'])[sku]
           .nunique()
           .reset_index(name='n_moq_lines')
       )
       order_moq = order_moq.rename(columns={'_nv_key': 'Mã NVBH'})
     else:
-      return {}
-
-  # ensure Mã NVBH from _nv_key if needed
-  if 'Mã NVBH' not in order_moq.columns and '_nv_key' in d.columns:
-    # recount with explicit keys
-    rows = []
-    for keys, g in d.groupby(['_nv_key', 'Mã CH', 'date', 'Mã đơn hàng'], sort=False):
-      try:
-        ok = apply_dual_moq_mask(g)
-        n = int(ok.sum())
-      except Exception:
-        if 'MOQ_FLAG' in g.columns:
-          n = int((g['MOQ_FLAG'].astype(str).str.upper().str.strip() == 'Y').sum())
-        else:
+      # đếm thủ công theo line_meets_moq
+      rows = []
+      for keys, g in d.groupby(['_nv_key', 'Mã đơn hàng'], sort=False):
+        try:
+          n = int(g.apply(line_meets_moq, axis=1).sum())
+        except Exception:
           n = 0
-      rows.append({
-          'Mã NVBH': keys[0], 'Mã CH': keys[1], 'date': keys[2],
-          'Mã đơn hàng': keys[3], 'n_moq_lines': n,
-      })
-    order_moq = pd.DataFrame(rows)
+        rows.append({'Mã NVBH': keys[0], 'Mã đơn hàng': keys[1], 'n_moq_lines': n})
+      order_moq = pd.DataFrame(rows)
 
   if order_moq is None or order_moq.empty:
     return {}
 
-  ok = order_moq[order_moq['n_moq_lines'] >= 4]
+  # Mọi đơn có ≥1 line MOQ đều tính là 1 PC — không lọc ≥4, không pick best
+  ok = order_moq[order_moq['n_moq_lines'] >= 1]
   if ok.empty:
     return {}
-  ok_day = pick_best_pc_per_outlet_day(ok)
-  if ok_day is None or ok_day.empty:
-    return {}
-  total_lines = ok_day.groupby('Mã NVBH')['n_moq_lines'].sum()
-  total_pc = ok_day.groupby('Mã NVBH').size()
+  total_lines = ok.groupby('Mã NVBH')['n_moq_lines'].sum()
+  total_pc = ok.groupby('Mã NVBH').size()
   lppc = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
   return {str(k): round(float(v), 2) for k, v in lppc.items()}
 
@@ -11904,7 +11908,7 @@ with tab_kpi:
     # ---- Bảng LPPC OFF ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
-        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer, đơn ≥4 line MOQ)</h4>',
+        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | Tổng line MOQ / Tổng PC — không lọc ≥4 line)</h4>',
         unsafe_allow_html=True,
     )
     try:
@@ -11940,7 +11944,7 @@ with tab_kpi:
             <li><b>ASO (tháng M):</b> Số CH unique có đơn trong tháng M theo POS_CODE + L1 (giống ASO ALL).</li>
             <li><b>% COV:</b> ASO / MCP × 100. Tháng quá khứ mốc 100%; tháng hiện tại theo Timegone.</li>
             <li><b>ASO = 0 ở tháng cũ:</b> Position code đó chưa có giao dịch trong file data-2 (tuyến mới / đổi mã vị trí). Không phải lỗi map tên.</li>
-            <li><b>LPPC (OFF):</b> Giống KPI LPPC — trừ Meat &amp; Beer, line đạt MOQ, PC = đơn ≥4 line MOQ (max 1 PC/CH/ngày), LPPC = Tổng line / Tổng PC. Tháng 6–9 từ data-2; tháng 10 từ RPT.</li>
+            <li><b>LPPC Weekly (OFF):</b> Khác KPI lương. Chỉ L1 OFF, trừ Meat &amp; Beer, chỉ check line đạt MOQ. PC = mọi đơn có ≥1 line MOQ. LPPC = Tổng line MOQ / Tổng PC. Không lọc ≥4 line. Tháng 6–9 từ data-2; tháng 10 từ RPT.</li>
           </ul>
         </div>
         """,
