@@ -2870,19 +2870,14 @@ def render_weekly_lppc_html(df, timegone_pct=None):
         seen.add(lab)
         months.append(lab)
 
-  cur_lab = months[-1] if months else ''
-  try:
-    tg = float(timegone_pct) if timegone_pct is not None else float(_CURRENT_TIMEGONE or 100)
-  except Exception:
-    tg = 100.0
-  # Mốc LPPC HCM: 4.3 → % = LPPC/4.3*100 so với mốc 100% hoặc timegone
+  # Tất cả tháng (kể cả tháng T) tô theo mốc 100% — LPPC / 4.3
   MOC_LPPC = 4.3
 
   def _pct_style(lppc_val, lab):
     if lppc_val is None:
       return '', ''
     pct = (lppc_val / MOC_LPPC) * 100.0
-    moc = tg if lab == cur_lab else 100.0
+    moc = 100.0  # đồng bộ mọi tháng
     if pct < moc:
       return ('pct-red',
               'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;')
