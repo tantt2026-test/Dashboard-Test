@@ -2947,8 +2947,12 @@ def render_weekly_lppc_html(df, timegone_pct=None):
 
 
 
-def _working_days_in_month(year, month):
-  """Số ngày làm việc trong tháng (trừ CN + lễ), logic giống get_timegone_stats."""
+def _working_days_in_month(year, month, as_of=None):
+  """Số ngày làm việc trong tháng (trừ CN + lễ).
+
+  as_of=None → cả tháng (tháng đã kết thúc).
+  as_of=date → chỉ đếm đến as_of (tháng đang chạy / MTD).
+  """
   first_day = date(year, month, 1)
   if month == 12:
     last_day = date(year + 1, 1, 1) - timedelta(days=1)
@@ -2959,9 +2963,15 @@ def _working_days_in_month(year, month):
       (2026, 10): set(),
   }
   holiday_days = holidays_by_month.get((year, month), set())
+  end = last_day
+  if as_of is not None:
+    try:
+      end = min(last_day, as_of if isinstance(as_of, date) else as_of.date())
+    except Exception:
+      end = last_day
   total = 0
   curr = first_day
-  while curr <= last_day:
+  while curr <= end:
     if curr.weekday() != 6 and curr.day not in holiday_days:
       total += 1
     curr += timedelta(days=1)
@@ -3009,7 +3019,7 @@ def _pc_count_from_orders(df_lines):
   return {str(k): int(v) for k, v in pcs.items()}
 
 
-def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
+def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None, report_date=None):
   """Bảng PC/SM/Day — bình quân PC/NV/ngày, chỉ Kênh OFF.
 
   PC = số đơn có ≥1 line đạt MOQ (không trừ Meat/Beer, không lọc ≥4 line).
@@ -3046,7 +3056,20 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   # s_norm đã OFF only
 
   pc_by_month = {f'{m:02d}/{y}': {} for y, m in months}
-  days_by_month = {f'{m:02d}/{y}': _working_days_in_month(y, m) for y, m in months}
+  # Tháng đã qua: full month. Tháng hiện tại (10/2026): số ngày làm việc đã trôi qua (MTD).
+  as_of_today = report_date if report_date is not None else date.today()
+  try:
+    if not isinstance(as_of_today, date):
+      as_of_today = as_of_today.date()
+  except Exception:
+    as_of_today = date.today()
+  days_by_month = {}
+  for y, m in months:
+    lab = f'{m:02d}/{y}'
+    if (y, m) == (as_of_today.year, as_of_today.month):
+      days_by_month[lab] = _working_days_in_month(y, m, as_of=as_of_today)
+    else:
+      days_by_month[lab] = _working_days_in_month(y, m, as_of=None)
 
   if not s_norm.empty and 'Month' in s_norm.columns:
     for y, m in months:
@@ -3139,10 +3162,10 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (PC/SM/Day OFF)', 'Position code': ''}
   for y, m in months:
     label = f'{m:02d}/{y}'
-    wd = days_by_month.get(label, 1)
-    # Total PC team / working days
-    pc_sum = int(df_out[f'_pc|{label}'].sum()) if f'_pc|{label}' in df_out.columns else 0
-    tot[f'PC/Day|{label}'] = round(pc_sum / wd, 2) if wd else 0.0
+    # Total = trung bình PC/Day của các NV (giống ASM system)
+    col = f'PC/Day|{label}'
+    vals = pd.to_numeric(df_out[col], errors='coerce').dropna()
+    tot[col] = round(float(vals.mean()), 2) if len(vals) else 0.0
   drop_cols = [c for c in df_out.columns if str(c).startswith('_')]
   df_out = df_out.drop(columns=drop_cols, errors='ignore')
   df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
@@ -12224,7 +12247,7 @@ with tab_kpi:
     )
     try:
       df_pcday = build_weekly_pc_sm_day(
-          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv, report_date=report_date
       )
     except Exception as e:
       st.error('Lỗi PC/SM/Day Weekly: ' + str(e))
