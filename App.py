@@ -10599,6 +10599,9 @@ with tab_kpi:
     df_r, team_tgt, title = build_turnover_report(
         df, report_date, turnover_targets, filter_nv
     )
+    if df_r is None or df_r.empty:
+      st.warning('Không có dữ liệu TURNOVER.')
+      st.stop()
     total_row = df_r.iloc[-1]
     total_mtd = float(total_row['Doanh Số MTD'])
     total_today = float(total_row['Thực Hiện Ngày'])
@@ -11325,11 +11328,78 @@ with tab_kpi:
       )
 
 
+  elif selected_kpi == 'WEEKLY_PREVIEW':
+    st.markdown(
+        '<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
+        '18. WEEKLY PREVIEW — MCP / ASO / % COV</h3>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        'MCP = số CH tạo ≤ ngày 4 của tháng | '
+        'ASO = bao phủ CH có đơn trong tháng (giống ASO ALL) | %COV = ASO/MCP'
+    )
+    sales_hist = pd.DataFrame()
+    df_wp = pd.DataFrame()
+    try:
+      sales_hist = load_weekly_sales()
+      df_wp = build_weekly_preview(
+          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+      )
+    except Exception as e:
+      st.error('Lỗi chạy Weekly Preview: ' + str(e))
+      st.exception(e)
+    if df_wp is None or df_wp.empty:
+      st.warning('Chưa có dữ liệu Weekly Preview. Kiểm tra file trong thư mục data/.')
+      data_files = []
+      try:
+        if os.path.isdir(DATA_DIR):
+          data_files = sorted(os.listdir(DATA_DIR))
+      except Exception:
+        pass
+      has_d2 = os.path.isfile(os.path.join(DATA_DIR, 'data-2.xlsx'))
+      has_mcp = os.path.isfile(os.path.join(DATA_DIR, 'Data_MCP.xlsx'))
+      n_sales = 0 if sales_hist is None else len(sales_hist)
+      n_mcp = 0 if mcp is None else len(mcp)
+      file_list = ', '.join(data_files) if data_files else '(trống)'
+      st.info(
+          'File trong data/: ' + file_list
+          + ' | data-2.xlsx: ' + str(has_d2)
+          + ' | Data_MCP.xlsx: ' + str(has_mcp)
+          + ' | sales rows: ' + str(n_sales)
+          + ' | mcp rows: ' + str(n_mcp)
+      )
+    else:
+      st.markdown(render_weekly_preview_html(df_wp), unsafe_allow_html=True)
+      st.markdown(
+          """
+          <div class="note-box">
+            <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC</div>
+            <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
+              <li><b>MCP (tháng M):</b> Tổng số CH trên MCP có <b>Created_date ≤ ngày 4</b> của tháng M.</li>
+              <li><b>ASO (tháng M):</b> Số CH unique có phát sinh đơn trong tháng M (giống ASO ALL).</li>
+              <li><b>% COV:</b> ASO / MCP × 100.</li>
+              <li>Tháng 10/2026: ASO lấy từ RPT bán hàng hiện tại nếu file lịch sử chưa có tháng 10.</li>
+            </ul>
+          </div>
+          """,
+          unsafe_allow_html=True,
+      )
+      st.download_button(
+          '📥 Tải CSV Weekly Preview',
+          data=df_wp.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'Weekly_Preview_{report_date.strftime("%Y%m%d")}.csv',
+          mime='text/csv',
+          key='dl_weekly_preview',
+      )
+
   elif selected_kpi != 'COMBO':
     set_color_moc_for_kpi(selected_kpi)
     df_r, team_tgt, title = build_report(
         df, report_date, targets, selected_kpi, filter_nv, mcp_df=mcp
     )
+    if df_r is None or df_r.empty:
+      st.warning(f'Không có dữ liệu báo cáo {selected_kpi}.')
+      st.stop()
     total_row = df_r.iloc[-1]
     total_mtd = int(total_row['MTD'])
     total_ngay = int(total_row['Thực Hiện Ngày'])
@@ -11421,69 +11491,6 @@ with tab_kpi:
         """,
         unsafe_allow_html=True,
     )
-  elif selected_kpi == 'WEEKLY_PREVIEW':
-    st.markdown(
-        '<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
-        '18. WEEKLY PREVIEW — MCP / ASO / % COV</h3>',
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        'MCP = số CH tạo ≤ ngày 4 của tháng | '
-        'ASO = bao phủ CH có đơn trong tháng (giống ASO ALL) | %COV = ASO/MCP'
-    )
-    sales_hist = pd.DataFrame()
-    df_wp = pd.DataFrame()
-    try:
-      sales_hist = load_weekly_sales()
-      df_wp = build_weekly_preview(
-          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
-      )
-    except Exception as e:
-      st.error('Lỗi chạy Weekly Preview: ' + str(e))
-      st.exception(e)
-    if df_wp is None or df_wp.empty:
-      st.warning('Chưa có dữ liệu Weekly Preview. Kiểm tra file trong thư mục data/.')
-      data_files = []
-      try:
-        if os.path.isdir(DATA_DIR):
-          data_files = sorted(os.listdir(DATA_DIR))
-      except Exception:
-        pass
-      has_d2 = os.path.isfile(os.path.join(DATA_DIR, 'data-2.xlsx'))
-      has_mcp = os.path.isfile(os.path.join(DATA_DIR, 'Data_MCP.xlsx'))
-      n_sales = 0 if sales_hist is None else len(sales_hist)
-      n_mcp = 0 if mcp is None else len(mcp)
-      file_list = ', '.join(data_files) if data_files else '(trống)'
-      st.info(
-          'File trong data/: ' + file_list
-          + ' | data-2.xlsx: ' + str(has_d2)
-          + ' | Data_MCP.xlsx: ' + str(has_mcp)
-          + ' | sales rows: ' + str(n_sales)
-          + ' | mcp rows: ' + str(n_mcp)
-      )
-    else:
-      st.markdown(render_weekly_preview_html(df_wp), unsafe_allow_html=True)
-      st.markdown(
-          """
-          <div class="note-box">
-            <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC</div>
-            <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
-              <li><b>MCP (tháng M):</b> Tổng số CH trên MCP có <b>Created_date ≤ ngày 4</b> của tháng M.</li>
-              <li><b>ASO (tháng M):</b> Số CH unique có phát sinh đơn trong tháng M (giống ASO ALL).</li>
-              <li><b>% COV:</b> ASO / MCP × 100.</li>
-              <li>Tháng 10/2026: ASO lấy từ RPT bán hàng hiện tại nếu file lịch sử chưa có tháng 10.</li>
-            </ul>
-          </div>
-          """,
-          unsafe_allow_html=True,
-      )
-      st.download_button(
-          '📥 Tải CSV Weekly Preview',
-          data=df_wp.to_csv(index=False).encode('utf-8-sig'),
-          file_name=f'Weekly_Preview_{report_date.strftime("%Y%m%d")}.csv',
-          mime='text/csv',
-          key='dl_weekly_preview',
-      )
 
   else:
     df_combo, target_off_total, target_on_total = build_combo_matrix(
