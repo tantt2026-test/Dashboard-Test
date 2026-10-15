@@ -2640,101 +2640,89 @@ def _normalize_weekly_sales_for_lppc(sales_hist):
 
 
 def _lppc_from_orders(df_lines):
-  """LPPC Weekly (khác KPI lương):
+  """LPPC Weekly (nhanh — vectorized):
 
-  - Chỉ L1 OFF (đã lọc ở normalize / caller).
-  - Trừ Meat & Beer.
-  - Chỉ check line đạt MOQ trên đơn.
-  - KHÔNG lọc đơn ≥4 line, KHÔNG max 1 PC/CH/ngày.
-  - PC = mọi đơn có ≥1 line đạt MOQ (sau khi trừ Meat/Beer).
-  - LPPC = Tổng line đạt MOQ / Tổng PC.
+  - Chỉ L1 OFF (caller đã lọc).
+  - Trừ Meat & Beer (vectorized, không regex phức tạp).
+  - Line đạt MOQ: ưu tiên cột MOQ_FLAG=Y; fallback đếm SKU unique trên đơn.
+  - PC = mọi đơn có ≥1 line MOQ. Không lọc ≥4, không max 1 PC/CH/ngày.
+  - LPPC = Tổng line MOQ / Tổng PC.
   """
   if df_lines is None or df_lines.empty:
     return {}
   d = df_lines.copy()
 
-  # Trừ Meat & Beer
-  sub = d['Sub Division'].astype(str) if 'Sub Division' in d.columns else pd.Series('', index=d.index)
-  name = d['Tên SP lower'] if 'Tên SP lower' in d.columns else (
-      d['Tên sản phẩm'].astype(str).str.lower() if 'Tên sản phẩm' in d.columns
+  # --- Trừ Meat & Beer (vectorized, regex đơn giản) ---
+  sub = (
+      d['Sub Division'].astype(str).str.lower()
+      if 'Sub Division' in d.columns
       else pd.Series('', index=d.index)
   )
-  is_ex = sub.str.contains(
-      'Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False
-  ) | name.str.contains(
-      'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|'
-      'cao bồi|cao boi|hotdog|thịt viên|chân gà',
-      na=False,
-  )
-  d = d[~is_ex]
+  is_ex = sub.str.contains('beer|bia|processed meats|thịt chế biến|thit che bien', na=False, regex=True)
+  if 'Tên sản phẩm' in d.columns:
+    nm = d['Tên sản phẩm'].astype(str).str.lower()
+    is_ex = is_ex | nm.str.contains(
+        'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|cao bồi|cao boi|hotdog|thịt viên|chan ga|chân gà',
+        na=False, regex=True,
+    )
+  d = d.loc[~is_ex]
   if d.empty:
     return {}
 
-  # Key NV: ưu tiên Mã NVBH đã gán (= Position code)
+  # --- Key NV ---
   if 'Mã NVBH' in d.columns:
-    d['_nv_key'] = d['Mã NVBH'].astype(str).str.strip()
+    d['_nv'] = d['Mã NVBH'].astype(str).str.strip()
   elif 'Position code' in d.columns:
-    d['_nv_key'] = d['Position code'].astype(str).str.strip()
+    d['_nv'] = d['Position code'].astype(str).str.strip()
+  elif 'POS_CODE' in d.columns:
+    d['_nv'] = d['POS_CODE'].astype(str).str.strip()
   else:
-    d['_nv_key'] = d.get('Tên NVBH', pd.Series('', index=d.index)).astype(str).str.strip()
+    d['_nv'] = d.get('Tên NVBH', pd.Series('', index=d.index)).astype(str).str.strip()
 
-  need = ['Mã CH', 'Mã đơn hàng']
-  if not all(c in d.columns for c in need):
+  if 'Mã đơn hàng' not in d.columns:
     return {}
-
-  d = d[d['Mã CH'].notna() & d['Mã đơn hàng'].notna() & (d['_nv_key'] != '') & (d['_nv_key'].str.lower() != 'nan')]
+  d['_ord'] = d['Mã đơn hàng'].astype(str).str.strip()
+  d = d[(d['_nv'] != '') & (d['_nv'].str.lower() != 'nan') & (d['_ord'] != '') & (d['_ord'].str.lower() != 'nan')]
   if d.empty:
     return {}
 
-  # Đếm line đạt MOQ trên từng đơn (chỉ check MOQ SP)
-  order_moq = None
-  try:
-    # count_moq_lines_per_order groupby Mã NVBH → tạm gán
-    d = d.copy()
-    d['Mã NVBH'] = d['_nv_key']
-    if 'date' not in d.columns:
-      d['date'] = pd.NaT
-    order_moq = count_moq_lines_per_order(d)
-  except Exception:
-    order_moq = None
+  # --- Line đạt MOQ ---
+  if 'MOQ_FLAG' in d.columns:
+    d = d[d['MOQ_FLAG'].astype(str).str.upper().str.strip() == 'Y']
+  # else: giữ tất cả line (coi mỗi dòng SP là 1 line)
 
-  if order_moq is None or order_moq.empty:
-    # Fallback: MOQ_FLAG = Y
-    if 'MOQ_FLAG' in d.columns:
-      ok_lines = d[d['MOQ_FLAG'].astype(str).str.upper().str.strip() == 'Y']
-      sku = 'Mã sản phẩm' if 'Mã sản phẩm' in ok_lines.columns else (
-          'Tên sản phẩm' if 'Tên sản phẩm' in ok_lines.columns else None
-      )
-      if sku is None or ok_lines.empty:
-        return {}
-      order_moq = (
-          ok_lines.groupby(['_nv_key', 'Mã đơn hàng'])[sku]
-          .nunique()
-          .reset_index(name='n_moq_lines')
-      )
-      order_moq = order_moq.rename(columns={'_nv_key': 'Mã NVBH'})
-    else:
-      # đếm thủ công theo line_meets_moq
-      rows = []
-      for keys, g in d.groupby(['_nv_key', 'Mã đơn hàng'], sort=False):
-        try:
-          n = int(g.apply(line_meets_moq, axis=1).sum())
-        except Exception:
-          n = 0
-        rows.append({'Mã NVBH': keys[0], 'Mã đơn hàng': keys[1], 'n_moq_lines': n})
-      order_moq = pd.DataFrame(rows)
-
-  if order_moq is None or order_moq.empty:
+  if d.empty:
     return {}
 
-  # Mọi đơn có ≥1 line MOQ đều tính là 1 PC — không lọc ≥4, không pick best
+  # Đếm số line (SKU unique) trên mỗi đơn
+  sku_col = None
+  for c in ['Mã sản phẩm', 'STANDARD_SKU_CODE', 'ITEM_CODE', 'Tên sản phẩm']:
+    if c in d.columns:
+      sku_col = c
+      break
+  if sku_col is None:
+    # mỗi dòng = 1 line
+    order_moq = (
+        d.groupby(['_nv', '_ord'], sort=False)
+        .size()
+        .reset_index(name='n_moq_lines')
+    )
+  else:
+    order_moq = (
+        d.groupby(['_nv', '_ord'], sort=False)[sku_col]
+        .nunique()
+        .reset_index(name='n_moq_lines')
+    )
+
   ok = order_moq[order_moq['n_moq_lines'] >= 1]
   if ok.empty:
     return {}
-  total_lines = ok.groupby('Mã NVBH')['n_moq_lines'].sum()
-  total_pc = ok.groupby('Mã NVBH').size()
+
+  total_lines = ok.groupby('_nv')['n_moq_lines'].sum()
+  total_pc = ok.groupby('_nv').size()
   lppc = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
   return {str(k): round(float(v), 2) for k, v in lppc.items()}
+
 
 
 def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
