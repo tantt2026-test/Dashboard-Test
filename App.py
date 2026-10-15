@@ -2326,6 +2326,7 @@ def _gap_and_bq_day(target, mtd, remain_days, as_int=True):
 
 
 
+@st.cache_data(ttl=600)
 def load_weekly_sales():
   """Load file bán hàng lịch sử cho Weekly Preview (data-2 / WeeklyPreview_Sales)."""
   preferred = [
@@ -2341,27 +2342,32 @@ def load_weekly_sales():
       break
   if path is None and os.path.isdir(DATA_DIR):
     try:
-      for fn in os.listdir(DATA_DIR):
+      for fn in sorted(os.listdir(DATA_DIR)):
         low = fn.lower().replace(' ', '')
         if not low.endswith(('.xlsx', '.xls', '.xlsm')):
           continue
-        if 'weekly' in low or low.startswith('data-2'):
+        if 'weekly' in low or 'data-2' in low or low.startswith('data2'):
           path = os.path.join(DATA_DIR, fn)
           break
     except Exception:
       pass
   if not path:
     return pd.DataFrame()
-  try:
-    df = pd.read_excel(path, header=2)
-    if 'OUTLET_CODE' not in df.columns and 'SM_NAME' not in df.columns:
-      df = pd.read_excel(path, header=0)
-    return df
-  except Exception:
+  for hdr in (2, 0, 1, 3):
     try:
-      return pd.read_excel(path)
+      df = pd.read_excel(path, header=hdr)
+      cols_up = [str(c).upper().replace(' ', '_') for c in df.columns]
+      has_outlet = any('OUTLET' in c and 'CODE' in c for c in cols_up)
+      has_sm = any('SM_NAME' in c or c == 'SMNAME' for c in cols_up)
+      has_month = any('MONTH' in c for c in cols_up)
+      if has_outlet and (has_sm or has_month):
+        return df
     except Exception:
-      return pd.DataFrame()
+      continue
+  try:
+    return pd.read_excel(path, header=2)
+  except Exception:
+    return pd.DataFrame()
 
 
 def build_weekly_preview(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
@@ -11425,15 +11431,35 @@ with tab_kpi:
         'MCP = số CH tạo ≤ ngày 4 của tháng | '
         'ASO = bao phủ CH có đơn trong tháng (giống ASO ALL) | %COV = ASO/MCP'
     )
-    sales_hist = load_weekly_sales()
-    df_wp = build_weekly_preview(
-        mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
-    )
+    sales_hist = pd.DataFrame()
+    df_wp = pd.DataFrame()
+    try:
+      sales_hist = load_weekly_sales()
+      df_wp = build_weekly_preview(
+          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+      )
+    except Exception as e:
+      st.error('Lỗi chạy Weekly Preview: ' + str(e))
+      st.exception(e)
     if df_wp is None or df_wp.empty:
-      st.warning(
-          '⚠️ Chưa có dữ liệu Weekly Preview. Upload **data-2.xlsx** '
-          '(hoặc WeeklyPreview_Sales.xlsx) và **Data_MCP.xlsx** vào `data/` '
-          'trên GitHub rồi **Xóa Cache & Reload**.'
+      st.warning('Chưa có dữ liệu Weekly Preview. Kiểm tra file trong thư mục data/.')
+      data_files = []
+      try:
+        if os.path.isdir(DATA_DIR):
+          data_files = sorted(os.listdir(DATA_DIR))
+      except Exception:
+        pass
+      has_d2 = os.path.isfile(os.path.join(DATA_DIR, 'data-2.xlsx'))
+      has_mcp = os.path.isfile(os.path.join(DATA_DIR, 'Data_MCP.xlsx'))
+      n_sales = 0 if sales_hist is None else len(sales_hist)
+      n_mcp = 0 if mcp is None else len(mcp)
+      file_list = ', '.join(data_files) if data_files else '(trống)'
+      st.info(
+          'File trong data/: ' + file_list
+          + ' | data-2.xlsx: ' + str(has_d2)
+          + ' | Data_MCP.xlsx: ' + str(has_mcp)
+          + ' | sales rows: ' + str(n_sales)
+          + ' | mcp rows: ' + str(n_mcp)
       )
     else:
       st.markdown(render_weekly_preview_html(df_wp), unsafe_allow_html=True)
