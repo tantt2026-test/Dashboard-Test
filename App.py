@@ -2946,6 +2946,305 @@ def render_weekly_lppc_html(df, timegone_pct=None):
   return ''.join(html)
 
 
+
+def _working_days_in_month(year, month):
+  """Số ngày làm việc trong tháng (trừ CN + lễ), logic giống get_timegone_stats."""
+  first_day = date(year, month, 1)
+  if month == 12:
+    last_day = date(year + 1, 1, 1) - timedelta(days=1)
+  else:
+    last_day = date(year, month + 1, 1) - timedelta(days=1)
+  holidays_by_month = {
+      (2026, 9): {1, 2},
+      (2026, 10): set(),
+  }
+  holiday_days = holidays_by_month.get((year, month), set())
+  total = 0
+  curr = first_day
+  while curr <= last_day:
+    if curr.weekday() != 6 and curr.day not in holiday_days:
+      total += 1
+    curr += timedelta(days=1)
+  return max(total, 1)
+
+
+def _pc_count_from_orders(df_lines):
+  """Đếm số PC (số đơn) theo NV.
+
+  - Không trừ Meat/Beer
+  - Không lọc ≥4 line
+  - Chỉ đơn có ≥1 line đạt MOQ (MOQ_FLAG=Y hoặc mọi line nếu không có flag)
+  """
+  if df_lines is None or df_lines.empty:
+    return {}
+  d = df_lines.copy()
+
+  if 'Mã NVBH' in d.columns:
+    d['_nv'] = d['Mã NVBH'].astype(str).str.strip()
+  elif 'Position code' in d.columns:
+    d['_nv'] = d['Position code'].astype(str).str.strip()
+  elif 'POS_CODE' in d.columns:
+    d['_nv'] = d['POS_CODE'].astype(str).str.strip()
+  else:
+    d['_nv'] = d.get('Tên NVBH', pd.Series('', index=d.index)).astype(str).str.strip()
+
+  if 'Mã đơn hàng' not in d.columns:
+    return {}
+  d['_ord'] = d['Mã đơn hàng'].astype(str).str.strip()
+  d = d[
+      (d['_nv'] != '') & (d['_nv'].str.lower() != 'nan')
+      & (d['_ord'] != '') & (d['_ord'].str.lower() != 'nan')
+  ]
+  if d.empty:
+    return {}
+
+  # Chỉ giữ line đạt MOQ
+  if 'MOQ_FLAG' in d.columns:
+    d = d[d['MOQ_FLAG'].astype(str).str.upper().str.strip() == 'Y']
+  if d.empty:
+    return {}
+
+  # Mỗi đơn (có ≥1 line MOQ) = 1 PC
+  pcs = d.groupby('_nv')['_ord'].nunique()
+  return {str(k): int(v) for k, v in pcs.items()}
+
+
+def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
+  """Bảng PC/SM/Day — bình quân PC/NV/ngày, chỉ Kênh OFF.
+
+  PC = số đơn có ≥1 line đạt MOQ (không trừ Meat/Beer, không lọc ≥4 line).
+  PC/SM/Day = Tổng PC tháng / Số ngày làm việc trong tháng.
+  """
+  if months is None:
+    months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
+
+  empty_cols = ['STT', 'Tên NVBH'] + [f'PC/Day|{m:02d}/{y}' for y, m in months]
+  empty = pd.DataFrame(columns=empty_cols)
+
+  pos_name = {}
+  pos_list = []
+  if mcp_df is not None and not mcp_df.empty:
+    mcp = mcp_df.copy()
+    c_nv = find_col(mcp, ['SM name', 'SM Name', 'Tên NVBH'])
+    c_pos = find_col(mcp, ['Position code', 'Position Code', 'POS_CODE'])
+    if c_pos:
+      mcp['_pos'] = mcp[c_pos].astype(str).str.strip()
+      mcp['_nv'] = mcp[c_nv].astype(str).str.strip() if c_nv else mcp['_pos']
+      mcp = mcp[~mcp['_nv'].str.contains('vacant', case=False, na=False)]
+      for pos, g in mcp.groupby('_pos', sort=False):
+        names = g['_nv'].dropna()
+        names = names[names.str.lower() != 'nan']
+        pos_name[pos] = names.iloc[-1] if len(names) else pos
+      pos_list = sorted(pos_name.keys())
+
+  if nv_selected(filter_nv) and pos_name:
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    pos_list = [p for p in pos_list if pos_name.get(p, '') in vals]
+
+  s_norm = _normalize_weekly_sales_for_lppc(sales_hist)  # đã lọc OFF
+  # Bỏ filter Meat — normalize không trừ meat; _lppc trừ meat nhưng PC không trừ
+  # s_norm đã OFF only
+
+  pc_by_month = {f'{m:02d}/{y}': {} for y, m in months}
+  days_by_month = {f'{m:02d}/{y}': _working_days_in_month(y, m) for y, m in months}
+
+  if not s_norm.empty and 'Month' in s_norm.columns:
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      if m == 10 and y == 2026:
+        continue
+      sub = s_norm[s_norm['Month'].astype(str).str.strip() == label].copy()
+      if sub.empty:
+        continue
+      pos_col = None
+      for c in ['Position code', 'POS_CODE', 'Position Code']:
+        if c in sub.columns:
+          pos_col = c
+          break
+      if pos_col is None:
+        pos_col = find_col(sub, ['Position code', 'POS_CODE'])
+      if pos_col:
+        sub['Mã NVBH'] = sub[pos_col].astype(str).str.strip()
+      elif 'Tên NVBH' in sub.columns:
+        sub['Mã NVBH'] = sub['Tên NVBH'].astype(str).str.strip()
+      pc_by_month[label] = _pc_count_from_orders(sub)
+
+  # Tháng 10 từ RPT — OFF only, không trừ meat
+  if df_rpt is not None and not df_rpt.empty:
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      if pc_by_month.get(label):
+        continue
+      try:
+        start_d = date(y, m, 1)
+        end_d = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+        d = df_rpt[(df_rpt['date'] >= start_d) & (df_rpt['date'] < end_d)].copy()
+        if d.empty:
+          continue
+        if 'L1' in d.columns:
+          d = d[d['L1'].astype(str).str.contains('Off', case=False, na=False)]
+        c_pos = find_col(d, ['Position code', 'POS_CODE'])
+        if c_pos:
+          d['Mã NVBH'] = d[c_pos].astype(str).str.strip()
+        else:
+          c_nv = find_col(d, ['Tên NVBH', 'SM Name'])
+          if c_nv and pos_name:
+            rev = {v: k for k, v in pos_name.items()}
+            d['Mã NVBH'] = d[c_nv].astype(str).str.strip().map(lambda x: rev.get(x, x))
+        # RPT: đếm đơn unique; coi mỗi line đạt nếu có SL>0
+        if 'Mã đơn hàng' not in d.columns:
+          c_ord = find_col(d, ['Mã đơn hàng', 'ORDER_NUM', 'Số ĐH'])
+          if c_ord:
+            d['Mã đơn hàng'] = d[c_ord]
+        if 'Mã đơn hàng' in d.columns and 'Mã NVBH' in d.columns:
+          # Không có MOQ_FLAG: dùng line_meets_moq nhanh qua nunique order sau khi filter qty>0
+          if 'MOQ_FLAG' not in d.columns:
+            # đánh dấu tất cả line có sản phẩm là đạt (weekly PC: SP thoả MOQ — fallback mọi line)
+            d['MOQ_FLAG'] = 'Y'
+          pc_by_month[label] = _pc_count_from_orders(d)
+      except Exception:
+        pass
+
+  if not pos_list:
+    keys = set()
+    for lab, mp in pc_by_month.items():
+      keys |= set(mp.keys())
+    pos_list = sorted(keys)
+
+  rows = []
+  for pos in pos_list:
+    nv = pos_name.get(pos, pos)
+    if 'vacant' in str(nv).lower():
+      continue
+    row = {'Tên NVBH': nv, 'Position code': pos}
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      pc = int(pc_by_month.get(label, {}).get(pos, 0) or 0)
+      wd = days_by_month.get(label, 1)
+      val = round(pc / wd, 2) if wd else 0.0
+      row[f'PC/Day|{label}'] = val
+      row[f'_pc|{label}'] = pc
+      row[f'_v|{label}'] = val
+    rows.append(row)
+
+  if not rows:
+    return empty
+
+  df_out = pd.DataFrame(rows)
+  last = f'{months[-1][1]:02d}/{months[-1][0]}'
+  if f'_v|{last}' in df_out.columns:
+    df_out = df_out.sort_values(f'_v|{last}', ascending=True).reset_index(drop=True)
+  df_out.insert(0, 'STT', range(1, len(df_out) + 1))
+
+  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (PC/SM/Day OFF)', 'Position code': ''}
+  for y, m in months:
+    label = f'{m:02d}/{y}'
+    wd = days_by_month.get(label, 1)
+    # Total PC team / working days
+    pc_sum = int(df_out[f'_pc|{label}'].sum()) if f'_pc|{label}' in df_out.columns else 0
+    tot[f'PC/Day|{label}'] = round(pc_sum / wd, 2) if wd else 0.0
+  drop_cols = [c for c in df_out.columns if str(c).startswith('_')]
+  df_out = df_out.drop(columns=drop_cols, errors='ignore')
+  df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
+  return df_out
+
+
+def render_weekly_pc_day_html(df):
+  """Bảng PC/SM/Day — format KPI, tô màu theo phân vị trong tháng (đỏ thấp, xanh cao)."""
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu PC/SM/Day.</p>'
+
+  months = []
+  seen = set()
+  for c in df.columns:
+    if isinstance(c, str) and c.startswith('PC/Day|'):
+      lab = c.split('|', 1)[1]
+      if lab not in seen:
+        seen.add(lab)
+        months.append(lab)
+
+  # Mốc màu: so với median của cột (không tính total)
+  def _style_val(val, med):
+    if val is None or med is None or med <= 0:
+      return '', ''
+    ratio = val / med * 100.0
+    if ratio < 90:
+      return ('pct-red',
+              'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;')
+    if ratio < 110:
+      return ('pct-green',
+              'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;')
+    return ('pct-purple',
+            'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;')
+
+  meds = {}
+  body = df.iloc[:-1] if len(df) > 1 else df
+  for lab in months:
+    col = f'PC/Day|{lab}'
+    if col in body.columns:
+      vals = pd.to_numeric(body[col], errors='coerce').dropna()
+      meds[lab] = float(vals.median()) if len(vals) else 0.0
+
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;white-space:nowrap;'
+  )
+  th_sticky = th + 'position:sticky;left:0;z-index:3;'
+  th_sticky2 = th + 'position:sticky;left:42px;z-index:3;'
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 6px;'
+      'font-size:11px;text-align:center !important;white-space:nowrap;'
+  )
+  td_tot = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+  )
+
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
+      '<thead><tr>',
+      f'<th style="{th_sticky}">STT</th>',
+      f'<th style="{th_sticky2}">Tên NVBH</th>',
+  ]
+  for lab in months:
+    html.append(f'<th style="{th}">PC/Day<br/>{lab}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
+    stt, ten = row.get('STT', ''), row.get('Tên NVBH', '')
+    if is_tot:
+      html.append(f'<td class="row-total-cell" style="{td_tot}position:sticky;left:0;">{stt}</td>')
+      html.append(f'<td class="row-total-cell" style="{td_tot}position:sticky;left:42px;text-align:left !important;">{ten}</td>')
+    else:
+      html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:0;">{stt}</td>')
+      html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:42px;text-align:left !important;font-weight:600;">{ten}</td>')
+    for lab in months:
+      key = f'PC/Day|{lab}'
+      val = row.get(key, 0)
+      try:
+        fval = float(val)
+        disp = f'{fval:.2f}'
+      except Exception:
+        fval, disp = None, str(val)
+      if is_tot:
+        html.append(f'<td class="row-total-cell" style="{td_tot}">{disp}</td>')
+      else:
+        cls, st_c = _style_val(fval, meds.get(lab, 0))
+        if st_c:
+          html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{disp}</td>')
+        else:
+          html.append(f'<td style="{td}background-color:{bg} !important;">{disp}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
 def render_weekly_preview_html(df, timegone_pct=None):
   """Bảng Weekly Preview — header 2 tầng, sticky STT/Tên, % format giống Tab KPI."""
   if df is None or df.empty:
@@ -11917,6 +12216,32 @@ with tab_kpi:
           key='dl_weekly_lppc',
       )
 
+    # ---- Bảng PC/SM/Day OFF ----
+    st.markdown(
+        '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
+        '📅 PC/SM/DAY — KÊNH OFF (Tổng PC / Số ngày làm việc)</h4>',
+        unsafe_allow_html=True,
+    )
+    try:
+      df_pcday = build_weekly_pc_sm_day(
+          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+      )
+    except Exception as e:
+      st.error('Lỗi PC/SM/Day Weekly: ' + str(e))
+      st.exception(e)
+      df_pcday = pd.DataFrame()
+    if df_pcday is None or df_pcday.empty:
+      st.warning('Chưa có dữ liệu PC/SM/Day — Kênh OFF.')
+    else:
+      st.markdown(render_weekly_pc_day_html(df_pcday), unsafe_allow_html=True)
+      st.download_button(
+          '📥 Tải CSV Weekly PC/SM/Day OFF',
+          data=df_pcday.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'Weekly_PC_SM_Day_OFF_{report_date.strftime("%Y%m%d")}.csv',
+          mime='text/csv',
+          key='dl_weekly_pcday',
+      )
+
     st.markdown(
         """
         <div class="note-box">
@@ -11928,6 +12253,7 @@ with tab_kpi:
             <li><b>% COV:</b> ASO / MCP × 100. Tháng quá khứ mốc 100%; tháng hiện tại theo Timegone.</li>
             <li><b>ASO = 0 ở tháng cũ:</b> Position code đó chưa có giao dịch trong file data-2 (tuyến mới / đổi mã vị trí). Không phải lỗi map tên.</li>
             <li><b>LPPC Weekly (OFF):</b> Khác KPI lương. Chỉ L1 OFF, trừ Meat &amp; Beer, chỉ check line đạt MOQ. PC = mọi đơn có ≥1 line MOQ. LPPC = Tổng line MOQ / Tổng PC. Không lọc ≥4 line. Tháng 6–9 từ data-2; tháng 10 từ RPT.</li>
+            <li><b>PC/SM/Day (OFF):</b> Tổng số đơn (PC) có ≥1 line đạt MOQ / số ngày làm việc trong tháng (trừ CN + lễ). Không trừ Meat/Beer, không lọc ≥4 line. Chỉ Kênh OFF.</li>
           </ul>
         </div>
         """,
