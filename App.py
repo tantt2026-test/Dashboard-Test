@@ -2979,11 +2979,12 @@ def _working_days_in_month(year, month, as_of=None):
 
 
 def _pc_count_from_orders(df_lines):
-  """Đếm số PC (số đơn) theo NV.
+  """Đếm số PC theo NV — max 1 PC / CH / ngày.
 
   - Không trừ Meat/Beer
   - Không lọc ≥4 line
-  - Chỉ đơn có ≥1 line đạt MOQ (MOQ_FLAG=Y hoặc mọi line nếu không có flag)
+  - Chỉ tính CH có ≥1 line đạt MOQ trong ngày (MOQ_FLAG=Y)
+  - PC = số cặp unique (Mã CH, date) theo từng NV
   """
   if df_lines is None or df_lines.empty:
     return {}
@@ -2998,12 +2999,28 @@ def _pc_count_from_orders(df_lines):
   else:
     d['_nv'] = d.get('Tên NVBH', pd.Series('', index=d.index)).astype(str).str.strip()
 
-  if 'Mã đơn hàng' not in d.columns:
+  # Mã CH
+  ch_col = None
+  for c in ['Mã CH', 'OUTLET_CODE', 'Outlet_code', 'Mã Cửa hàng']:
+    if c in d.columns:
+      ch_col = c
+      break
+  if ch_col is None:
     return {}
-  d['_ord'] = d['Mã đơn hàng'].astype(str).str.strip()
+  d['_ch'] = d[ch_col].astype(str).str.strip()
+
+  # date
+  if 'date' in d.columns:
+    d['_dt'] = pd.to_datetime(d['date'], errors='coerce').dt.date
+  elif 'ORDER_DT' in d.columns:
+    d['_dt'] = pd.to_datetime(d['ORDER_DT'], errors='coerce').dt.date
+  else:
+    d['_dt'] = pd.NaT
+
   d = d[
       (d['_nv'] != '') & (d['_nv'].str.lower() != 'nan')
-      & (d['_ord'] != '') & (d['_ord'].str.lower() != 'nan')
+      & (d['_ch'] != '') & (d['_ch'].str.lower() != 'nan')
+      & d['_dt'].notna()
   ]
   if d.empty:
     return {}
@@ -3014,8 +3031,9 @@ def _pc_count_from_orders(df_lines):
   if d.empty:
     return {}
 
-  # Mỗi đơn (có ≥1 line MOQ) = 1 PC
-  pcs = d.groupby('_nv')['_ord'].nunique()
+  # Max 1 PC / CH / ngày: đếm unique (CH, date) theo NV
+  uniq = d.drop_duplicates(subset=['_nv', '_ch', '_dt'])
+  pcs = uniq.groupby('_nv').size()
   return {str(k): int(v) for k, v in pcs.items()}
 
 
@@ -12276,7 +12294,7 @@ with tab_kpi:
             <li><b>% COV:</b> ASO / MCP × 100. Tháng quá khứ mốc 100%; tháng hiện tại theo Timegone.</li>
             <li><b>ASO = 0 ở tháng cũ:</b> Position code đó chưa có giao dịch trong file data-2 (tuyến mới / đổi mã vị trí). Không phải lỗi map tên.</li>
             <li><b>LPPC Weekly (OFF):</b> Khác KPI lương. Chỉ L1 OFF, trừ Meat &amp; Beer, chỉ check line đạt MOQ. PC = mọi đơn có ≥1 line MOQ. LPPC = Tổng line MOQ / Tổng PC. Không lọc ≥4 line. Tháng 6–9 từ data-2; tháng 10 từ RPT.</li>
-            <li><b>PC/SM/Day (OFF):</b> Tổng số đơn (PC) có ≥1 line đạt MOQ / số ngày làm việc trong tháng (trừ CN + lễ). Không trừ Meat/Beer, không lọc ≥4 line. Chỉ Kênh OFF.</li>
+            <li><b>PC/SM/Day (OFF):</b> PC = max 1 PC/CH/ngày (CH có ≥1 line đạt MOQ) / số ngày làm việc trong tháng (trừ CN + lễ). Không trừ Meat/Beer, không lọc ≥4 line. Chỉ Kênh OFF.</li>
           </ul>
         </div>
         """,
