@@ -2640,19 +2640,23 @@ def _normalize_weekly_sales_for_lppc(sales_hist):
 
 
 def _lppc_from_orders(df_lines):
-  """LPPC Weekly (nhanh — vectorized):
+  """LPPC Weekly — khớp hệ thống Cty:
 
   - Chỉ L1 OFF (caller đã lọc).
-  - Trừ Meat & Beer (vectorized, không regex phức tạp).
-  - Line đạt MOQ: ưu tiên cột MOQ_FLAG=Y; fallback đếm SKU unique trên đơn.
-  - PC = mọi đơn có ≥1 line MOQ. Không lọc ≥4, không max 1 PC/CH/ngày.
-  - LPPC = Tổng line MOQ / Tổng PC.
+  - Trừ Meat & Beer.
+  - Line đạt MOQ (MOQ_FLAG=Y).
+  - PC = max 1 PC / CH / ngày (unique CH+date).
+  - Line của 1 PC = số SKU MOQ unique trên CH trong ngày (gộp mọi ĐH).
+  - LPPC = Tổng line / Tổng PC.
+  - Không lọc ≥4 line.
+
+  Trả về dict: {pos: {'lppc': float, 'pc': int, 'lines': int}}
   """
   if df_lines is None or df_lines.empty:
     return {}
   d = df_lines.copy()
 
-  # --- Trừ Meat & Beer (vectorized, regex đơn giản) ---
+  # Trừ Meat & Beer (vectorized)
   sub = (
       d['Sub Division'].astype(str).str.lower()
       if 'Sub Division' in d.columns
@@ -2669,7 +2673,7 @@ def _lppc_from_orders(df_lines):
   if d.empty:
     return {}
 
-  # --- Key NV ---
+  # Key NV
   if 'Mã NVBH' in d.columns:
     d['_nv'] = d['Mã NVBH'].astype(str).str.strip()
   elif 'Position code' in d.columns:
@@ -2679,49 +2683,64 @@ def _lppc_from_orders(df_lines):
   else:
     d['_nv'] = d.get('Tên NVBH', pd.Series('', index=d.index)).astype(str).str.strip()
 
-  if 'Mã đơn hàng' not in d.columns:
+  # CH
+  ch_col = None
+  for c in ['Mã CH', 'OUTLET_CODE', 'Outlet_code', 'Mã Cửa hàng']:
+    if c in d.columns:
+      ch_col = c
+      break
+  if ch_col is None:
     return {}
-  d['_ord'] = d['Mã đơn hàng'].astype(str).str.strip()
-  d = d[(d['_nv'] != '') & (d['_nv'].str.lower() != 'nan') & (d['_ord'] != '') & (d['_ord'].str.lower() != 'nan')]
+  d['_ch'] = d[ch_col].astype(str).str.strip()
+
+  # date
+  if 'date' in d.columns:
+    d['_dt'] = pd.to_datetime(d['date'], errors='coerce').dt.date
+  elif 'ORDER_DT' in d.columns:
+    d['_dt'] = pd.to_datetime(d['ORDER_DT'], errors='coerce').dt.date
+  else:
+    d['_dt'] = pd.NaT
+
+  d = d[
+      (d['_nv'] != '') & (d['_nv'].str.lower() != 'nan')
+      & (d['_ch'] != '') & (d['_ch'].str.lower() != 'nan')
+      & d['_dt'].notna()
+  ]
   if d.empty:
     return {}
 
-  # --- Line đạt MOQ ---
+  # MOQ lines only
   if 'MOQ_FLAG' in d.columns:
     d = d[d['MOQ_FLAG'].astype(str).str.upper().str.strip() == 'Y']
-  # else: giữ tất cả line (coi mỗi dòng SP là 1 line)
-
   if d.empty:
     return {}
 
-  # Đếm số line (SKU unique) trên mỗi đơn
   sku_col = None
   for c in ['Mã sản phẩm', 'STANDARD_SKU_CODE', 'ITEM_CODE', 'Tên sản phẩm']:
     if c in d.columns:
       sku_col = c
       break
   if sku_col is None:
-    # mỗi dòng = 1 line
-    order_moq = (
-        d.groupby(['_nv', '_ord'], sort=False)
-        .size()
-        .reset_index(name='n_moq_lines')
-    )
-  else:
-    order_moq = (
-        d.groupby(['_nv', '_ord'], sort=False)[sku_col]
-        .nunique()
-        .reset_index(name='n_moq_lines')
-    )
-
-  ok = order_moq[order_moq['n_moq_lines'] >= 1]
-  if ok.empty:
     return {}
 
-  total_lines = ok.groupby('_nv')['n_moq_lines'].sum()
-  total_pc = ok.groupby('_nv').size()
-  lppc = (total_lines / total_pc).replace([float('inf')], 0).fillna(0)
-  return {str(k): round(float(v), 2) for k, v in lppc.items()}
+  # Line per (NV, CH, date) = nunique SKU; mỗi (NV,CH,date) = 1 PC
+  pc_lines = (
+      d.groupby(['_nv', '_ch', '_dt'], sort=False)[sku_col]
+      .nunique()
+      .reset_index(name='n_lines')
+  )
+  if pc_lines.empty:
+    return {}
+
+  total_lines = pc_lines.groupby('_nv')['n_lines'].sum()
+  total_pc = pc_lines.groupby('_nv').size()
+  out = {}
+  for nv in total_pc.index:
+    pc = int(total_pc.loc[nv])
+    lines = int(total_lines.loc[nv]) if nv in total_lines.index else 0
+    lppc = round(lines / pc, 2) if pc else 0.0
+    out[str(nv)] = {'lppc': lppc, 'pc': pc, 'lines': lines}
+  return out
 
 
 
@@ -2730,7 +2749,7 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
   if months is None:
     months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
 
-  empty_cols = ['STT', 'Tên NVBH'] + [f'LPPC|{m:02d}/{y}' for y, m in months]
+  empty_cols = ['STT', 'Tên NVBH'] + [x for y, m in months for x in (f'PC|{m:02d}/{y}', f'LPPC|{m:02d}/{y}')]
   empty = pd.DataFrame(columns=empty_cols)
 
   # Position → name từ MCP
@@ -2794,16 +2813,16 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
           continue
         if 'L1' in d.columns:
           d = d[d['L1'].astype(str).str.contains('Off', case=False, na=False)]
-        # map Mã NVBH → Position code if possible
         c_pos = find_col(d, ['Position code', 'POS_CODE'])
         if c_pos:
           d['Mã NVBH'] = d[c_pos].astype(str).str.strip()
         else:
-          # map name → pos
           c_nv = find_col(d, ['Tên NVBH', 'SM Name'])
           if c_nv and pos_name:
             rev = {v: k for k, v in pos_name.items()}
             d['Mã NVBH'] = d[c_nv].astype(str).str.strip().map(lambda x: rev.get(x, x))
+        if 'MOQ_FLAG' not in d.columns:
+          d['MOQ_FLAG'] = 'Y'
         lppc_by_month[label] = _lppc_from_orders(d)
       except Exception:
         pass
@@ -2822,12 +2841,20 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
     row = {'Tên NVBH': nv, 'Position code': pos}
     for y, m in months:
       label = f'{m:02d}/{y}'
-      val = lppc_by_month.get(label, {}).get(pos, 0)
-      try:
-        val = round(float(val), 2) if val else 0.0
-      except Exception:
-        val = 0.0
-      row[f'LPPC|{label}'] = val
+      info = lppc_by_month.get(label, {}).get(pos, {})
+      if isinstance(info, dict):
+        val = float(info.get('lppc', 0) or 0)
+        pc = int(info.get('pc', 0) or 0)
+        lines = int(info.get('lines', 0) or 0)
+      else:
+        try:
+          val = float(info or 0)
+        except Exception:
+          val = 0.0
+        pc, lines = 0, 0
+      row[f'PC|{label}'] = pc
+      row[f'LPPC|{label}'] = round(val, 2)
+      row[f'_lines|{label}'] = lines
       row[f'_v|{label}'] = val
     rows.append(row)
 
@@ -2840,24 +2867,22 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
     df_out = df_out.sort_values(f'_v|{last}', ascending=True).reset_index(drop=True)
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
-  # Total = weighted? LPPC team = total lines / total PC — approximate mean of NVs is wrong
-  # Better leave total as simple mean of displayed, or blank. Use mean for display.
+  # Total team: tổng line / tổng PC (đúng LPPC team), kèm tổng PC
   tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (LPPC OFF)', 'Position code': ''}
   for y, m in months:
     label = f'{m:02d}/{y}'
-    col = f'LPPC|{label}'
-    vals = pd.to_numeric(df_out[col], errors='coerce').fillna(0)
-    # average of non-zero
-    nz = vals[vals > 0]
-    tot[col] = round(float(nz.mean()), 2) if len(nz) else 0.0
-  drop_cols = [c for c in df_out.columns if str(c).startswith('_v|')]
+    pc_s = int(pd.to_numeric(df_out[f'PC|{label}'], errors='coerce').fillna(0).sum())
+    lines_s = int(pd.to_numeric(df_out[f'_lines|{label}'], errors='coerce').fillna(0).sum())
+    tot[f'PC|{label}'] = pc_s
+    tot[f'LPPC|{label}'] = round(lines_s / pc_s, 2) if pc_s else 0.0
+  drop_cols = [c for c in df_out.columns if str(c).startswith('_')]
   df_out = df_out.drop(columns=drop_cols, errors='ignore')
   df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
   return df_out
 
 
 def render_weekly_lppc_html(df, timegone_pct=None):
-  """Bảng LPPC Weekly — format KPI, mốc LPPC 4.3 (HCM) / timegone tháng T."""
+  """Bảng LPPC Weekly — PC + LPPC theo tháng, format KPI."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu LPPC Weekly.</p>'
 
@@ -2870,14 +2895,13 @@ def render_weekly_lppc_html(df, timegone_pct=None):
         seen.add(lab)
         months.append(lab)
 
-  # Tất cả tháng (kể cả tháng T) tô theo mốc 100% — LPPC / 4.3
   MOC_LPPC = 4.3
 
   def _pct_style(lppc_val, lab):
     if lppc_val is None:
       return '', ''
     pct = (lppc_val / MOC_LPPC) * 100.0
-    moc = 100.0  # đồng bộ mọi tháng
+    moc = 100.0
     if pct < moc:
       return ('pct-red',
               'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;')
@@ -2894,6 +2918,11 @@ def render_weekly_lppc_html(df, timegone_pct=None):
   )
   th_sticky = th + 'position:sticky;left:0;z-index:3;'
   th_sticky2 = th + 'position:sticky;left:42px;z-index:3;'
+  th_mid = (
+      'background-color:#2c5282 !important;color:#ffffff !important;'
+      'font-weight:700 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:5px;font-size:11px;'
+  )
   td = (
       'border:1px solid #bce2f5 !important;padding:5px 6px;'
       'font-size:11px;text-align:center !important;white-space:nowrap;'
@@ -2908,11 +2937,15 @@ def render_weekly_lppc_html(df, timegone_pct=None):
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
       '<thead><tr>',
-      f'<th style="{th_sticky}">STT</th>',
-      f'<th style="{th_sticky2}">Tên NVBH</th>',
+      f'<th rowspan="2" style="{th_sticky}">STT</th>',
+      f'<th rowspan="2" style="{th_sticky2}">Tên NVBH</th>',
   ]
   for lab in months:
-    html.append(f'<th style="{th}">LPPC<br/>{lab}</th>')
+    html.append(f'<th colspan="2" style="{th}">{lab}</th>')
+  html.append('</tr><tr>')
+  for lab in months:
+    html.append(f'<th style="{th_mid}">PC</th>')
+    html.append(f'<th style="{th_mid}">LPPC</th>')
   html.append('</tr></thead><tbody>')
 
   for pos, (_, row) in enumerate(df.iterrows()):
@@ -2927,20 +2960,33 @@ def render_weekly_lppc_html(df, timegone_pct=None):
       html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:0;">{stt}</td>')
       html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:42px;text-align:left !important;font-weight:600;">{ten}</td>')
     for lab in months:
-      key = f'LPPC|{lab}'
-      val = row.get(key, 0)
+      pc_v = row.get(f'PC|{lab}', 0)
+      lp_v = row.get(f'LPPC|{lab}', 0)
       try:
-        fval = float(val)
-        disp = f'{fval:.2f}'
+        pc_disp = f'{int(float(pc_v)):,}'.replace(',', '.')
       except Exception:
-        fval, disp = None, str(val)
-      cls, st_c = _pct_style(fval, lab)
-      if st_c:
-        html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{disp}</td>')
-      elif is_tot:
-        html.append(f'<td class="row-total-cell" style="{td_tot}">{disp}</td>')
+        pc_disp = str(pc_v)
+      try:
+        fval = float(lp_v)
+        lp_disp = f'{fval:.2f}'.replace('.', ',') if False else f'{fval:.1f}'
+        # system shows 1 decimal
+        lp_disp = f'{fval:.1f}'
+      except Exception:
+        fval, lp_disp = None, str(lp_v)
+      if is_tot:
+        html.append(f'<td class="row-total-cell" style="{td_tot}">{pc_disp}</td>')
+        cls, st_c = _pct_style(fval, lab)
+        if st_c:
+          html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{lp_disp}</td>')
+        else:
+          html.append(f'<td class="row-total-cell" style="{td_tot}">{lp_disp}</td>')
       else:
-        html.append(f'<td style="{td}background-color:{bg} !important;">{disp}</td>')
+        html.append(f'<td style="{td}background-color:{bg} !important;">{pc_disp}</td>')
+        cls, st_c = _pct_style(fval, lab)
+        if st_c:
+          html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{lp_disp}</td>')
+        else:
+          html.append(f'<td style="{td}background-color:{bg} !important;">{lp_disp}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
@@ -12231,7 +12277,7 @@ with tab_kpi:
     # ---- Bảng LPPC OFF ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
-        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | Tổng line MOQ / Tổng PC — không lọc ≥4 line)</h4>',
+        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | PC = max 1/CH/ngày | LPPC = Line MOQ / PC)</h4>',
         unsafe_allow_html=True,
     )
     try:
