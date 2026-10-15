@@ -2602,9 +2602,16 @@ def _normalize_weekly_sales_for_lppc(sales_hist):
   for cands, dest in col_map:
     src = find_col(s, cands)
     if src and dest not in s.columns:
+      if src == dest:
+        continue
       rename[src] = dest
   if rename:
     s = s.rename(columns=rename)
+  # Đảm bảo có cột Position code
+  if 'Position code' not in s.columns:
+    src = find_col(s, ['POS_CODE', 'Position Code', 'Position code'])
+    if src:
+      s['Position code'] = s[src].astype(str).str.strip()
 
   # Số lượng → Tổng lẻ / Tổng chẵn
   for raw, dest in [
@@ -2767,14 +2774,18 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
       sub = s_norm[s_norm['Month'].astype(str).str.strip() == label].copy()
       if sub.empty:
         continue
-      # gắn _nv_key = Position code
-      if 'Position code' in sub.columns:
-        sub = sub.rename(columns={'Position code': 'Mã NVBH'}) if 'Mã NVBH' not in sub.columns else sub
-        if 'Mã NVBH' not in sub.columns:
-          sub['Mã NVBH'] = sub['Position code'].astype(str).str.strip()
-        else:
-          # ưu tiên POS
-          sub['Mã NVBH'] = sub['Position code'].astype(str).str.strip()
+      # Gắn Mã NVBH = Position code (ưu tiên) để map tuyến
+      pos_col = None
+      for c in ['Position code', 'POS_CODE', 'Position Code']:
+        if c in sub.columns:
+          pos_col = c
+          break
+      if pos_col is None:
+        pos_col = find_col(sub, ['Position code', 'POS_CODE', 'Position Code'])
+      if pos_col:
+        sub['Mã NVBH'] = sub[pos_col].astype(str).str.strip()
+      elif 'Tên NVBH' in sub.columns:
+        sub['Mã NVBH'] = sub['Tên NVBH'].astype(str).str.strip()
       lppc_by_month[label] = _lppc_from_orders(sub)
 
   # Tháng 10 từ RPT (OFF only)
