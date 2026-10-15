@@ -2643,10 +2643,10 @@ def _lppc_from_orders(df_lines):
   """LPPC Weekly:
 
   - Chỉ L1 OFF (caller đã lọc).
-  - Trừ Meat & Beer.
-  - Line đạt MOQ (MOQ_FLAG=Y).
-  - PC = max 1 PC / CH / ngày: chọn 1 đơn (ưu tiên đơn có nhiều line MOQ nhất).
-  - Line của PC = số SKU MOQ unique **trên đúng đơn được chọn** (KHÔNG gộp nhiều ĐH).
+  - Trừ Meat & Beer khỏi toàn bộ tính toán.
+  - PC = max 1 PC / CH / ngày: chọn 1 đơn có nhiều line nhất.
+  - Line trên ĐH PC = số SKU unique **trên đúng đơn đó** (mọi SP non-free, trừ Meat/Beer;
+    KHÔNG chỉ lấy MOQ_FLAG=Y — khớp hệ thống Cty hơn).
   - LPPC = Tổng line ÷ Tổng PC.
   - Không lọc ≥4 line.
 
@@ -2673,6 +2673,10 @@ def _lppc_from_orders(df_lines):
   if d.empty:
     return {}
 
+  # Free item
+  if 'FREE_ITEM_FLAG' in d.columns:
+    d = d[d['FREE_ITEM_FLAG'].astype(str).str.upper().str.strip() != 'Y']
+
   # Key NV
   if 'Mã NVBH' in d.columns:
     d['_nv'] = d['Mã NVBH'].astype(str).str.strip()
@@ -2683,7 +2687,6 @@ def _lppc_from_orders(df_lines):
   else:
     d['_nv'] = d.get('Tên NVBH', pd.Series('', index=d.index)).astype(str).str.strip()
 
-  # CH
   ch_col = None
   for c in ['Mã CH', 'OUTLET_CODE', 'Outlet_code', 'Mã Cửa hàng']:
     if c in d.columns:
@@ -2693,12 +2696,10 @@ def _lppc_from_orders(df_lines):
     return {}
   d['_ch'] = d[ch_col].astype(str).str.strip()
 
-  # Order
   if 'Mã đơn hàng' not in d.columns:
     return {}
   d['_ord'] = d['Mã đơn hàng'].astype(str).str.strip()
 
-  # date
   if 'date' in d.columns:
     d['_dt'] = pd.to_datetime(d['date'], errors='coerce').dt.date
   elif 'ORDER_DT' in d.columns:
@@ -2715,12 +2716,6 @@ def _lppc_from_orders(df_lines):
   if d.empty:
     return {}
 
-  # MOQ lines only
-  if 'MOQ_FLAG' in d.columns:
-    d = d[d['MOQ_FLAG'].astype(str).str.upper().str.strip() == 'Y']
-  if d.empty:
-    return {}
-
   sku_col = None
   for c in ['Mã sản phẩm', 'STANDARD_SKU_CODE', 'ITEM_CODE', 'Tên sản phẩm']:
     if c in d.columns:
@@ -2729,7 +2724,7 @@ def _lppc_from_orders(df_lines):
   if sku_col is None:
     return {}
 
-  # Line MOQ unique theo từng ĐƠN
+  # Line = mọi SKU unique trên đơn (đã trừ Meat/Beer + free) — không filter MOQ_FLAG
   order_lines = (
       d.groupby(['_nv', '_ch', '_dt', '_ord'], sort=False)[sku_col]
       .nunique()
@@ -2738,7 +2733,7 @@ def _lppc_from_orders(df_lines):
   if order_lines.empty:
     return {}
 
-  # Mỗi (NV, CH, ngày): chọn 1 đơn có n_lines cao nhất → 1 PC, line = line của đúng đơn đó
+  # 1 PC/CH/ngày: chọn đơn nhiều line nhất; line chỉ của đúng đơn đó
   order_lines = order_lines.sort_values('n_lines', ascending=False)
   pc_day = order_lines.drop_duplicates(subset=['_nv', '_ch', '_dt'], keep='first')
 
@@ -12287,7 +12282,7 @@ with tab_kpi:
     # ---- Bảng LPPC OFF ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
-        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | 1 PC/CH/ngày | Line trên đúng ĐH PC | LPPC = Line/PC)</h4>',
+        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | 1 PC/CH/ngày | Line = mọi SP trên ĐH PC | LPPC = Line/PC)</h4>',
         unsafe_allow_html=True,
     )
     try:
