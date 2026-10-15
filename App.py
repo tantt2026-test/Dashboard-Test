@@ -2371,143 +2371,210 @@ def load_weekly_sales():
 
 
 def build_weekly_preview(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
-  """Weekly Preview: MCP / ASO / %COV theo tháng.
+  """Weekly Preview: MCP / ASO / %COV theo tháng, map theo Position code.
 
-  MCP (tháng M): số CH MCP có Created_date <= ngày 4 tháng M.
-  ASO (tháng M): số CH unique có đơn trong tháng M (giống ASO ALL).
+  Tách 2 bảng: Kênh OFF và Kênh ON.
+  MCP (tháng M): số CH MCP có Created_date <= ngày 4 tháng M (theo Position code + L1).
+  ASO (tháng M): số CH unique có đơn trong tháng M (POS_CODE + L1), giống ASO ALL.
   %COV = ASO / MCP * 100.
+  Hiển thị Tên NVBH lấy từ MCP hiện tại theo Position code.
   """
   if months is None:
     months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
-  empty_cols = ['STT', 'Tên NVBH']
-  for y, m in months:
-    label = f'{m:02d}/{y}'
-    empty_cols += [f'MCP|{label}', f'ASO|{label}', f'% COV|{label}']
-  empty = pd.DataFrame(columns=empty_cols)
 
-  nv_list = []
-  mcp_by_month = {f'{m:02d}/{y}': {} for y, m in months}
+  def _empty():
+    cols = ['STT', 'Tên NVBH', 'Position code']
+    for y, m in months:
+      lab = f'{m:02d}/{y}'
+      cols += [f'MCP|{lab}', f'ASO|{lab}', f'% COV|{lab}']
+    return pd.DataFrame(columns=cols)
+
+  def _nma(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  def _is_off(v):
+    s = str(v).lower()
+    return 'off' in s
+
+  def _is_on(v):
+    s = str(v).lower()
+    return 'on' in s and 'off' not in s
+
+  # ---- MCP master: Position code → name, L1, created ----
+  pos_name = {}  # pos -> current SM name
+  pos_list = []
+  mcp_rows = []  # list of dicts for aggregation
   if mcp_df is not None and not mcp_df.empty:
     mcp = mcp_df.copy()
     c_nv = find_col(mcp, ['SM name', 'SM Name', 'Tên NVBH', 'Nhân viên BH'])
     c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+    c_pos = find_col(mcp, ['Position code', 'Position Code', 'POS_CODE', 'Mã vị trí'])
+    c_l1 = find_col(mcp, ['L1', 'x_msc_business_type_l1', 'Kênh', 'Channel'])
     c_created = find_col(mcp, ['Created_date', 'Created Date', 'Ngày tạo', 'Create Date'])
-    if c_nv and c_ma:
-      def _nma(x):
-        if pd.isna(x):
-          return ''
-        s = str(x).strip()
-        if s.endswith('.0'):
-          s = s[:-2]
-        try:
-          return str(int(float(s)))
-        except Exception:
-          return s
-      mcp['_nv'] = mcp[c_nv].astype(str).str.strip()
+    if c_pos and c_ma:
+      mcp['_pos'] = mcp[c_pos].astype(str).str.strip()
       mcp['_ma'] = mcp[c_ma].map(_nma)
+      mcp['_nv'] = mcp[c_nv].astype(str).str.strip() if c_nv else mcp['_pos']
+      mcp['_l1'] = mcp[c_l1].astype(str) if c_l1 else ''
       if c_created:
         mcp['_created'] = pd.to_datetime(mcp[c_created], errors='coerce')
       else:
         mcp['_created'] = pd.NaT
+      mcp = mcp[mcp['_pos'].astype(str).str.lower() != 'nan']
       mcp = mcp[~mcp['_nv'].str.contains('vacant', case=False, na=False)]
-      mcp = mcp[mcp['_nv'].astype(str).str.lower() != 'nan']
-      nv_list = sorted(mcp['_nv'].dropna().unique().tolist())
+      # current name per position (mode / last)
+      for pos, g in mcp.groupby('_pos', sort=False):
+        names = g['_nv'].dropna().astype(str)
+        names = names[names.str.lower() != 'nan']
+        if len(names):
+          pos_name[pos] = names.iloc[-1]
+        else:
+          pos_name[pos] = pos
+      pos_list = sorted(pos_name.keys())
+      mcp_rows = mcp
+
+  # filter by NV name → map to position codes
+  if nv_selected(filter_nv) and pos_name:
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    pos_list = [p for p in pos_list if pos_name.get(p, '') in vals]
+
+  def _build_channel(channel):
+    """channel: 'OFF' or 'ON'"""
+    is_ch = _is_off if channel == 'OFF' else _is_on
+
+    # MCP by pos / month
+    mcp_by_month = {f'{m:02d}/{y}': {} for y, m in months}
+    if isinstance(mcp_rows, pd.DataFrame) and not mcp_rows.empty:
+      sub_mcp = mcp_rows[mcp_rows['_l1'].map(is_ch)] if '_l1' in mcp_rows.columns else mcp_rows
       for y, m in months:
         label = f'{m:02d}/{y}'
         cutoff = pd.Timestamp(year=y, month=m, day=4)
-        sub = mcp[mcp['_created'].notna() & (mcp['_created'].dt.normalize() <= cutoff)]
-        mcp_by_month[label] = sub.groupby('_nv')['_ma'].nunique().to_dict()
+        s = sub_mcp[
+            sub_mcp['_created'].notna()
+            & (sub_mcp['_created'].dt.normalize() <= cutoff)
+        ]
+        mcp_by_month[label] = s.groupby('_pos')['_ma'].nunique().to_dict()
 
-  if nv_selected(filter_nv):
-    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
-    nv_list = [n for n in nv_list if n in vals]
+    # ASO by pos / month from sales hist
+    aso_by_month = {f'{m:02d}/{y}': {} for y, m in months}
+    if sales_hist is not None and not sales_hist.empty:
+      s = sales_hist.copy()
+      c_pos = find_col(s, ['POS_CODE', 'Position code', 'Position Code', 'Mã vị trí'])
+      c_out = find_col(s, ['OUTLET_CODE', 'Outlet_code', 'Mã CH', 'Mã KH'])
+      c_month = find_col(s, ['Month', 'Tháng', 'YearMonth'])
+      c_free = find_col(s, ['FREE_ITEM_FLAG', 'Free Item'])
+      c_l1 = find_col(s, ['x_msc_business_type_l1', 'L1', 'Kênh', 'Channel'])
+      if c_pos and c_out:
+        s['_pos'] = s[c_pos].astype(str).str.strip()
+        s['_out'] = s[c_out].map(_nma)
+        if c_free:
+          s = s[s[c_free].astype(str).str.upper().str.strip() != 'Y']
+        if c_l1:
+          s = s[s[c_l1].map(is_ch)]
+        if c_month:
+          s['_ym'] = s[c_month].astype(str).str.strip()
+          for y, m in months:
+            label = f'{m:02d}/{y}'
+            ss = s[s['_ym'] == label]
+            if not ss.empty:
+              aso_by_month[label] = ss.groupby('_pos')['_out'].nunique().to_dict()
 
-  aso_by_month = {f'{m:02d}/{y}': {} for y, m in months}
-  if sales_hist is not None and not sales_hist.empty:
-    s = sales_hist.copy()
-    c_nv = find_col(s, ['SM_NAME', 'SM Name', 'Tên NVBH', 'Nhân viên BH'])
-    c_out = find_col(s, ['OUTLET_CODE', 'Outlet_code', 'Mã CH', 'Mã KH'])
-    c_month = find_col(s, ['Month', 'Tháng', 'YearMonth'])
-    c_free = find_col(s, ['FREE_ITEM_FLAG', 'Free Item'])
-    if c_nv and c_out:
-      s['_nv'] = s[c_nv].astype(str).str.strip()
-      s['_out'] = s[c_out].astype(str).str.strip()
-      s = s[~s['_nv'].str.contains('vacant', case=False, na=False)]
-      if c_free:
-        s = s[s[c_free].astype(str).str.upper().str.strip() != 'Y']
-      if c_month:
-        s['_ym'] = s[c_month].astype(str).str.strip()
-        for y, m in months:
-          label = f'{m:02d}/{y}'
-          sub = s[s['_ym'] == label]
-          if not sub.empty:
-            aso_by_month[label] = sub.groupby('_nv')['_out'].nunique().to_dict()
+    # ASO from RPT for missing months
+    if df_rpt is not None and not df_rpt.empty and 'date' in df_rpt.columns:
+      for y, m in months:
+        label = f'{m:02d}/{y}'
+        if aso_by_month.get(label):
+          continue
+        try:
+          start_d = date(y, m, 1)
+          end_d = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+          d = df_rpt[(df_rpt['date'] >= start_d) & (df_rpt['date'] < end_d)].copy()
+          if d.empty:
+            continue
+          c_pos = find_col(d, ['Position code', 'POS_CODE', 'Mã vị trí'])
+          c_ch = find_col(d, ['Mã CH', 'Mã Cửa hàng', 'Outlet Code'])
+          c_l1 = find_col(d, ['L1', 'x_msc_business_type_l1', 'Kênh'])
+          if not c_ch:
+            continue
+          if c_l1:
+            d = d[d[c_l1].map(is_ch)]
+          if c_pos:
+            d['_pos'] = d[c_pos].astype(str).str.strip()
+          else:
+            # fallback name → try match pos via pos_name reverse
+            c_nv = find_col(d, ['Tên NVBH', 'SM Name', 'SM_NAME'])
+            if not c_nv:
+              continue
+            rev = {v: k for k, v in pos_name.items()}
+            d['_pos'] = d[c_nv].astype(str).str.strip().map(lambda x: rev.get(x, ''))
+            d = d[d['_pos'] != '']
+          d['_ch'] = d[c_ch].map(_nma)
+          aso_by_month[label] = d.groupby('_pos')['_ch'].nunique().to_dict()
+        except Exception:
+          pass
 
-  # ASO tháng hiện tại từ RPT nếu thiếu
-  if df_rpt is not None and not df_rpt.empty and 'date' in df_rpt.columns:
-    for y, m in months:
-      label = f'{m:02d}/{y}'
-      if aso_by_month.get(label):
+    # positions that have any MCP or ASO on this channel
+    pos_ch = set(pos_list)
+    for lab in mcp_by_month:
+      pos_ch |= set(mcp_by_month[lab].keys())
+    for lab in aso_by_month:
+      pos_ch |= set(aso_by_month[lab].keys())
+    # keep only known positions if we have master list
+    if pos_list:
+      pos_ch = [p for p in sorted(pos_ch) if p in pos_list]
+    else:
+      pos_ch = sorted(pos_ch)
+
+    rows = []
+    for pos in pos_ch:
+      nv = pos_name.get(pos, pos)
+      if 'vacant' in str(nv).lower():
         continue
-      try:
-        start = date(y, m, 1)
-        end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-        d = df_rpt[(df_rpt['date'] >= start) & (df_rpt['date'] < end)].copy()
-        if d.empty:
-          continue
-        c_nv = find_col(d, ['Tên NVBH', 'SM Name', 'SM_NAME'])
-        c_ch = find_col(d, ['Mã CH', 'Mã Cửa hàng', 'Outlet Code'])
-        if not c_nv or not c_ch:
-          continue
-        d['_nv'] = d[c_nv].astype(str).str.strip()
-        d['_ch'] = d[c_ch].astype(str).str.strip()
-        aso_by_month[label] = d.groupby('_nv')['_ch'].nunique().to_dict()
-      except Exception:
-        pass
+      row = {'Tên NVBH': nv, 'Position code': pos}
+      for y, m in months:
+        label = f'{m:02d}/{y}'
+        mcp_v = int(mcp_by_month.get(label, {}).get(pos, 0) or 0)
+        aso_v = int(aso_by_month.get(label, {}).get(pos, 0) or 0)
+        cov = round(aso_v / mcp_v * 100, 1) if mcp_v else 0.0
+        row[f'MCP|{label}'] = mcp_v
+        row[f'ASO|{label}'] = aso_v
+        row[f'% COV|{label}'] = f'{cov}%'
+        row[f'_cov|{label}'] = cov
+      rows.append(row)
 
-  if not nv_list:
-    for lab, mp in aso_by_month.items():
-      for n in mp:
-        if n and n not in nv_list and 'vacant' not in str(n).lower():
-          nv_list.append(n)
-    nv_list = sorted(nv_list)
+    if not rows:
+      return _empty()
 
-  rows = []
-  for nv in nv_list:
-    row = {'Tên NVBH': nv}
+    df_out = pd.DataFrame(rows)
+    last_lab = f'{months[-1][1]:02d}/{months[-1][0]}'
+    if f'_cov|{last_lab}' in df_out.columns:
+      df_out = df_out.sort_values(f'_cov|{last_lab}', ascending=True).reset_index(drop=True)
+    df_out.insert(0, 'STT', range(1, len(df_out) + 1))
+
+    tot = {'STT': '-', 'Tên NVBH': f'SS Trương Thanh Tân Total ({channel})', 'Position code': ''}
     for y, m in months:
       label = f'{m:02d}/{y}'
-      mcp_v = int(mcp_by_month.get(label, {}).get(nv, 0) or 0)
-      aso_v = int(aso_by_month.get(label, {}).get(nv, 0) or 0)
-      cov = round(aso_v / mcp_v * 100, 1) if mcp_v else 0.0
-      row[f'MCP|{label}'] = mcp_v
-      row[f'ASO|{label}'] = aso_v
-      row[f'% COV|{label}'] = f'{cov}%'
-      row[f'_cov|{label}'] = cov
-    rows.append(row)
+      mcp_s = int(df_out[f'MCP|{label}'].sum()) if f'MCP|{label}' in df_out.columns else 0
+      aso_s = int(df_out[f'ASO|{label}'].sum()) if f'ASO|{label}' in df_out.columns else 0
+      cov = round(aso_s / mcp_s * 100, 1) if mcp_s else 0.0
+      tot[f'MCP|{label}'] = mcp_s
+      tot[f'ASO|{label}'] = aso_s
+      tot[f'% COV|{label}'] = f'{cov}%'
+    drop_cols = [c for c in df_out.columns if str(c).startswith('_cov|')]
+    df_out = df_out.drop(columns=drop_cols, errors='ignore')
+    df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
+    return df_out
 
-  if not rows:
-    return empty
+  return _build_channel('OFF'), _build_channel('ON')
 
-  df_out = pd.DataFrame(rows)
-  last_lab = f'{months[-1][1]:02d}/{months[-1][0]}'
-  if f'_cov|{last_lab}' in df_out.columns:
-    df_out = df_out.sort_values(f'_cov|{last_lab}', ascending=True).reset_index(drop=True)
-  df_out.insert(0, 'STT', range(1, len(df_out) + 1))
-
-  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total'}
-  for y, m in months:
-    label = f'{m:02d}/{y}'
-    mcp_s = int(df_out[f'MCP|{label}'].sum()) if f'MCP|{label}' in df_out.columns else 0
-    aso_s = int(df_out[f'ASO|{label}'].sum()) if f'ASO|{label}' in df_out.columns else 0
-    cov = round(aso_s / mcp_s * 100, 1) if mcp_s else 0.0
-    tot[f'MCP|{label}'] = mcp_s
-    tot[f'ASO|{label}'] = aso_s
-    tot[f'% COV|{label}'] = f'{cov}%'
-  drop_cols = [c for c in df_out.columns if str(c).startswith('_cov|')]
-  df_out = df_out.drop(columns=drop_cols, errors='ignore')
-  df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
-  return df_out
 
 
 def render_weekly_preview_html(df):
@@ -11335,21 +11402,22 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
     st.caption(
-        'MCP = số CH tạo ≤ ngày 4 của tháng | '
-        'ASO = bao phủ CH có đơn trong tháng (giống ASO ALL) | %COV = ASO/MCP'
+        'Map theo **Position code** | MCP = CH tạo ≤ ngày 4 tháng | '
+        'ASO = bao phủ CH có đơn (giống ASO ALL) | %COV = ASO/MCP | Tách OFF / ON'
     )
     sales_hist = pd.DataFrame()
-    df_wp = pd.DataFrame()
+    df_off = pd.DataFrame()
+    df_on = pd.DataFrame()
     try:
       sales_hist = load_weekly_sales()
-      df_wp = build_weekly_preview(
+      df_off, df_on = build_weekly_preview(
           mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
       )
     except Exception as e:
       st.error('Lỗi chạy Weekly Preview: ' + str(e))
       st.exception(e)
-    if df_wp is None or df_wp.empty:
-      st.warning('Chưa có dữ liệu Weekly Preview. Kiểm tra file trong thư mục data/.')
+
+    def _diag():
       data_files = []
       try:
         if os.path.isdir(DATA_DIR):
@@ -11368,29 +11436,60 @@ with tab_kpi:
           + ' | sales rows: ' + str(n_sales)
           + ' | mcp rows: ' + str(n_mcp)
       )
+
+    # ---- Bảng OFF ----
+    st.markdown(
+        '<h4 style="color:#034ea2;font-weight:800;margin:12px 0 6px 0;">'
+        '📴 MCP KÊNH OFF</h4>',
+        unsafe_allow_html=True,
+    )
+    if df_off is None or df_off.empty:
+      st.warning('Chưa có dữ liệu Weekly Preview — Kênh OFF.')
+      _diag()
     else:
-      st.markdown(render_weekly_preview_html(df_wp), unsafe_allow_html=True)
-      st.markdown(
-          """
-          <div class="note-box">
-            <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC</div>
-            <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
-              <li><b>MCP (tháng M):</b> Tổng số CH trên MCP có <b>Created_date ≤ ngày 4</b> của tháng M.</li>
-              <li><b>ASO (tháng M):</b> Số CH unique có phát sinh đơn trong tháng M (giống ASO ALL).</li>
-              <li><b>% COV:</b> ASO / MCP × 100.</li>
-              <li>Tháng 10/2026: ASO lấy từ RPT bán hàng hiện tại nếu file lịch sử chưa có tháng 10.</li>
-            </ul>
-          </div>
-          """,
-          unsafe_allow_html=True,
-      )
+      st.markdown(render_weekly_preview_html(df_off), unsafe_allow_html=True)
       st.download_button(
-          '📥 Tải CSV Weekly Preview',
-          data=df_wp.to_csv(index=False).encode('utf-8-sig'),
-          file_name=f'Weekly_Preview_{report_date.strftime("%Y%m%d")}.csv',
+          '📥 Tải CSV Weekly Preview OFF',
+          data=df_off.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'Weekly_Preview_OFF_{report_date.strftime("%Y%m%d")}.csv',
           mime='text/csv',
-          key='dl_weekly_preview',
+          key='dl_weekly_off',
       )
+
+    # ---- Bảng ON ----
+    st.markdown(
+        '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
+        '📱 MCP KÊNH ON</h4>',
+        unsafe_allow_html=True,
+    )
+    if df_on is None or df_on.empty:
+      st.warning('Chưa có dữ liệu Weekly Preview — Kênh ON.')
+    else:
+      st.markdown(render_weekly_preview_html(df_on), unsafe_allow_html=True)
+      st.download_button(
+          '📥 Tải CSV Weekly Preview ON',
+          data=df_on.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'Weekly_Preview_ON_{report_date.strftime("%Y%m%d")}.csv',
+          mime='text/csv',
+          key='dl_weekly_on',
+      )
+
+    st.markdown(
+        """
+        <div class="note-box">
+          <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC</div>
+          <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
+            <li><b>Đối chiếu theo Position code</b> (không theo tên NV) để tránh lệch khi NV mới nhận tuyến.</li>
+            <li><b>MCP (tháng M):</b> Số CH trên MCP có Created_date ≤ ngày 4 tháng M, theo L1 OFF/ON.</li>
+            <li><b>ASO (tháng M):</b> Số CH unique có đơn trong tháng M theo POS_CODE + L1 (giống ASO ALL).</li>
+            <li><b>% COV:</b> ASO / MCP × 100.</li>
+            <li>Tên NVBH hiển thị lấy từ MCP hiện tại theo Position code.</li>
+          </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
   elif selected_kpi != 'COMBO':
     set_color_moc_for_kpi(selected_kpi)
