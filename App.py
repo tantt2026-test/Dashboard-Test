@@ -2325,6 +2325,289 @@ def _gap_and_bq_day(target, mtd, remain_days, as_int=True):
   return gap, round(bq, 1)
 
 
+
+def load_weekly_sales():
+  """Load file bán hàng lịch sử cho Weekly Preview (data-2 / WeeklyPreview_Sales)."""
+  preferred = [
+      'WeeklyPreview_Sales.xlsx', 'WeeklyPreview_Sales.xls',
+      'data-2.xlsx', 'data-2.xls',
+      'Weekly_Sales.xlsx', 'WEEKLY_SALES.xlsx',
+  ]
+  path = None
+  for name in preferred:
+    p = os.path.join(DATA_DIR, name)
+    if os.path.isfile(p):
+      path = p
+      break
+  if path is None and os.path.isdir(DATA_DIR):
+    try:
+      for fn in os.listdir(DATA_DIR):
+        low = fn.lower().replace(' ', '')
+        if not low.endswith(('.xlsx', '.xls', '.xlsm')):
+          continue
+        if 'weekly' in low or low.startswith('data-2'):
+          path = os.path.join(DATA_DIR, fn)
+          break
+    except Exception:
+      pass
+  if not path:
+    return pd.DataFrame()
+  try:
+    df = pd.read_excel(path, header=2)
+    if 'OUTLET_CODE' not in df.columns and 'SM_NAME' not in df.columns:
+      df = pd.read_excel(path, header=0)
+    return df
+  except Exception:
+    try:
+      return pd.read_excel(path)
+    except Exception:
+      return pd.DataFrame()
+
+
+def build_weekly_preview(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
+  """Weekly Preview: MCP / ASO / %COV theo tháng.
+
+  MCP (tháng M): số CH MCP có Created_date <= ngày 4 tháng M.
+  ASO (tháng M): số CH unique có đơn trong tháng M (giống ASO ALL).
+  %COV = ASO / MCP * 100.
+  """
+  if months is None:
+    months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
+  empty_cols = ['STT', 'Tên NVBH']
+  for y, m in months:
+    label = f'{m:02d}/{y}'
+    empty_cols += [f'MCP|{label}', f'ASO|{label}', f'% COV|{label}']
+  empty = pd.DataFrame(columns=empty_cols)
+
+  nv_list = []
+  mcp_by_month = {f'{m:02d}/{y}': {} for y, m in months}
+  if mcp_df is not None and not mcp_df.empty:
+    mcp = mcp_df.copy()
+    c_nv = find_col(mcp, ['SM name', 'SM Name', 'Tên NVBH', 'Nhân viên BH'])
+    c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+    c_created = find_col(mcp, ['Created_date', 'Created Date', 'Ngày tạo', 'Create Date'])
+    if c_nv and c_ma:
+      def _nma(x):
+        if pd.isna(x):
+          return ''
+        s = str(x).strip()
+        if s.endswith('.0'):
+          s = s[:-2]
+        try:
+          return str(int(float(s)))
+        except Exception:
+          return s
+      mcp['_nv'] = mcp[c_nv].astype(str).str.strip()
+      mcp['_ma'] = mcp[c_ma].map(_nma)
+      if c_created:
+        mcp['_created'] = pd.to_datetime(mcp[c_created], errors='coerce')
+      else:
+        mcp['_created'] = pd.NaT
+      mcp = mcp[~mcp['_nv'].str.contains('vacant', case=False, na=False)]
+      mcp = mcp[mcp['_nv'].astype(str).str.lower() != 'nan']
+      nv_list = sorted(mcp['_nv'].dropna().unique().tolist())
+      for y, m in months:
+        label = f'{m:02d}/{y}'
+        cutoff = pd.Timestamp(year=y, month=m, day=4)
+        sub = mcp[mcp['_created'].notna() & (mcp['_created'].dt.normalize() <= cutoff)]
+        mcp_by_month[label] = sub.groupby('_nv')['_ma'].nunique().to_dict()
+
+  if nv_selected(filter_nv):
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    nv_list = [n for n in nv_list if n in vals]
+
+  aso_by_month = {f'{m:02d}/{y}': {} for y, m in months}
+  if sales_hist is not None and not sales_hist.empty:
+    s = sales_hist.copy()
+    c_nv = find_col(s, ['SM_NAME', 'SM Name', 'Tên NVBH', 'Nhân viên BH'])
+    c_out = find_col(s, ['OUTLET_CODE', 'Outlet_code', 'Mã CH', 'Mã KH'])
+    c_month = find_col(s, ['Month', 'Tháng', 'YearMonth'])
+    c_free = find_col(s, ['FREE_ITEM_FLAG', 'Free Item'])
+    if c_nv and c_out:
+      s['_nv'] = s[c_nv].astype(str).str.strip()
+      s['_out'] = s[c_out].astype(str).str.strip()
+      s = s[~s['_nv'].str.contains('vacant', case=False, na=False)]
+      if c_free:
+        s = s[s[c_free].astype(str).str.upper().str.strip() != 'Y']
+      if c_month:
+        s['_ym'] = s[c_month].astype(str).str.strip()
+        for y, m in months:
+          label = f'{m:02d}/{y}'
+          sub = s[s['_ym'] == label]
+          if not sub.empty:
+            aso_by_month[label] = sub.groupby('_nv')['_out'].nunique().to_dict()
+
+  # ASO tháng hiện tại từ RPT nếu thiếu
+  if df_rpt is not None and not df_rpt.empty and 'date' in df_rpt.columns:
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      if aso_by_month.get(label):
+        continue
+      try:
+        start = date(y, m, 1)
+        end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+        d = df_rpt[(df_rpt['date'] >= start) & (df_rpt['date'] < end)].copy()
+        if d.empty:
+          continue
+        c_nv = find_col(d, ['Tên NVBH', 'SM Name', 'SM_NAME'])
+        c_ch = find_col(d, ['Mã CH', 'Mã Cửa hàng', 'Outlet Code'])
+        if not c_nv or not c_ch:
+          continue
+        d['_nv'] = d[c_nv].astype(str).str.strip()
+        d['_ch'] = d[c_ch].astype(str).str.strip()
+        aso_by_month[label] = d.groupby('_nv')['_ch'].nunique().to_dict()
+      except Exception:
+        pass
+
+  if not nv_list:
+    for lab, mp in aso_by_month.items():
+      for n in mp:
+        if n and n not in nv_list and 'vacant' not in str(n).lower():
+          nv_list.append(n)
+    nv_list = sorted(nv_list)
+
+  rows = []
+  for nv in nv_list:
+    row = {'Tên NVBH': nv}
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      mcp_v = int(mcp_by_month.get(label, {}).get(nv, 0) or 0)
+      aso_v = int(aso_by_month.get(label, {}).get(nv, 0) or 0)
+      cov = round(aso_v / mcp_v * 100, 1) if mcp_v else 0.0
+      row[f'MCP|{label}'] = mcp_v
+      row[f'ASO|{label}'] = aso_v
+      row[f'% COV|{label}'] = f'{cov}%'
+      row[f'_cov|{label}'] = cov
+    rows.append(row)
+
+  if not rows:
+    return empty
+
+  df_out = pd.DataFrame(rows)
+  last_lab = f'{months[-1][1]:02d}/{months[-1][0]}'
+  if f'_cov|{last_lab}' in df_out.columns:
+    df_out = df_out.sort_values(f'_cov|{last_lab}', ascending=True).reset_index(drop=True)
+  df_out.insert(0, 'STT', range(1, len(df_out) + 1))
+
+  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total'}
+  for y, m in months:
+    label = f'{m:02d}/{y}'
+    mcp_s = int(df_out[f'MCP|{label}'].sum()) if f'MCP|{label}' in df_out.columns else 0
+    aso_s = int(df_out[f'ASO|{label}'].sum()) if f'ASO|{label}' in df_out.columns else 0
+    cov = round(aso_s / mcp_s * 100, 1) if mcp_s else 0.0
+    tot[f'MCP|{label}'] = mcp_s
+    tot[f'ASO|{label}'] = aso_s
+    tot[f'% COV|{label}'] = f'{cov}%'
+  drop_cols = [c for c in df_out.columns if str(c).startswith('_cov|')]
+  df_out = df_out.drop(columns=drop_cols, errors='ignore')
+  df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
+  return df_out
+
+
+def render_weekly_preview_html(df):
+  """Bảng Weekly Preview — header 2 tầng, format KPI."""
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu Weekly Preview.</p>'
+
+  months = []
+  seen = set()
+  for c in df.columns:
+    if isinstance(c, str) and c.startswith('MCP|'):
+      lab = c.split('|', 1)[1]
+      if lab not in seen:
+        seen.add(lab)
+        months.append(lab)
+
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  th_mid = (
+      'background-color:#2c5282 !important;color:#ffffff !important;'
+      'font-weight:700 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:5px;font-size:11px;'
+  )
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 6px;'
+      'font-size:11px;text-align:center;white-space:nowrap;'
+  )
+  td_tot = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;'
+  )
+
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;">',
+      '<thead><tr>',
+      f'<th rowspan="2" style="{th}">STT</th>',
+      f'<th rowspan="2" style="{th}">Tên NVBH</th>',
+  ]
+  for lab in months:
+    html.append(f'<th colspan="3" style="{th}">{lab}</th>')
+  html.append('</tr><tr>')
+  for lab in months:
+    for sub in ('MCP', 'ASO', '% COV'):
+      html.append(f'<th style="{th_mid}">{sub}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = (
+        'TOTAL' in str(row.get('Tên NVBH', '')).upper()
+        or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    )
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
+    stt = row.get('STT', '')
+    cell_s = td_tot if is_tot else (td + f'background-color:{bg} !important;')
+    html.append(f'<td style="{cell_s}">{stt}</td>')
+    ten = row.get('Tên NVBH', '')
+    html.append(
+        f'<td style="{cell_s}text-align:left !important;'
+        f'font-weight:{"900" if is_tot else "600"};">{ten}</td>'
+    )
+    for lab in months:
+      for sub in ('MCP', 'ASO', '% COV'):
+        key = f'{sub}|{lab}'
+        val = row.get(key, '')
+        if pd.isna(val):
+          val = ''
+        if sub == '% COV':
+          try:
+            pct = float(str(val).replace('%', '').strip())
+          except Exception:
+            pct = None
+          if pct is not None:
+            if pct < 100:
+              st_c = (
+                  'background-color:#fed7d7 !important;color:#742a2a !important;'
+                  'font-weight:700 !important;'
+              )
+            else:
+              st_c = (
+                  'background-color:#c6f6d5 !important;color:#22543d !important;'
+                  'font-weight:700 !important;'
+              )
+            html.append(
+                f'<td data-colored="1" style="{td}{st_c}">{val}</td>'
+            )
+          else:
+            html.append(
+                f'<td style="{td_tot if is_tot else td + f"background-color:{bg} !important;"}">{val}</td>'
+            )
+        else:
+          html.append(
+              f'<td style="{td_tot if is_tot else td + f"background-color:{bg} !important;"}">{val}</td>'
+          )
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
 def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
   title = 'TURNOVER - Tổng doanh số bán ra'
   if df is None or df.empty:
@@ -9401,6 +9684,7 @@ with f2:
       '15. BÁO CÁO TRƯNG BÀY': 'DISPLAY',
       '16. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON T10': 'TEA_BATTLE',
       '17. BÁO CÁO PERFORMANCE': 'PERF_CAT',
+      '18. WEEKLY PREVIEW - MCP / ASO / %COV': 'WEEKLY_PREVIEW',
   }
   selected_name = st.selectbox(
       '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
@@ -11131,6 +11415,50 @@ with tab_kpi:
         """,
         unsafe_allow_html=True,
     )
+  elif selected_kpi == 'WEEKLY_PREVIEW':
+    st.markdown(
+        '<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
+        '18. WEEKLY PREVIEW — MCP / ASO / % COV</h3>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        'MCP = số CH tạo ≤ ngày 4 của tháng | '
+        'ASO = bao phủ CH có đơn trong tháng (giống ASO ALL) | %COV = ASO/MCP'
+    )
+    sales_hist = load_weekly_sales()
+    df_wp = build_weekly_preview(
+        mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+    )
+    if df_wp is None or df_wp.empty:
+      st.warning(
+          '⚠️ Chưa có dữ liệu Weekly Preview. Upload **data-2.xlsx** '
+          '(hoặc WeeklyPreview_Sales.xlsx) và **Data_MCP.xlsx** vào `data/` '
+          'trên GitHub rồi **Xóa Cache & Reload**.'
+      )
+    else:
+      st.markdown(render_weekly_preview_html(df_wp), unsafe_allow_html=True)
+      st.markdown(
+          """
+          <div class="note-box">
+            <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC</div>
+            <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
+              <li><b>MCP (tháng M):</b> Tổng số CH trên MCP có <b>Created_date ≤ ngày 4</b> của tháng M.</li>
+              <li><b>ASO (tháng M):</b> Số CH unique có phát sinh đơn trong tháng M (giống ASO ALL).</li>
+              <li><b>% COV:</b> ASO / MCP × 100.</li>
+              <li>Tháng 10/2026: ASO lấy từ RPT bán hàng hiện tại nếu file lịch sử chưa có tháng 10.</li>
+            </ul>
+          </div>
+          """,
+          unsafe_allow_html=True,
+      )
+      st.download_button(
+          '📥 Tải CSV Weekly Preview',
+          data=df_wp.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'Weekly_Preview_{report_date.strftime("%Y%m%d")}.csv',
+          mime='text/csv',
+          key='dl_weekly_preview',
+      )
+
   else:
     df_combo, target_off_total, target_on_total = build_combo_matrix(
         df, report_date, df_combo_off, df_combo_on, filter_nv, mcp_df=mcp
