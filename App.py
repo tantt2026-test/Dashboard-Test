@@ -557,6 +557,11 @@ def _read_sales_excel(path):
 
 @st.cache_data(ttl=600)
 def load_main_data(_month_key='Thang10'):
+  """_month_key: cache riêng theo tháng."""
+  try:
+    _refresh_paths()
+  except Exception:
+    pass
   rpt_path = _resolve_rpt_path()
   if not os.path.exists(rpt_path) or not os.path.exists(_get_mcp_path()):
     st.error(
@@ -1959,7 +1964,16 @@ def build_report(
       return pd.Series(dtype=int), pd.Series(dtype=int)
     d = df_src.copy()
     if 'Tên SP lower' not in d.columns:
-      d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
+      parts = []
+      for c in ['Tên sản phẩm', 'Group STD', 'Group std', 'STANDARD_SKU_NAME',
+                'Tên SP', 'Item name', 'Product name']:
+        if c in d.columns:
+          parts.append(d[c].astype(str))
+      if parts:
+        from functools import reduce
+        d['Tên SP lower'] = reduce(lambda a, b: a + ' ' + b, parts).str.lower()
+      else:
+        d['Tên SP lower'] = ''
     mask = d['Tên SP lower'].str.contains(product_pattern, na=False, regex=True)
     d = d[mask]
     if d.empty:
@@ -2078,7 +2092,6 @@ def build_report(
       )
       return m, n
 
-    mtd, ngay = _aso_by_channel(df_mtd, report_date)
     off_df = df_mtd[
         df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
     ]
@@ -2087,6 +2100,11 @@ def build_report(
     ]
     mtd_off, ngay_off = _aso_by_channel(off_df, report_date)
     mtd_on, ngay_on = _aso_by_channel(on_df, report_date)
+    # T09: ASO ALL = Kênh OFF only | T10: toàn bộ
+    if get_month_cfg().get('aso_all_channel') == 'OFF':
+      mtd, ngay = mtd_off.copy(), ngay_off.copy()
+    else:
+      mtd, ngay = _aso_by_channel(df_mtd, report_date)
 
     # MCP OFF / ON từ master MCP (số CH theo NV)
     # Chỉ Tiêu MCP = MCP OFF + MCP ON (tổng CH trên MCP)
@@ -2134,7 +2152,7 @@ def build_report(
               all_sms.append(k)
         all_sms = sorted(set(all_sms))
 
-    key, title = 'ASO_ALL', 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
+    key, title = 'ASO_ALL', ('ASO_ALL - Kênh OFF' if get_month_cfg().get('aso_all_channel')=='OFF' else 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)')
 
   elif report_type == 'PC_BT':
     # L1 OFF, >=4 line MOQ, max 1 PC/CH/ngày
@@ -2162,15 +2180,26 @@ def build_report(
     key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
 
   elif report_type == 'PC_ON':
-    # L1 ON, >=1 line đạt MOQ, max 1 PC/CH/ngày
-    on = df_mtd[
-        df_mtd['L1'].astype(str).str.contains('On', case=False, na=False)
-    ]
-    order_moq = count_moq_lines_per_order(on)
-    ok = order_moq[order_moq['n_moq_lines'] >= 1]
-    ok_day = pick_best_pc_per_outlet_day(ok)
-    mtd = ok_day.groupby('Mã NVBH').size()
-    ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
+    cfg = get_month_cfg()
+    if get_month_key() == 'Thang09':
+      # T09: ASO Tea Kênh ON — SP Tea/Trà/ô long, MTD >= 12 chai/CH
+      on = df_mtd[
+          df_mtd['L1'].astype(str).str.contains('On', case=False, na=False)
+      ]
+      pat = cfg.get('pc_on_pat', r'tea|tr[aà]|ô\s*long|olong')
+      min_q = int(cfg.get('pc_on_min_qty', 12) or 12)
+      mtd, ngay = _aso_coverage(on if not on.empty else df_mtd, pat, min_qty=min_q)
+      key, title = 'PC_ON', cfg.get('pc_on_name', 'ASO_Tea ON')
+    else:
+      # T10: L1 ON, >=1 line đạt MOQ, max 1 PC/CH/ngày
+      on = df_mtd[
+          df_mtd['L1'].astype(str).str.contains('On', case=False, na=False)
+      ]
+      order_moq = count_moq_lines_per_order(on)
+      ok = order_moq[order_moq['n_moq_lines'] >= 1]
+      ok_day = pick_best_pc_per_outlet_day(ok)
+      mtd = ok_day.groupby('Mã NVBH').size()
+      ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
     if mcp_df is not None and not mcp_df.empty:
       c_nv_mcp = find_col(mcp_df, ['SM Code', 'Mã NVBH', 'SM code'])
       c_l1 = find_col(mcp_df, ['L1', 'Channel'])
