@@ -341,8 +341,84 @@ def render_metric_card(label, value):
 # ====================== ĐƯỜNG DẪN ======================
 DATA_DIR = 'data'
 
+
+# ====================== THÁNG BÁO CÁO ======================
+# data/Thang09 | data/Thang10 — chọn tháng → load data + rule KPI 1–8
+MONTH_OPTIONS = {
+    'Thang09': {
+        'label': 'Tháng 09/2026',
+        'year': 2026, 'month': 9,
+        'folder': 'Thang09',
+        'aso_focus_pat': r'chant[eé]\s*active|chante\s*active|nước giặt xả chant[eé]\s*active',
+        'aso_focus_name': 'ASO_Focus - Trận Xanh (Chanté Active)',
+        'aso_focus2_pat': r'm[iì]\s*tr[oộ]n\s*omachi|omachi\s*t[oô]|mi tron omachi',
+        'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Mì trộn Omachi)',
+        'pc_on_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
+        'pc_on_name': 'ASO_ON - Tea 365 (Kênh ON)',
+        'pc_bt_exclude_meat': False,
+        'lppc_moc': 4.0,
+        'salary': {
+            'TURNOVER': '95%: 4.508.000đ | 100%: 6.440.000đ',
+            'PC_BT': '100%: 2.400.000đ (PC=60%×Call, ≥4 line MOQ, trừ Beer)',
+            'LPPC': 'Mức 1 (4,0): 2.080.000đ | Mức 2 (4,5): 2.340.000đ | Mức 3 (5,0): 2.600.000đ',
+            'ASO_ALL': '100%: 1.100.000đ',
+            'ASO_FOCUS': '90%: 880.000đ | 100%: 1.100.000đ (Chanté Active)',
+            'ASO_FOCUS_2': '90%: 720.000đ | 100%: 900.000đ (Mì trộn Omachi)',
+            'PC_ON': '<30 ASO: 0đ | ≥30 ASO: 1.500.000đ (Tea 365)',
+            'LPPC_MEAT': '100%: 400.000đ',
+        },
+        'holidays': {1, 2},
+    },
+    'Thang10': {
+        'label': 'Tháng 10/2026',
+        'year': 2026, 'month': 10,
+        'folder': 'Thang10',
+        'aso_focus_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
+        'aso_focus_name': 'ASO_Focus - Trận Xanh (Tea 365)',
+        'aso_focus2_pat': r'homey|hoa tr[aà]\s*jeju|nước giặt xả homey',
+        'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Homey)',
+        'pc_on_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
+        'pc_on_name': 'PC_ON - Tea 365 (Kênh ON)',
+        'pc_bt_exclude_meat': True,
+        'lppc_moc': 4.3,
+        'salary': {
+            'TURNOVER': '95%: 4.508.000đ | 100%: 6.440.000đ',
+            'PC_BT': '100%: 2.400.000đ',
+            'LPPC': 'Mức 1 (4,3): 1.980.000đ | Mức 2 (4,7): 2.200.000đ',
+            'ASO_ALL': '100%: 1.100.000đ',
+            'ASO_FOCUS': '90%: 880.000đ | 100%: 1.100.000đ (Tea 365)',
+            'ASO_FOCUS_2': '90%: 720.000đ | 100%: 900.000đ (Homey)',
+            'PC_ON': '100%: 1.500.000đ',
+            'LPPC_MEAT': '100%: 400.000đ',
+        },
+        'holidays': set(),
+    },
+}
+
+def get_month_key():
+  try:
+    return st.session_state.get('report_month_key', 'Thang10')
+  except Exception:
+    return 'Thang10'
+
+def get_month_cfg():
+  return MONTH_OPTIONS.get(get_month_key(), MONTH_OPTIONS['Thang10'])
+
+def get_data_dir():
+  """data/Thang09 hoặc data/Thang10; fallback data/ nếu chưa tách."""
+  folder = get_month_cfg().get('folder', 'Thang10')
+  p = os.path.join('data', folder)
+  if os.path.isdir(p):
+    return p
+  if os.path.isdir('data'):
+    return 'data'
+  return p
+
+DATA_DIR = 'data'
+
 def _resolve_rpt_path():
-  """Tìm file data bán hàng: DanhSachChiTietDonHang / RPT_061 / biến thể."""
+  """Tìm file data bán hàng trong thư mục tháng hiện tại."""
+  ddir = get_data_dir()
   preferred = [
       'DanhSachChiTietDonHang.xlsx',
       'DanhSachChiTietDonHang.xls',
@@ -350,12 +426,12 @@ def _resolve_rpt_path():
       'RPT_061.xls',
   ]
   for name in preferred:
-    p = os.path.join(get_data_dir(), name)
+    p = os.path.join(ddir, name)
     if os.path.isfile(p):
       return p
-  if os.path.isdir(get_data_dir()):
+  if os.path.isdir(ddir):
     try:
-      for fn in os.listdir(get_data_dir()):
+      for fn in os.listdir(ddir):
         low = fn.lower().replace(' ', '').replace('_', '')
         if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
           continue
@@ -365,47 +441,83 @@ def _resolve_rpt_path():
             or 'rpt061' in low
             or 'lineitem' in low
         ):
-          return os.path.join(get_data_dir(), fn)
+          return os.path.join(ddir, fn)
     except Exception:
       pass
-  return os.path.join(get_data_dir(), 'DanhSachChiTietDonHang.xlsx')
+  return os.path.join(ddir, 'DanhSachChiTietDonHang.xlsx')
 
-RPT_PATH = _resolve_rpt_path()
-MCP_PATH = os.path.join(get_data_dir(), 'Data_MCP.xlsx')
-KPI_PATH = os.path.join(get_data_dir(), 'Target_KPI.xlsx')
-CAT_PATH = 'Data_Cat.xlsx'
-BRAND_PATH = 'Data_Brand.xlsx'
-VISIT_SCHED_PATH = os.path.join(get_data_dir(), 'DanhSachLichViengTham.xlsx')
-# File DSKH được bán trái tuyến (sheet F4 / F2) — ngoại lệ lịch VT bổ sung
-DSKH_TRAI_PATH = os.path.join(get_data_dir(), 'DSKH_Trái Tuyến.xlsx')
-if not os.path.exists(DSKH_TRAI_PATH):
-  # fallback tên không dấu / biến thể
-  for _fn in os.listdir(get_data_dir()) if os.path.isdir(get_data_dir()) else []:
-    if 'trai' in _fn.lower().replace('ế', 'e') or 'trái tuyến' in _fn.lower() or 'Trai Tuyen' in _fn:
-      DSKH_TRAI_PATH = os.path.join(get_data_dir(), _fn)
-      break
+def _get_mcp_path():
+  return os.path.join(get_data_dir(), 'Data_MCP.xlsx')
 
+def _get_kpi_path():
+  return os.path.join(get_data_dir(), 'Target_KPI.xlsx')
+
+def _get_visit_path():
+  ddir = get_data_dir()
+  for name in ['DanhSachLichViengTham.xlsx', 'DanhSachLichViengTham.xls']:
+    p = os.path.join(ddir, name)
+    if os.path.isfile(p):
+      return p
+  return os.path.join(ddir, 'DanhSachLichViengTham.xlsx')
+
+def _get_dskh_trai_path():
+  ddir = get_data_dir()
+  p = os.path.join(ddir, 'DSKH_Trái Tuyến.xlsx')
+  if os.path.isfile(p):
+    return p
+  if os.path.isdir(ddir):
+    for _fn in os.listdir(ddir):
+      low = _fn.lower()
+      if 'trai' in low.replace('ế', 'e') or 'trái tuyến' in low or 'trai tuyen' in low:
+        return os.path.join(ddir, _fn)
+  return p
 
 def _list_data_dir():
-  if not os.path.isdir(get_data_dir()):
+  ddir = get_data_dir()
+  if not os.path.isdir(ddir):
     return []
   try:
-    return os.listdir(get_data_dir())
+    return os.listdir(ddir)
   except Exception:
     return []
 
-combo_off_files = [f for f in _list_data_dir() if 'Combo' in f and 'OFF' in f]
-combo_on_files = [f for f in _list_data_dir() if 'Combo' in f and ('On' in f or 'ON' in f)]
-COMBO_OFF_PATH = (
-    os.path.join(get_data_dir(), combo_off_files[0])
-    if combo_off_files
-    else os.path.join(get_data_dir(), 'Combo Kênh OFF.xlsx')
-)
-COMBO_ON_PATH = (
-    os.path.join(get_data_dir(), combo_on_files[0])
-    if combo_on_files
-    else os.path.join(get_data_dir(), 'Combo Kênh On.xlsx')
-)
+def _get_combo_off_path():
+  ddir = get_data_dir()
+  files = [f for f in _list_data_dir() if 'Combo' in f and 'OFF' in f]
+  return os.path.join(ddir, files[0]) if files else os.path.join(ddir, 'Combo Kênh OFF.xlsx')
+
+def _get_combo_on_path():
+  ddir = get_data_dir()
+  files = [f for f in _list_data_dir() if 'Combo' in f and ('On' in f or 'ON' in f)]
+  return os.path.join(ddir, files[0]) if files else os.path.join(ddir, 'Combo Kênh On.xlsx')
+
+def _refresh_paths():
+  global RPT_PATH, MCP_PATH, KPI_PATH, VISIT_SCHED_PATH, DSKH_TRAI_PATH
+  global COMBO_OFF_PATH, COMBO_ON_PATH, DATA_DIR, CAT_PATH, BRAND_PATH
+  DATA_DIR = get_data_dir()
+  RPT_PATH = _resolve_rpt_path()
+  MCP_PATH = _get_mcp_path()
+  KPI_PATH = _get_kpi_path()
+  VISIT_SCHED_PATH = _get_visit_path()
+  DSKH_TRAI_PATH = _get_dskh_trai_path()
+  COMBO_OFF_PATH = _get_combo_off_path()
+  COMBO_ON_PATH = _get_combo_on_path()
+  CAT_PATH = 'Data_Cat.xlsx'
+  BRAND_PATH = 'Data_Brand.xlsx'
+
+# Init paths (an toàn lúc import — chưa có session → Thang10 / data/)
+try:
+  _refresh_paths()
+except Exception:
+  RPT_PATH = os.path.join('data', 'DanhSachChiTietDonHang.xlsx')
+  MCP_PATH = os.path.join('data', 'Data_MCP.xlsx')
+  KPI_PATH = os.path.join('data', 'Target_KPI.xlsx')
+  CAT_PATH = 'Data_Cat.xlsx'
+  BRAND_PATH = 'Data_Brand.xlsx'
+  VISIT_SCHED_PATH = os.path.join('data', 'DanhSachLichViengTham.xlsx')
+  DSKH_TRAI_PATH = os.path.join('data', 'DSKH_Trái Tuyến.xlsx')
+  COMBO_OFF_PATH = os.path.join('data', 'Combo Kênh OFF.xlsx')
+  COMBO_ON_PATH = os.path.join('data', 'Combo Kênh On.xlsx')
 
 
 # ====================== LOAD ======================
@@ -444,7 +556,7 @@ def _read_sales_excel(path):
 
 
 @st.cache_data(ttl=600)
-def load_main_data():
+def load_main_data(_month_key='Thang10'):
   rpt_path = _resolve_rpt_path()
   if not os.path.exists(rpt_path) or not os.path.exists(_get_mcp_path()):
     st.error(
