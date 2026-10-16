@@ -350,12 +350,12 @@ def _resolve_rpt_path():
       'RPT_061.xls',
   ]
   for name in preferred:
-    p = os.path.join(DATA_DIR, name)
+    p = os.path.join(get_data_dir(), name)
     if os.path.isfile(p):
       return p
-  if os.path.isdir(DATA_DIR):
+  if os.path.isdir(get_data_dir()):
     try:
-      for fn in os.listdir(DATA_DIR):
+      for fn in os.listdir(get_data_dir()):
         low = fn.lower().replace(' ', '').replace('_', '')
         if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
           continue
@@ -365,46 +365,46 @@ def _resolve_rpt_path():
             or 'rpt061' in low
             or 'lineitem' in low
         ):
-          return os.path.join(DATA_DIR, fn)
+          return os.path.join(get_data_dir(), fn)
     except Exception:
       pass
-  return os.path.join(DATA_DIR, 'DanhSachChiTietDonHang.xlsx')
+  return os.path.join(get_data_dir(), 'DanhSachChiTietDonHang.xlsx')
 
 RPT_PATH = _resolve_rpt_path()
-MCP_PATH = os.path.join(DATA_DIR, 'Data_MCP.xlsx')
-KPI_PATH = os.path.join(DATA_DIR, 'Target_KPI.xlsx')
+MCP_PATH = os.path.join(get_data_dir(), 'Data_MCP.xlsx')
+KPI_PATH = os.path.join(get_data_dir(), 'Target_KPI.xlsx')
 CAT_PATH = 'Data_Cat.xlsx'
 BRAND_PATH = 'Data_Brand.xlsx'
-VISIT_SCHED_PATH = os.path.join(DATA_DIR, 'DanhSachLichViengTham.xlsx')
+VISIT_SCHED_PATH = os.path.join(get_data_dir(), 'DanhSachLichViengTham.xlsx')
 # File DSKH được bán trái tuyến (sheet F4 / F2) — ngoại lệ lịch VT bổ sung
-DSKH_TRAI_PATH = os.path.join(DATA_DIR, 'DSKH_Trái Tuyến.xlsx')
+DSKH_TRAI_PATH = os.path.join(get_data_dir(), 'DSKH_Trái Tuyến.xlsx')
 if not os.path.exists(DSKH_TRAI_PATH):
   # fallback tên không dấu / biến thể
-  for _fn in os.listdir(DATA_DIR) if os.path.isdir(DATA_DIR) else []:
+  for _fn in os.listdir(get_data_dir()) if os.path.isdir(get_data_dir()) else []:
     if 'trai' in _fn.lower().replace('ế', 'e') or 'trái tuyến' in _fn.lower() or 'Trai Tuyen' in _fn:
-      DSKH_TRAI_PATH = os.path.join(DATA_DIR, _fn)
+      DSKH_TRAI_PATH = os.path.join(get_data_dir(), _fn)
       break
 
 
 def _list_data_dir():
-  if not os.path.isdir(DATA_DIR):
+  if not os.path.isdir(get_data_dir()):
     return []
   try:
-    return os.listdir(DATA_DIR)
+    return os.listdir(get_data_dir())
   except Exception:
     return []
 
 combo_off_files = [f for f in _list_data_dir() if 'Combo' in f and 'OFF' in f]
 combo_on_files = [f for f in _list_data_dir() if 'Combo' in f and ('On' in f or 'ON' in f)]
 COMBO_OFF_PATH = (
-    os.path.join(DATA_DIR, combo_off_files[0])
+    os.path.join(get_data_dir(), combo_off_files[0])
     if combo_off_files
-    else os.path.join(DATA_DIR, 'Combo Kênh OFF.xlsx')
+    else os.path.join(get_data_dir(), 'Combo Kênh OFF.xlsx')
 )
 COMBO_ON_PATH = (
-    os.path.join(DATA_DIR, combo_on_files[0])
+    os.path.join(get_data_dir(), combo_on_files[0])
     if combo_on_files
-    else os.path.join(DATA_DIR, 'Combo Kênh On.xlsx')
+    else os.path.join(get_data_dir(), 'Combo Kênh On.xlsx')
 )
 
 
@@ -446,7 +446,7 @@ def _read_sales_excel(path):
 @st.cache_data(ttl=600)
 def load_main_data():
   rpt_path = _resolve_rpt_path()
-  if not os.path.exists(rpt_path) or not os.path.exists(MCP_PATH):
+  if not os.path.exists(rpt_path) or not os.path.exists(_get_mcp_path()):
     st.error(
         f"Thiếu file **DanhSachChiTietDonHang.xlsx** (hoặc RPT_061.xlsx) "
         f"hoặc **Data_MCP.xlsx** trong thư mục `{DATA_DIR}`"
@@ -537,7 +537,7 @@ def load_combo_data():
 
 @st.cache_data(ttl=600)
 def load_cat_data():
-  for path in [CAT_PATH, os.path.join(DATA_DIR, 'Data_Cat.xlsx')]:
+  for path in [CAT_PATH, os.path.join(get_data_dir(), 'Data_Cat.xlsx')]:
     if os.path.exists(path):
       try:
         return pd.read_excel(path)
@@ -548,7 +548,7 @@ def load_cat_data():
 
 @st.cache_data(ttl=600)
 def load_brand_data():
-  for path in [BRAND_PATH, os.path.join(DATA_DIR, 'Data_Brand.xlsx')]:
+  for path in [BRAND_PATH, os.path.join(get_data_dir(), 'Data_Brand.xlsx')]:
     if os.path.exists(path):
       try:
         return pd.read_excel(path)
@@ -563,16 +563,16 @@ def load_visit_schedule():
   """File Danh sách lịch viếng thăm (upload lên data/)."""
   candidates = [
       VISIT_SCHED_PATH,
-      os.path.join(DATA_DIR, 'DanhSachLichViengTham.xlsx'),
-      os.path.join(DATA_DIR, 'DanhSachLichViengTham.xls'),
+      os.path.join(get_data_dir(), 'DanhSachLichViengTham.xlsx'),
+      os.path.join(get_data_dir(), 'DanhSachLichViengTham.xls'),
       'DanhSachLichViengTham.xlsx',
   ]
   # Tìm file gần đúng tên
-  if os.path.isdir(DATA_DIR):
-    for f in os.listdir(DATA_DIR):
+  if os.path.isdir(get_data_dir()):
+    for f in os.listdir(get_data_dir()):
       fl = f.lower().replace(' ', '')
       if 'lichviengtham' in fl or 'viengtham' in fl or 'danhsachlich' in fl:
-        candidates.insert(0, os.path.join(DATA_DIR, f))
+        candidates.insert(0, os.path.join(get_data_dir(), f))
   for p in candidates:
     if os.path.exists(p):
       try:
@@ -593,10 +593,10 @@ def load_visit_schedule():
 
 @st.cache_data(ttl=600)
 def get_targets():
-  if not os.path.exists(KPI_PATH):
+  if not os.path.exists(_get_kpi_path()):
     return {}
   try:
-    kpi = pd.read_excel(KPI_PATH, header=None).iloc[2:]
+    kpi = pd.read_excel(_get_kpi_path(), header=None).iloc[2:]
     kpi.columns = [
         'Region',
         'Month',
@@ -662,10 +662,10 @@ def get_targets():
 
 @st.cache_data(ttl=600)
 def get_turnover_targets():
-  if not os.path.exists(KPI_PATH):
+  if not os.path.exists(_get_kpi_path()):
     return {}
   try:
-    kpi = pd.read_excel(KPI_PATH, header=None).iloc[2:]
+    kpi = pd.read_excel(_get_kpi_path(), header=None).iloc[2:]
     kpi.columns = [
         'Region',
         'Month',
@@ -746,9 +746,9 @@ def get_all_sm_roster():
   Dùng để hiển thị cả NV không có đơn trong RPT (giá trị = 0).
   """
   roster = {}
-  if os.path.exists(KPI_PATH):
+  if os.path.exists(_get_kpi_path()):
     try:
-      kpi = pd.read_excel(KPI_PATH, header=None).iloc[2:]
+      kpi = pd.read_excel(_get_kpi_path(), header=None).iloc[2:]
       kpi.columns = [
           'Region', 'Month', 'Ship to', 'Distributor', 'SUP', 'SM pos',
           'SM code', 'SM name', 'Saleteam', 'KPI type', 'KPI Name',
@@ -1258,16 +1258,38 @@ def process_cat_sales(df_rpt, df_cat):
 
 
 def process_brand_sales(df_rpt, df_brand):
-  if df_brand.empty or df_rpt.empty:
-    return df_brand
+  if df_brand is None or df_brand.empty or df_rpt is None or df_rpt.empty:
+    return df_brand if df_brand is not None else pd.DataFrame()
 
+  # Tìm cột danh sách brand linh hoạt
   c_brand_col = [
       c
       for c in df_brand.columns
-      if 'brand' in c.lower() and 'danh sách' in c.lower()
+      if 'brand' in str(c).lower() and ('danh sách' in str(c).lower() or 'danh sach' in str(c).lower() or 'full' in str(c).lower())
   ]
-  brand_col_name = c_brand_col[0] if c_brand_col else 'Danh sách full brand'
+  if not c_brand_col:
+    c_brand_col = [
+        c for c in df_brand.columns
+        if str(c).strip().lower() in (
+            'danh sách full brand', 'danh sach full brand', 'brand', 'nhãn', 'nhãn hàng', 'ten brand'
+        )
+    ]
+  if not c_brand_col:
+    # fallback: cột đầu tiên không phải mã/code
+    for c in df_brand.columns:
+      cl = str(c).lower()
+      if 'mã' in cl or 'code' in cl or 'stt' in cl:
+        continue
+      c_brand_col = [c]
+      break
+  if not c_brand_col:
+    return df_brand
+  brand_col_name = c_brand_col[0]
+  if brand_col_name not in df_brand.columns:
+    return df_brand
   brands_list = df_brand[brand_col_name].dropna().unique().tolist()
+  if not brands_list:
+    return df_brand
 
   def match_brand(sku_str):
     if pd.isna(sku_str):
@@ -1313,32 +1335,29 @@ def process_brand_sales(df_rpt, df_brand):
     return 'Khác'
 
   df_clean = df_rpt.copy()
-  sku_col1 = (
-      [c for c in df_clean.columns if 'group std' in c.lower()][0]
-      if any('group std' in c.lower() for c in df_clean.columns)
-      else 'Tên sản phẩm'
+  sku_col1_list = [c for c in df_clean.columns if 'group std' in str(c).lower()]
+  sku_col2_list = [c for c in df_clean.columns if 'tên sản phẩm' in str(c).lower()]
+  sku_col1 = sku_col1_list[0] if sku_col1_list else (
+      sku_col2_list[0] if sku_col2_list else None
   )
-  sku_col2 = (
-      [c for c in df_clean.columns if 'tên sản phẩm' in c.lower()][0]
-      if any('tên sản phẩm' in c.lower() for c in df_clean.columns)
-      else 'Tên sản phẩm'
-  )
+  sku_col2 = sku_col2_list[0] if sku_col2_list else sku_col1
+  if sku_col1 is None or sku_col1 not in df_clean.columns:
+    return df_brand
+  if sku_col2 is None or sku_col2 not in df_clean.columns:
+    sku_col2 = sku_col1
 
   df_clean['Search_Str'] = (
       df_clean[sku_col1].astype(str) + ' ' + df_clean[sku_col2].astype(str)
   )
-  val_col = (
-      [
-          c
-          for c in df_clean.columns
-          if 'tổng tiền' in c.lower() or 'giá trị sau ck' in c.lower()
-      ][0]
-      if any(
-          'tổng tiền' in c.lower() or 'giá trị sau ck' in c.lower()
-          for c in df_clean.columns
-      )
-      else 'Tổng tiền'
-  )
+  val_col_list = [
+      c
+      for c in df_clean.columns
+      if 'tổng tiền' in str(c).lower() or 'giá trị sau ck' in str(c).lower()
+      or 'sales after' in str(c).lower() or 'doanh số' in str(c).lower()
+  ]
+  if not val_col_list:
+    return df_brand
+  val_col = val_col_list[0]
   status_col = (
       [c for c in df_clean.columns if 'tình trạng đơn hàng' in c.lower()][0]
       if any('tình trạng đơn hàng' in c.lower() for c in df_clean.columns)
@@ -1369,22 +1388,43 @@ def process_brand_sales(df_rpt, df_brand):
   agg_b2.columns = ['Outlet_key', 'Brand_Key', 'Val2']
 
   df_out = df_brand.copy()
-  c_code = [
+  c_code_list = [
       c
       for c in df_out.columns
-      if 'outlet code' in c.lower() or 'mã ch' in c.lower()
-  ][0]
+      if 'outlet code' in str(c).lower()
+      or 'mã ch' in str(c).lower()
+      or 'ma ch' in str(c).lower()
+      or str(c).lower().strip() in ('outlet_code', 'outlet code', 'mã kh', 'ma kh')
+  ]
+  if not c_code_list:
+    return df_brand
+  c_code = c_code_list[0]
   c_brand = brand_col_name
-  col_val1 = [
+  col_val1_list = [
       c
       for c in df_out.columns
-      if 'doanh số thực đạt của brand' in c.lower() and 'not' not in c.lower()
-  ][0]
-  col_val2 = [
+      if 'doanh số thực đạt của brand' in str(c).lower() and 'not' not in str(c).lower()
+  ]
+  col_val2_list = [
       c
       for c in df_out.columns
-      if 'doanh số thực đạt của brand' in c.lower() and 'not' in c.lower()
-  ][0]
+      if 'doanh số thực đạt của brand' in str(c).lower() and 'not' in str(c).lower()
+  ]
+  # Fallback tên cột doanh số brand phổ biến
+  if not col_val1_list:
+    col_val1_list = [
+        c for c in df_out.columns
+        if 'doanh số' in str(c).lower() and 'brand' in str(c).lower() and 'not' not in str(c).lower()
+    ]
+  if not col_val2_list:
+    col_val2_list = [
+        c for c in df_out.columns
+        if 'doanh số' in str(c).lower() and 'brand' in str(c).lower() and 'not' in str(c).lower()
+    ]
+  if not col_val1_list:
+    return df_brand
+  col_val1 = col_val1_list[0]
+  col_val2 = col_val2_list[0] if col_val2_list else col_val1
 
   df_out['_outlet_key'] = df_out[c_code].astype(str).str.strip()
   df_out['_brand_key'] = df_out[c_brand].astype(str).str.strip()
@@ -2336,18 +2376,18 @@ def load_weekly_sales():
   ]
   path = None
   for name in preferred:
-    p = os.path.join(DATA_DIR, name)
+    p = os.path.join(get_data_dir(), name)
     if os.path.isfile(p):
       path = p
       break
-  if path is None and os.path.isdir(DATA_DIR):
+  if path is None and os.path.isdir(get_data_dir()):
     try:
-      for fn in sorted(os.listdir(DATA_DIR)):
+      for fn in sorted(os.listdir(get_data_dir())):
         low = fn.lower().replace(' ', '')
         if not low.endswith(('.xlsx', '.xls', '.xlsm')):
           continue
         if 'weekly' in low or 'data-2' in low or low.startswith('data2'):
-          path = os.path.join(DATA_DIR, fn)
+          path = os.path.join(get_data_dir(), fn)
           break
     except Exception:
       pass
@@ -6792,12 +6832,12 @@ def _resolve_raw_tea_path():
       'RAW DATA.xls', 'Data_RAW_TEA.xlsx',
   ]
   for n in names:
-    p = os.path.join(DATA_DIR, n)
+    p = os.path.join(get_data_dir(), n)
     if os.path.isfile(p):
       return p
-  if os.path.isdir(DATA_DIR):
+  if os.path.isdir(get_data_dir()):
     scored = []
-    for fn in os.listdir(DATA_DIR):
+    for fn in os.listdir(get_data_dir()):
       if not fn.lower().endswith(('.xlsx', '.xls')):
         continue
       low = fn.lower().replace(' ', '').replace('_', '')
@@ -6808,20 +6848,20 @@ def _resolve_raw_tea_path():
         scored.append((1, fn))
     scored.sort()
     if scored:
-      return os.path.join(DATA_DIR, scored[0][1])
-  return os.path.join(DATA_DIR, 'data.xlsx')
+      return os.path.join(get_data_dir(), scored[0][1])
+  return os.path.join(get_data_dir(), 'data.xlsx')
 
 
 def _resolve_dk_tea_path():
-  if not os.path.isdir(DATA_DIR):
+  if not os.path.isdir(get_data_dir()):
     return None
   keys = ('tichluy', 'tích lũy', 'dangky', 'đăng ký', 'msc_bev', 'bupnon', 'búp non', 'tea365')
-  for fn in os.listdir(DATA_DIR):
+  for fn in os.listdir(get_data_dir()):
     if not fn.lower().endswith(('.xlsx', '.xls')):
       continue
     low = fn.lower()
     if any(k in low for k in keys) and 'raw' not in low.replace(' ', ''):
-      return os.path.join(DATA_DIR, fn)
+      return os.path.join(get_data_dir(), fn)
   return None
 
 
@@ -6863,13 +6903,13 @@ def load_dk_tea_outlets():
       'DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xlsx',
       'DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xls',
   ]:
-    p = os.path.join(DATA_DIR, n)
+    p = os.path.join(get_data_dir(), n)
     if os.path.isfile(p) and p not in paths:
       paths.append(p)
-  if os.path.isdir(DATA_DIR):
-    for fn in os.listdir(DATA_DIR):
+  if os.path.isdir(get_data_dir()):
+    for fn in os.listdir(get_data_dir()):
       if 'ket_qua' in fn.lower().replace(' ', '') or 'thamgiachuongtrinh' in fn.lower().replace(' ', ''):
-        p = os.path.join(DATA_DIR, fn)
+        p = os.path.join(get_data_dir(), fn)
         if p not in paths:
           paths.append(p)
 
@@ -7254,15 +7294,15 @@ def _resolve_perf_sku_path():
       'TARGETACTUAL_BY_STD_SKU_BY_SM.xlsx',
   ]
   for n in names:
-    p = os.path.join(DATA_DIR, n)
+    p = os.path.join(get_data_dir(), n)
     if os.path.isfile(p):
       return p
-  if os.path.isdir(DATA_DIR):
-    for fn in os.listdir(DATA_DIR):
+  if os.path.isdir(get_data_dir()):
+    for fn in os.listdir(get_data_dir()):
       low = fn.lower().replace(' ', '').replace('_', '').replace('-', '')
       if fn.lower().endswith(('.xlsx', '.xls')) and 'targetactual' in low and 'sku' in low:
-        return os.path.join(DATA_DIR, fn)
-  return os.path.join(DATA_DIR, 'TARGETACTUAL BY STD SKU -BY SM.xlsx')
+        return os.path.join(get_data_dir(), fn)
+  return os.path.join(get_data_dir(), 'TARGETACTUAL BY STD SKU -BY SM.xlsx')
 
 
 @st.cache_data(ttl=600)
@@ -8182,15 +8222,15 @@ def load_display_data():
           DATA_DIR, 'DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xlsx'
       ),
   ]
-  if os.path.isdir(DATA_DIR):
+  if os.path.isdir(get_data_dir()):
     try:
-      for fn in os.listdir(DATA_DIR):
+      for fn in os.listdir(get_data_dir()):
         low = fn.lower().replace(' ', '').replace('_', '')
         if fn.lower().endswith(('.xlsx', '.xls')) and (
             'trungbay' in low or 'chuongtrinh' in low
             or 'ketquacuahang' in low or 'danhsachketqua' in low
         ):
-          candidates.append(os.path.join(DATA_DIR, fn))
+          candidates.append(os.path.join(get_data_dir(), fn))
     except Exception:
       pass
   path_use = next((p for p in candidates if p and os.path.isfile(p)), None)
@@ -8232,18 +8272,18 @@ def _resolve_bo_hinh_path():
       'Danh_Sach_Xet_Bo_Hinh_Trung_Bay.xlsx',
   ]
   for n in names:
-    p = os.path.join(DATA_DIR, n)
+    p = os.path.join(get_data_dir(), n)
     if os.path.isfile(p):
       return p
-  if os.path.isdir(DATA_DIR):
-    for fn in os.listdir(DATA_DIR):
+  if os.path.isdir(get_data_dir()):
+    for fn in os.listdir(get_data_dir()):
       low = fn.lower().replace(' ', '').replace('_', '')
       if fn.lower().endswith(('.xlsx', '.xls')) and (
           'bohinh' in low or 'xetbohinh' in low
           or ('trungbay' in low and 'xet' in low)
       ):
-        return os.path.join(DATA_DIR, fn)
-  return os.path.join(DATA_DIR, 'DanhSachXetBoHinhTrungBay.xlsx')
+        return os.path.join(get_data_dir(), fn)
+  return os.path.join(get_data_dir(), 'DanhSachXetBoHinhTrungBay.xlsx')
 
 
 @st.cache_data(ttl=600)
@@ -10461,6 +10501,52 @@ def get_timegone_stats(target_date):
   )
 
 
+# ===== Chọn tháng báo cáo (data/Thang09 | data/Thang10) =====
+if 'report_month_key' not in st.session_state:
+  st.session_state['report_month_key'] = 'Thang10'
+
+_month_labels = {k: v['label'] for k, v in MONTH_OPTIONS.items()}
+_month_keys = list(MONTH_OPTIONS.keys())
+_cur_idx = _month_keys.index(st.session_state['report_month_key']) if st.session_state['report_month_key'] in _month_keys else 1
+
+mc1, mc2 = st.columns([1, 3])
+with mc1:
+  st.markdown('<p class="filter-label">📅 Tháng báo cáo</p>', unsafe_allow_html=True)
+  _sel_label = st.selectbox(
+      'Tháng',
+      options=[_month_labels[k] for k in _month_keys],
+      index=_cur_idx,
+      key='month_select_box',
+      label_visibility='collapsed',
+  )
+_new_key = [k for k, v in MONTH_OPTIONS.items() if v['label'] == _sel_label][0]
+if _new_key != st.session_state.get('report_month_key'):
+  st.session_state['report_month_key'] = _new_key
+  # Đổi tháng → clear cache data
+  try:
+    load_main_data.clear()
+  except Exception:
+    pass
+  try:
+    st.cache_data.clear()
+  except Exception:
+    pass
+  _refresh_paths()
+  st.rerun()
+
+_cfg_m = get_month_cfg()
+_y, _m = _cfg_m['year'], _cfg_m['month']
+_month_start = date(_y, _m, 1)
+if _m == 12:
+  _month_end = date(_y + 1, 1, 1) - timedelta(days=1)
+else:
+  _month_end = date(_y, _m + 1, 1) - timedelta(days=1)
+
+st.caption(
+    f"📂 Data: `data/{_cfg_m['folder']}` | Rule KPI 1–8: **{_cfg_m['label']}** "
+    f"(báo cáo từ 9 trở đi dùng chung logic)"
+)
+
 # Ngày báo cáo (lấy từ session để tính Timegone trước khi vẽ filter)
 report_date = st.session_state.get('ngay', default_date_t_minus_1)
 if not isinstance(report_date, date):
@@ -10468,12 +10554,14 @@ if not isinstance(report_date, date):
     report_date = date.fromisoformat(str(report_date)[:10])
   except Exception:
     report_date = default_date_t_minus_1
-# Clamp trong Tháng 10/2026
-if report_date < date(2026, 10, 1):
-  report_date = date(2026, 10, 1)
-elif report_date > date(2026, 10, 31):
-  report_date = date(2026, 10, 31)
+# Clamp trong tháng đang chọn
+if report_date < _month_start:
+  report_date = _month_start
+elif report_date > _month_end:
+  report_date = min(_month_end, default_date_t_minus_1) if default_date_t_minus_1 >= _month_start else _month_end
+st.session_state['ngay'] = report_date
 
+_refresh_paths()
 tot_days, elapsed_days, remain_days, pct_tg = get_timegone_stats(report_date)
 
 # Bảng Metric tiến độ — NẰM TRÊN các bộ lọc
@@ -10522,8 +10610,8 @@ with f1:
   report_date = st.date_input(
       '',
       value=report_date,
-      min_value=date(2026, 10, 1),
-      max_value=date(2026, 10, 31),
+      min_value=_month_start,
+      max_value=_month_end,
       key='ngay',
       label_visibility='collapsed',
   )
@@ -12225,12 +12313,12 @@ with tab_kpi:
     def _diag():
       data_files = []
       try:
-        if os.path.isdir(DATA_DIR):
-          data_files = sorted(os.listdir(DATA_DIR))
+        if os.path.isdir(get_data_dir()):
+          data_files = sorted(os.listdir(get_data_dir()))
       except Exception:
         pass
-      has_d2 = os.path.isfile(os.path.join(DATA_DIR, 'data-2.xlsx'))
-      has_mcp = os.path.isfile(os.path.join(DATA_DIR, 'Data_MCP.xlsx'))
+      has_d2 = os.path.isfile(os.path.join(get_data_dir(), 'data-2.xlsx'))
+      has_mcp = os.path.isfile(os.path.join(get_data_dir(), 'Data_MCP.xlsx'))
       n_sales = 0 if sales_hist is None else len(sales_hist)
       n_mcp = 0 if mcp is None else len(mcp)
       file_list = ', '.join(data_files) if data_files else '(trống)'
