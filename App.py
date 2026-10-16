@@ -2489,13 +2489,14 @@ def build_report(
         '% MTD OFF': (
             f'{round(sum_mtd_off / sum_off * 100, 1)}%' if sum_off else '0%'
         ),
-        'MCP ON': sum_on,
-        'Thực hiện ngày ON': sum_ngay_on,
-        'MTD ON': sum_mtd_on,
-        '% MTD ON': (
-            f'{round(sum_mtd_on / sum_on * 100, 1)}%' if sum_on else '0%'
-        ),
     }])
+    if _show_on:
+      total_row.loc[0, 'MCP ON'] = sum_on
+      total_row.loc[0, 'Thực hiện ngày ON'] = sum_ngay_on
+      total_row.loc[0, 'MTD ON'] = sum_mtd_on
+      total_row.loc[0, '% MTD ON'] = (
+          f'{round(sum_mtd_on / sum_on * 100, 1)}%' if sum_on else '0%'
+      )
     return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
 
   if is_lppc:
@@ -10734,11 +10735,6 @@ if _m == 12:
 else:
   _month_end = date(_y, _m + 1, 1) - timedelta(days=1)
 
-st.caption(
-    f"📂 Data: `data/{_cfg_m['folder']}` | Rule KPI 1–8: **{_cfg_m['label']}** "
-    f"(báo cáo từ 9 trở đi dùng chung logic)"
-)
-
 # Ngày báo cáo (lấy từ session để tính Timegone trước khi vẽ filter)
 report_date = st.session_state.get('ngay', default_date_t_minus_1)
 if not isinstance(report_date, date):
@@ -12658,7 +12654,11 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
     if selected_kpi == 'ASO_ALL':
-      c1, c2, c3, c4, c5, c6 = st.columns(6)
+      _aso_off_only = get_month_cfg().get('aso_all_channel') == 'OFF'
+      if _aso_off_only:
+        c1, c2, c3, c4, c5 = st.columns(5)
+      else:
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
       with c1:
         render_metric_card('🎯 Chỉ Tiêu MCP', f'{team_tgt:,}')
       with c2:
@@ -12671,10 +12671,11 @@ with tab_kpi:
         render_metric_card(
             'MCP OFF', f"{int(total_row.get('MTD OFF', 0)):,}/{int(total_row.get('MCP OFF', 0)):,}"
         )
-      with c6:
-        render_metric_card(
-            'MCP ON', f"{int(total_row.get('MTD ON', 0)):,}/{int(total_row.get('MCP ON', 0)):,}"
-        )
+      if not _aso_off_only:
+        with c6:
+          render_metric_card(
+              'MCP ON', f"{int(total_row.get('MTD ON', 0)):,}/{int(total_row.get('MCP ON', 0)):,}"
+          )
     else:
       c1, c2, c3, c4 = st.columns(4)
       with c1:
