@@ -2459,15 +2459,18 @@ def build_report(
     total_mtd = int(df_out['MTD'].sum()) if not df_out.empty else 0
     team_tgt = int(df_out['Chỉ Tiêu MCP'].sum()) if not df_out.empty else 0
     total_pct = round(total_mtd / team_tgt * 100, 1) if team_tgt else 0
-    sum_off = int(df_out['MCP OFF'].sum()) if not df_out.empty else 0
-    sum_on = int(df_out['MCP ON'].sum()) if not df_out.empty else 0
-    sum_mtd_off = int(df_out['MTD OFF'].sum()) if not df_out.empty else 0
-    sum_mtd_on = int(df_out['MTD ON'].sum()) if not df_out.empty else 0
+    _show_on = (not df_out.empty) and ('MCP ON' in df_out.columns)
+    sum_off = int(df_out['MCP OFF'].sum()) if not df_out.empty and 'MCP OFF' in df_out.columns else 0
+    sum_mtd_off = int(df_out['MTD OFF'].sum()) if not df_out.empty and 'MTD OFF' in df_out.columns else 0
     sum_ngay_off = (
-        int(df_out['Thực hiện ngày OFF'].sum()) if not df_out.empty else 0
+        int(df_out['Thực hiện ngày OFF'].sum())
+        if not df_out.empty and 'Thực hiện ngày OFF' in df_out.columns else 0
     )
+    sum_on = int(df_out['MCP ON'].sum()) if _show_on else 0
+    sum_mtd_on = int(df_out['MTD ON'].sum()) if _show_on else 0
     sum_ngay_on = (
-        int(df_out['Thực hiện ngày ON'].sum()) if not df_out.empty else 0
+        int(df_out['Thực hiện ngày ON'].sum())
+        if _show_on and 'Thực hiện ngày ON' in df_out.columns else 0
     )
     total_row = pd.DataFrame([{
         'STT': '-',
