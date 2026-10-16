@@ -349,12 +349,19 @@ MONTH_OPTIONS = {
         'label': 'Tháng 09/2026',
         'year': 2026, 'month': 9,
         'folder': 'Thang09',
-        'aso_focus_pat': r'chant[eé]\s*active|chante\s*active|nước giặt xả chant[eé]\s*active',
-        'aso_focus_name': 'ASO_Focus - Trận Xanh (Chanté Active)',
-        'aso_focus2_pat': r'm[iì]\s*tr[oộ]n\s*omachi|omachi\s*t[oô]|mi tron omachi',
-        'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Mì trộn Omachi)',
-        'pc_on_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
-        'pc_on_name': 'ASO_ON - Tea 365 (Kênh ON)',
+        # Doc quản trị T09: ASO Total Chanté (toàn nhãn)
+        'aso_focus_pat': r'chant[eé]|chante',
+        'aso_focus_name': 'ASO Chanté - Trận Xanh (Total nhãn Chanté)',
+        # Omachi VÀ Trộn
+        'aso_focus2_pat': r'(?=.*omachi)(?=.*tr[oộ]n)|omachi.*tr[oộ]n|tr[oộ]n.*omachi|m[iì]\s*tr[oộ]n\s*omachi|mi\s*tron\s*omachi',
+        'aso_focus2_name': 'ASO Omachi Trộn - Trận Vàng',
+        # ASO Tea ON: Tea/Trà/ô long, >=12 chai
+        'pc_on_pat': r'tea|tr[aà]|ô\s*long|o\s*long|olong|ôlong|b[uú]p\s*non|tea\s*365',
+        'pc_on_name': 'ASO Tea - Kênh ON (≥12 chai/CH)',
+        'pc_on_min_qty': 12,
+        'pc_on_channel': 'ON',
+        'aso_all_channel': 'OFF',
+        'aso_all_name': 'ASO_ALL - Kênh OFF',
         'pc_bt_exclude_meat': False,
         'lppc_moc': 4.0,
         'salary': {
@@ -379,6 +386,7 @@ MONTH_OPTIONS = {
         'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Homey)',
         'pc_on_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
         'pc_on_name': 'PC_ON - Tea 365 (Kênh ON)',
+        'aso_all_name': 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)',
         'pc_bt_exclude_meat': True,
         'lppc_moc': 4.3,
         'salary': {
@@ -2216,18 +2224,53 @@ def build_report(
     key, title = 'PC_ON', 'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)'
 
   elif report_type == 'ASO_FOCUS':
-    # T09: Chanté Active | T10: Tea 365
     cfg = get_month_cfg()
-    pat = cfg.get('aso_focus_pat', r'búp non|bup non|tea\s*365|tea365')
-    mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
     key, title = 'ASO_FOCUS', cfg.get('aso_focus_name', 'ASO_Focus')
+    if get_month_key() == 'Thang09':
+      # Total nhãn Chanté (mọi biến thể: Chanté, Chante, Active, ...)
+      pat = r'chant[eé]|chante'
+      mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
+    else:
+      pat = cfg.get('aso_focus_pat', r'búp non|bup non|tea\s*365|tea365')
+      mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
 
   elif report_type == 'ASO_FOCUS_2':
-    # T09: Mì trộn Omachi | T10: Homey
     cfg = get_month_cfg()
-    pat = cfg.get('aso_focus2_pat', r'homey')
-    mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
     key, title = 'ASO_FOCUS_2', cfg.get('aso_focus2_name', 'ASO_Focus_2')
+    if get_month_key() == 'Thang09':
+      # Omachi VÀ Trộn (cùng tên SP)
+      d = df_mtd.copy()
+      if d.empty:
+        mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
+      else:
+        if 'Tên SP lower' not in d.columns:
+          parts = []
+          for c in ['Tên sản phẩm', 'Group STD', 'Group std', 'STANDARD_SKU_NAME']:
+            if c in d.columns:
+              parts.append(d[c].astype(str))
+          d['Tên SP lower'] = (' '.join([''] * len(d)) if not parts else None)
+          if parts:
+            s = parts[0]
+            for p in parts[1:]:
+              s = s + ' ' + p
+            d['Tên SP lower'] = s.str.lower()
+          else:
+            d['Tên SP lower'] = ''
+        mask = (
+            d['Tên SP lower'].str.contains(r'omachi', na=False, regex=True)
+            & d['Tên SP lower'].str.contains(r'tr[oộ]n|tron', na=False, regex=True)
+        )
+        d = d[mask]
+        if d.empty:
+          mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
+        else:
+          mtd = d.groupby('Mã NVBH')['Mã CH'].nunique()
+          first = d.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
+          first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
+          ngay = first[first['first_date'] == report_date].groupby('Mã NVBH')['Mã CH'].nunique()
+    else:
+      pat = cfg.get('aso_focus2_pat', r'homey')
+      mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
 
   elif report_type == 'LPPC':
     # Trừ Meat & Beer; line đạt MOQ; PC = đơn ≥4 line MOQ; LPPC = Total line / Tổng PC
@@ -10779,7 +10822,7 @@ with f2:
       '1. TURNOVER - Tổng doanh số bán ra': 'TURNOVER',
       '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)': 'PC_BT',
       '3. LPPC - Bình quân line/PC (trừ Meat & Beer)': 'LPPC',
-      '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)': 'ASO_ALL',
+      f"4. {_cfg.get('aso_all_name', 'ASO_ALL')}": 'ASO_ALL',
       f'5. {_f1}': 'ASO_FOCUS',
       f'6. {_f2}': 'ASO_FOCUS_2',
       f'7. {_pon}': 'PC_ON',
