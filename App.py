@@ -1809,18 +1809,8 @@ def count_moq_lines_per_order(df_src):
         columns=['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng', 'n_moq_lines']
     )
   d = df_src.copy()
-  if 'Tên SP lower' not in d.columns and 'Tên sản phẩm' in d.columns:
+  if 'Tên SP lower' not in d.columns:
     d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
-  if 'Mã đơn hàng' not in d.columns:
-    for c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'OrderID', 'Mã ĐH', 'Doc No', 'Document No']:
-      if c in d.columns:
-        d['Mã đơn hàng'] = d[c].astype(str)
-        break
-    else:
-      d['Mã đơn hàng'] = d.index.astype(str)
-  for need in ['Mã NVBH', 'Mã CH', 'date']:
-    if need not in d.columns:
-      return pd.DataFrame(columns=['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng', 'n_moq_lines'])
 
   rows = []
   group_cols = ['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng']
@@ -2173,15 +2163,12 @@ def build_report(
     key, title = 'ASO_ALL', ('ASO_ALL - Kênh OFF' if get_month_cfg().get('aso_all_channel')=='OFF' else 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)')
 
   elif report_type == 'PC_BT':
-    # L1 OFF, >=4 line, max 1 PC/CH/ngày
-    # T09: trừ Beer, đếm 4 mã SP khác nhau (doc quản trị) — không bắt buộc MOQ_FLAG
-    # T10: trừ Meat & Beer, line đạt MOQ
+    # L1 OFF, >=4 line MOQ, max 1 PC/CH/ngày
+    # T09 (CV20): trừ Beer | T10: trừ Meat & Beer
     cfg = get_month_cfg()
-    # L1 linh hoạt: Off / OFF / Off Premise
-    if 'L1' in df_mtd.columns:
-      off = df_mtd[df_mtd['L1'].astype(str).str.contains(r'Off|OFF', case=False, na=False)].copy()
-    else:
-      off = df_mtd.copy()
+    off = df_mtd[
+        df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
+    ].copy()
     if 'Tên SP lower' not in off.columns and 'Tên sản phẩm' in off.columns:
       off['Tên SP lower'] = off['Tên sản phẩm'].astype(str).str.lower()
     sub = off['Sub Division'].astype(str) if 'Sub Division' in off.columns else pd.Series('', index=off.index)
@@ -2193,50 +2180,12 @@ def build_report(
       is_ex = sub.str.contains('Beer|Bia', case=False, na=False) | name.str.contains(
           'beer|bia lush|white lion|red ruby', na=False)
     off = off[~is_ex]
-    if get_month_key() == 'Thang09':
-      # Đếm số mã SP unique / đơn (>=4) — doc T09, không bắt MOQ_FLAG
-      try:
-        if off.empty:
-          mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
-        else:
-          off = off.copy()
-          if 'Mã đơn hàng' not in off.columns:
-            for c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH', 'Doc No']:
-              if c in off.columns:
-                off['Mã đơn hàng'] = off[c].astype(str)
-                break
-          if 'Mã đơn hàng' not in off.columns:
-            off['Mã đơn hàng'] = off.index.astype(str)
-          sku_col = None
-          for c in ['Mã SP', 'SKU', 'Item code', 'Product code', 'Tên sản phẩm']:
-            if c in off.columns:
-              sku_col = c
-              break
-          if sku_col is None:
-            sku_col = 'Tên SP lower' if 'Tên SP lower' in off.columns else off.columns[0]
-          gcols = [c for c in ['Mã NVBH', 'Mã CH', 'date', 'Mã đơn hàng'] if c in off.columns]
-          nline = off.groupby(gcols, dropna=False)[sku_col].nunique().reset_index(name='n_lines')
-          ok = nline[nline['n_lines'] >= 4]
-          if ok.empty:
-            mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
-          else:
-            sub = [c for c in ['Mã NVBH', 'Mã CH', 'date'] if c in ok.columns]
-            ok_day = ok.sort_values('n_lines', ascending=False).drop_duplicates(subset=sub, keep='first')
-            mtd = ok_day.groupby('Mã NVBH').size()
-            ngay = (
-                ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
-                if 'date' in ok_day.columns else pd.Series(dtype=int)
-            )
-      except Exception:
-        mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
-      key, title = 'PC_BT', 'PC_BT - Đơn ≥4 line (L1 OFF, trừ Beer)'
-    else:
-      order_moq = count_moq_lines_per_order(off)
-      ok = order_moq[order_moq['n_moq_lines'] >= 4]
-      ok_day = pick_best_pc_per_outlet_day(ok)
-      mtd = ok_day.groupby('Mã NVBH').size()
-      ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
-      key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
+    order_moq = count_moq_lines_per_order(off)
+    ok = order_moq[order_moq['n_moq_lines'] >= 4]
+    ok_day = pick_best_pc_per_outlet_day(ok)
+    mtd = ok_day.groupby('Mã NVBH').size()
+    ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
+    key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
 
   elif report_type == 'PC_ON':
     cfg = get_month_cfg()
@@ -2465,15 +2414,13 @@ def build_report(
           'Thực hiện ngày OFF': n_off,
           'MTD OFF': m_off,
           '% MTD OFF': f'{pct_off}%',
+          'MCP ON': t_on,
+          'Thực hiện ngày ON': n_on,
+          'MTD ON': m_on,
+          '% MTD ON': f'{pct_on}%',
           '_ratio': ratio,
       }
-      # Tháng 9 ASO ALL chỉ OFF — không thêm cột ON
-      if not (report_type == 'ASO_ALL' and get_month_cfg().get('aso_all_channel') == 'OFF'):
-        row['MCP ON'] = t_on
-        row['Thực hiện ngày ON'] = n_on
-        row['MTD ON'] = m_on
-        row['% MTD ON'] = f'{pct_on}%'
-      results.append(row)
+    results.append(row)
 
   if not results:
     # Không có NV / dữ liệu → trả bảng rỗng an toàn
@@ -2481,11 +2428,8 @@ def build_report(
         [
             'STT', 'Tên NVBH', 'Chỉ Tiêu MCP', 'Thực Hiện Ngày',
             'MTD', '% MTD', 'MCP OFF', 'Thực hiện ngày OFF', 'MTD OFF',
-            '% MTD OFF',
-        ] + (
-            [] if get_month_cfg().get('aso_all_channel') == 'OFF'
-            else ['MCP ON', 'Thực hiện ngày ON', 'MTD ON', '% MTD ON']
-        )
+            '% MTD OFF', 'MCP ON', 'Thực hiện ngày ON', 'MTD ON', '% MTD ON',
+        ]
         if report_type == 'ASO_ALL'
         else (
             [
@@ -2556,26 +2500,6 @@ def build_report(
       total_row.loc[0, '% MTD ON'] = (
           f'{round(sum_mtd_on / sum_on * 100, 1)}%' if sum_on else '0%'
       )
-    # T09 ASO ALL: chỉ giữ cột theo yêu cầu
-    if report_type == 'ASO_ALL' and get_month_cfg().get('aso_all_channel') == 'OFF':
-      _keep = [
-          'STT', 'Tên NVBH', 'MCP OFF', 'Thực Hiện Ngày', 'Thực hiện ngày OFF',
-          'MTD OFF', '% MTD', 'GAP', 'Bình quân ngày',
-      ]
-      # chuẩn hóa tên cột Thực Hiện Ngày
-      if 'Thực hiện ngày OFF' in df_out.columns and 'Thực Hiện Ngày' not in df_out.columns:
-        df_out = df_out.rename(columns={'Thực hiện ngày OFF': 'Thực Hiện Ngày'})
-      if 'Thực hiện ngày OFF' in total_row.columns:
-        total_row = total_row.rename(columns={'Thực hiện ngày OFF': 'Thực Hiện Ngày'})
-      # % MTD: dùng % MTD chính (theo OFF)
-      if '% MTD' not in df_out.columns and '% MTD OFF' in df_out.columns:
-        df_out['% MTD'] = df_out['% MTD OFF']
-      if '% MTD' not in total_row.columns and '% MTD OFF' in total_row.columns:
-        total_row['% MTD'] = total_row['% MTD OFF']
-      _keep_avail = [c for c in _keep if c in df_out.columns]
-      df_out = df_out[_keep_avail]
-      _keep_tot = [c for c in _keep if c in total_row.columns]
-      total_row = total_row[_keep_tot]
     return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
 
   if is_lppc:
