@@ -2137,10 +2137,23 @@ def build_report(
     key, title = 'ASO_ALL', 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)'
 
   elif report_type == 'PC_BT':
-    # L1 OFF, >=4 line đạt MOQ từng SKU, max 1 PC/CH/ngày, Target từ Target_KPI
+    # L1 OFF, >=4 line MOQ, max 1 PC/CH/ngày
+    # T09 (CV20): trừ Beer | T10: trừ Meat & Beer
+    cfg = get_month_cfg()
     off = df_mtd[
         df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
-    ]
+    ].copy()
+    if 'Tên SP lower' not in off.columns and 'Tên sản phẩm' in off.columns:
+      off['Tên SP lower'] = off['Tên sản phẩm'].astype(str).str.lower()
+    sub = off['Sub Division'].astype(str) if 'Sub Division' in off.columns else pd.Series('', index=off.index)
+    name = off['Tên SP lower'] if 'Tên SP lower' in off.columns else pd.Series('', index=off.index)
+    if cfg.get('pc_bt_exclude_meat', True):
+      is_ex = sub.str.contains('Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False) | name.str.contains(
+          'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|cao bồi|cao boi|hotdog|thịt viên|chân gà', na=False)
+    else:
+      is_ex = sub.str.contains('Beer|Bia', case=False, na=False) | name.str.contains(
+          'beer|bia lush|white lion|red ruby', na=False)
+    off = off[~is_ex]
     order_moq = count_moq_lines_per_order(off)
     ok = order_moq[order_moq['n_moq_lines'] >= 4]
     ok_day = pick_best_pc_per_outlet_day(ok)
@@ -2174,23 +2187,18 @@ def build_report(
     key, title = 'PC_ON', 'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)'
 
   elif report_type == 'ASO_FOCUS':
-    # Trận Xanh: Trà Búp Non Tea 365 — mặc định target 72
-    # MOQ nhóm: 12 chai; simplified: qty lẻ >= 12 hoặc có mua
-    mtd, ngay = _aso_coverage(
-        df_mtd,
-        r'búp non|bup non|tea\s*365|tea365|trà.*365',
-        min_qty=1,
-    )
-    key, title = 'ASO_FOCUS', 'ASO_Focus - Trận Xanh (Tea 365)'
+    # T09: Chanté Active | T10: Tea 365
+    cfg = get_month_cfg()
+    pat = cfg.get('aso_focus_pat', r'búp non|bup non|tea\s*365|tea365')
+    mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
+    key, title = 'ASO_FOCUS', cfg.get('aso_focus_name', 'ASO_Focus')
 
   elif report_type == 'ASO_FOCUS_2':
-    # Trận Vàng: Nước giặt xả Homey hương hoa trà Jeju tinh tế túi 2.9kg — target 26
-    mtd, ngay = _aso_coverage(
-        df_mtd,
-        r'homey.*2\.9|homey.*2,9|giặt xả homey|giat xa homey|homey.*jeju',
-        min_qty=1,
-    )
-    key, title = 'ASO_FOCUS_2', 'ASO_Focus_2 - Trận Vàng (Homey 2.9kg)'
+    # T09: Mì trộn Omachi | T10: Homey
+    cfg = get_month_cfg()
+    pat = cfg.get('aso_focus2_pat', r'homey')
+    mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
+    key, title = 'ASO_FOCUS_2', cfg.get('aso_focus2_name', 'ASO_Focus_2')
 
   elif report_type == 'LPPC':
     # Trừ Meat & Beer; line đạt MOQ; PC = đơn ≥4 line MOQ; LPPC = Total line / Tổng PC
@@ -10731,26 +10739,21 @@ with f1:
   set_timegone_color_context(pct_tg)
 with f2:
   st.markdown('<p class="filter-label">KPI NAME</p>', unsafe_allow_html=True)
-  # Mức lương KPI theo Công văn số 22–011026/INC-KD-MSC-NET-MBD-CDGT, áp dụng T10/2026.
-  KPI_SALARY_LABEL = {
-      'TURNOVER': '95%: 4.508.000đ | 100%: 6.440.000đ',
-      'PC_BT': '100%: 2.400.000đ',
-      'LPPC': 'Mức 1 (4,3): 1.980.000đ | Mức 2 (4,7): 2.200.000đ',
-      'ASO_ALL': '100%: 1.100.000đ',
-      'ASO_FOCUS': '90%: 880.000đ | 100%: 1.100.000đ',
-      'ASO_FOCUS_2': '90%: 720.000đ | 100%: 900.000đ',
-      'PC_ON': '100%: 1.500.000đ',
-      'LPPC_MEAT': '100%: 400.000đ',
-  }
+  # Mức lương + tên KPI theo tháng đang chọn (T09: CV17+20 | T10: CV22)
+  KPI_SALARY_LABEL = dict(get_month_cfg().get('salary', {}))
+  _cfg = get_month_cfg()
+  _f1 = _cfg.get('aso_focus_name', 'ASO_Focus')
+  _f2 = _cfg.get('aso_focus2_name', 'ASO_Focus_2')
+  _pon = _cfg.get('pc_on_name', 'PC_ON')
   kpi_map = {
-      # ===== 8 KPI THÁNG 10 (theo Công văn 22-011026) =====
+      # ===== 8 KPI theo tháng =====
       '1. TURNOVER - Tổng doanh số bán ra': 'TURNOVER',
       '2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)': 'PC_BT',
       '3. LPPC - Bình quân line/PC (trừ Meat & Beer)': 'LPPC',
       '4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)': 'ASO_ALL',
-      '5. ASO_Focus - Trận Xanh (Tea 365)': 'ASO_FOCUS',
-      '6. ASO_Focus_2 - Trận Vàng (Homey 2.9kg)': 'ASO_FOCUS_2',
-      '7. PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)': 'PC_ON',
+      f'5. {_f1}': 'ASO_FOCUS',
+      f'6. {_f2}': 'ASO_FOCUS_2',
+      f'7. {_pon}': 'PC_ON',
       '8. LPPC_Meat - Bình quân line/PC (Processed Meats)': 'LPPC_MEAT',
       # ===== Báo cáo giữ logic Tháng 9 =====
       '9. BÁO CÁO ĐH COMBO': 'COMBO',
@@ -10765,7 +10768,10 @@ with f2:
       '18. WEEKLY PREVIEW - MCP / ASO / %COV': 'WEEKLY_PREVIEW',
   }
   selected_name = st.selectbox(
-      '', list(kpi_map.keys()), key='kpi', label_visibility='collapsed'
+      '',
+      list(kpi_map.keys()),
+      key=f"kpi_{get_month_key()}",
+      label_visibility='collapsed',
   )
   selected_kpi = kpi_map[selected_name]
 with f3:
