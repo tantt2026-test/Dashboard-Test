@@ -2414,13 +2414,14 @@ def build_report(
           'Thực hiện ngày OFF': n_off,
           'MTD OFF': m_off,
           '% MTD OFF': f'{pct_off}%',
-          'MCP ON': t_on,
-          'Thực hiện ngày ON': n_on,
-          'MTD ON': m_on,
-          '% MTD ON': f'{pct_on}%',
           '_ratio': ratio,
       }
-    results.append(row)
+      if not (report_type == 'ASO_ALL' and get_month_cfg().get('aso_all_channel') == 'OFF'):
+        row['MCP ON'] = t_on
+        row['Thực hiện ngày ON'] = n_on
+        row['MTD ON'] = m_on
+        row['% MTD ON'] = f'{pct_on}%'
+      results.append(row)
 
   if not results:
     # Không có NV / dữ liệu → trả bảng rỗng an toàn
@@ -2500,6 +2501,19 @@ def build_report(
       total_row.loc[0, '% MTD ON'] = (
           f'{round(sum_mtd_on / sum_on * 100, 1)}%' if sum_on else '0%'
       )
+    # T09 ASO ALL: chỉ các cột MCP OFF | Thực Hiện ngày | MTD OFF | % MTD | GAP | Bình quân ngày
+    if report_type == 'ASO_ALL' and get_month_cfg().get('aso_all_channel') == 'OFF':
+      if 'Thực hiện ngày OFF' in df_out.columns:
+        df_out = df_out.rename(columns={'Thực hiện ngày OFF': 'Thực Hiện Ngày'})
+      if 'Thực hiện ngày OFF' in total_row.columns:
+        total_row = total_row.rename(columns={'Thực hiện ngày OFF': 'Thực Hiện Ngày'})
+      if '% MTD' not in df_out.columns and '% MTD OFF' in df_out.columns:
+        df_out['% MTD'] = df_out['% MTD OFF']
+      if '% MTD' not in total_row.columns and '% MTD OFF' in total_row.columns:
+        total_row['% MTD'] = total_row['% MTD OFF']
+      _keep = ['STT', 'Tên NVBH', 'MCP OFF', 'Thực Hiện Ngày', 'MTD OFF', '% MTD', 'GAP', 'Bình quân ngày']
+      df_out = df_out[[c for c in _keep if c in df_out.columns]]
+      total_row = total_row[[c for c in _keep if c in total_row.columns]]
     return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
 
   if is_lppc:
