@@ -4212,6 +4212,74 @@ def render_visit_html_table(df):
 
 
 
+def _get_km_flag(row):
+  for c in ['Hàng KM', 'Hang KM', 'KM', 'Is KM', 'Hàng khuyến mãi']:
+    try:
+      v = row.get(c, None) if hasattr(row, 'get') else None
+      if v is not None and str(v).upper() in ('Y', 'YES', '1', 'TRUE'):
+        return True
+    except Exception:
+      pass
+  return False
+
+
+def _get_km_value(row):
+  for c in ['Giá trị hàng KM', 'Gia tri hang KM', 'GT KM', 'KM Value', 'Giá trị KM']:
+    try:
+      v = row.get(c, None) if hasattr(row, 'get') else None
+      if v is not None and str(v) not in ('', 'nan', 'None'):
+        return float(pd.to_numeric(v, errors='coerce') or 0)
+    except Exception:
+      pass
+  return 0.0
+
+
+def _get_ck_value(row):
+  for c in ['Chiết khấu', 'Chiet khau', 'Discount', 'CK']:
+    try:
+      v = row.get(c, None) if hasattr(row, 'get') else None
+      if v is not None and str(v) not in ('', 'nan', 'None'):
+        return float(pd.to_numeric(v, errors='coerce') or 0)
+    except Exception:
+      pass
+  return 0.0
+
+
+def is_combo_line_t09_off(row):
+  """Combo T09 Kênh OFF — thỏa ≥1:
+  1) SP chứa "ô long vị đào"/Olong VÀ Hàng KM=Y
+  2) Hàng KM = Y
+  3) Giá trị hàng KM > 0
+  4) Chiết khấu >= 10.000đ
+  """
+  sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
+  km = _get_km_flag(row)
+  gt_km = _get_km_value(row)
+  ck = _get_ck_value(row)
+  is_olong = (
+      ('ô long vị đào' in sp or 'o long vi dao' in sp or 'olong vị đào' in sp)
+      or ('olong' in sp)
+      or ((('ô long' in sp) or ('o long' in sp)) and (('đào' in sp) or ('dao' in sp)))
+  )
+  return bool((is_olong and km) or km or (gt_km > 0) or (ck >= 10000))
+
+
+def is_combo_line_t09_on(row):
+  """Combo T09 Kênh ON — thỏa ≥1:
+  1) SP chứa "ô long vị đào"/Olong/Đệ Nhị VÀ Hàng KM=Y
+  2) Hàng KM = Y
+  """
+  sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
+  km = _get_km_flag(row)
+  is_olong = (
+      ('ô long vị đào' in sp or 'o long vi dao' in sp)
+      or ('olong' in sp)
+      or ((('ô long' in sp) or ('o long' in sp)) and (('đào' in sp) or ('dao' in sp)))
+  )
+  is_denhi = ('đệ nhị' in sp) or ('de nhi' in sp) or ('denhi' in sp)
+  return bool(((is_olong or is_denhi) and km) or km)
+
+
 def is_combo_line_t10(row):
   """Line thuộc CTKM Combo T10:
   - Tặng 1 chai Tương Ớt Chinsu 250gr (Hàng KM)
@@ -4219,9 +4287,8 @@ def is_combo_line_t10(row):
   - Chiết khấu 20.000đ
   """
   sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
-  km = str(row.get('Hàng KM', 'N')).upper() in ('Y', 'YES', '1', 'TRUE')
-  ck = float(pd.to_numeric(row.get('Chiết khấu', 0), errors='coerce') or 0)
-  # CK có thể ghi 20000 hoặc gần đúng (do làm tròn)
+  km = _get_km_flag(row)
+  ck = _get_ck_value(row)
   is_ck_20k = abs(ck - 20000) < 1 or ck == 20000
 
   is_chinsu_250 = km and (
@@ -4229,7 +4296,6 @@ def is_combo_line_t10(row):
       and ('250' in sp)
       and ('tương' in sp or 'tuong' in sp or 'ớt' in sp or 'ot' in sp or 'sauce' in sp)
   )
-  # fallback: chinsu 250 + KM
   if km and not is_chinsu_250:
     is_chinsu_250 = ('chinsu' in sp or 'chin-su' in sp) and '250' in sp
 
@@ -4240,6 +4306,7 @@ def is_combo_line_t10(row):
       or ('247' in sp and 'wake' in sp)
   )
   return is_chinsu_250 or is_wakeup or is_ck_20k
+
 
 
 def build_mcp_channel_map(mcp_df):
@@ -4267,8 +4334,9 @@ def build_mcp_channel_map(mcp_df):
 
 
 def tag_combo_orders_t10(df_mtd, mcp_df=None):
-  """Gắn cờ is_combo + channel (OFF/ON) theo CTKM T10 và map MCP.
-  Returns df of combo lines with columns including channel.
+  """Gắn cờ is_combo + channel (OFF/ON).
+  T09: ô long / KM / GT KM / CK≥10k (OFF); ô long|Đệ Nhị / KM (ON).
+  T10: Chinsu 250 / Wake UP 247 / CK 20k.
   """
   if df_mtd is None or df_mtd.empty:
     return pd.DataFrame()
@@ -4278,34 +4346,44 @@ def tag_combo_orders_t10(df_mtd, mcp_df=None):
   elif 'Tên SP lower' not in d.columns:
     d['Tên SP lower'] = ''
 
-  d['_line_combo'] = d.apply(is_combo_line_t10, axis=1)
-  # Đơn được coi là Combo nếu có ≥1 line thỏa CTKM
+  # Map channel trước (T09 rule theo kênh)
+  ch_map = build_mcp_channel_map(mcp_df)
+  if 'Mã CH' in d.columns:
+    d['_ma'] = d['Mã CH'].astype(str).str.strip()
+    d['channel'] = d['_ma'].map(ch_map)
+    if 'L1' in d.columns:
+      miss = d['channel'].isna()
+      l1s = d.loc[miss, 'L1'].astype(str).str.lower()
+      d.loc[miss & l1s.str.contains('on', na=False) & ~l1s.str.contains('off', na=False), 'channel'] = 'ON'
+      d.loc[miss & l1s.str.contains('off', na=False), 'channel'] = 'OFF'
+    d['channel'] = d['channel'].fillna('OFF')
+  else:
+    d['channel'] = 'OFF'
+
+  is_t09 = get_month_key() == 'Thang09'
+  if is_t09:
+    def _line_t09(r):
+      ch = str(r.get('channel', 'OFF')).upper()
+      if ch == 'ON':
+        return is_combo_line_t09_on(r)
+      return is_combo_line_t09_off(r)
+    d['_line_combo'] = d.apply(_line_t09, axis=1)
+  else:
+    d['_line_combo'] = d.apply(is_combo_line_t10, axis=1)
+
+  if 'Mã đơn hàng' not in d.columns:
+    for c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH', 'Doc No']:
+      if c in d.columns:
+        d['Mã đơn hàng'] = d[c].astype(str)
+        break
   if 'Mã đơn hàng' in d.columns:
-    order_combo = (
-        d.groupby('Mã đơn hàng')['_line_combo'].transform('any')
-    )
-    d['is_combo'] = order_combo
+    d['is_combo'] = d.groupby('Mã đơn hàng')['_line_combo'].transform('any')
   else:
     d['is_combo'] = d['_line_combo']
 
   combo = d[d['is_combo']].copy()
-  if combo.empty:
-    return combo
-
-  ch_map = build_mcp_channel_map(mcp_df)
-  if 'Mã CH' in combo.columns:
-    combo['_ma'] = combo['Mã CH'].astype(str).str.strip()
-    combo['channel'] = combo['_ma'].map(ch_map)
-    # fallback L1 trên RPT nếu MCP không có
-    if 'L1' in combo.columns:
-      miss = combo['channel'].isna()
-      l1s = combo.loc[miss, 'L1'].astype(str).str.lower()
-      combo.loc[miss & l1s.str.contains('on', na=False) & ~l1s.str.contains('off', na=False), 'channel'] = 'ON'
-      combo.loc[miss & l1s.str.contains('off', na=False), 'channel'] = 'OFF'
-    combo['channel'] = combo['channel'].fillna('OFF')
-  else:
-    combo['channel'] = 'OFF'
   return combo
+
 
 
 def build_combo_matrix(
