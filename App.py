@@ -12558,7 +12558,7 @@ with tab_kpi:
   elif selected_kpi == 'WEEKLY_PREVIEW':
     st.markdown(
         '<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
-        '18. WEEKLY PREVIEW — MCP / ASO / % COV</h3>',
+        'Weekly Review</h3>',
         unsafe_allow_html=True,
     )
     st.caption(
@@ -12600,7 +12600,7 @@ with tab_kpi:
     # ---- Bảng OFF ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:12px 0 6px 0;">'
-        '📴 MCP KÊNH OFF</h4>',
+        'COV MCP OFF</h4>',
         unsafe_allow_html=True,
     )
     if df_off is None or df_off.empty:
@@ -12619,7 +12619,7 @@ with tab_kpi:
     # ---- Bảng ON ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
-        '📱 MCP KÊNH ON</h4>',
+        'COV MCP ON</h4>',
         unsafe_allow_html=True,
     )
     if df_on is None or df_on.empty:
@@ -12637,7 +12637,7 @@ with tab_kpi:
     # ---- Bảng LPPC OFF ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
-        '📊 LPPC — KÊNH OFF (trừ Meat &amp; Beer | 1 PC/CH/ngày | Line = mọi SP trên ĐH PC | LPPC = Line/PC)</h4>',
+        'LPPC OFF [ Not Meat/Beer ]</h4>',
         unsafe_allow_html=True,
     )
     try:
@@ -12666,7 +12666,7 @@ with tab_kpi:
     # ---- Bảng PC/SM/Day OFF ----
     st.markdown(
         '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
-        '📅 PC/SM/DAY — KÊNH OFF (Tổng PC / Số ngày làm việc)</h4>',
+        'PC/SM/DAY Kênh OFF</h4>',
         unsafe_allow_html=True,
     )
     try:
