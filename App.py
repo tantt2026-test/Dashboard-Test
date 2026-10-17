@@ -11992,10 +11992,19 @@ with tab_kpi:
           _card_th_ct_pct('Đã Mua (VIP)', 'VIP MCH', '% MTD (VIP)'),
       ))
     if 'Doanh Số' in selected_metrics:
-      cards.append((
-          'Doanh Số',
-          _card_th_ct_pct('TH DS', 'CT DS', '% MTD DS', money=True),
-      ))
+      # Chia /1.000.000 để hiển thị gọn (đơn vị triệu)
+      def _ds_trieu(col):
+        try:
+          v = float(tot_row_s.get(col, 0) or 0) / 1_000_000
+          return f'{v:,.1f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+        except Exception:
+          return '0'
+      th_m = _ds_trieu('TH DS')
+      ct_m = _ds_trieu('CT DS')
+      pct = str(tot_row_s.get('% MTD DS', '0%'))
+      if pct and not str(pct).endswith('%'):
+        pct = f'{pct}%'
+      cards.append(('Doanh Số (triệu)', f'{th_m}/{ct_m}/{pct}'))
     if 'PC BT' in selected_metrics:
       cards.append((
           'PC BT',
