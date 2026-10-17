@@ -12533,22 +12533,13 @@ with tab_kpi:
             tg = float(tg or 0)
           except Exception:
             tg = 0.0
-        colors = []
-        for p in pcts:
-          if tg > 0:
-            if p < tg:
-              colors.append('#fc8181')
-            elif p >= tg + 5:
-              colors.append('#9f7aea')
-            else:
-              colors.append('#68d391')
-          else:
-            if p < 80:
-              colors.append('#fc8181')
-            elif p >= 100:
-              colors.append('#9f7aea')
-            else:
-              colors.append('#68d391')
+        # Palette tương phản — mỗi KPI 1 màu, không lặp
+        _PALETTE = [
+            '#e53e3e', '#3182ce', '#38a169', '#dd6b20',
+            '#805ad5', '#d69e2e', '#319795', '#d53f8c',
+            '#2b6cb0', '#c05621', '#276749', '#6b46c1',
+        ]
+        colors = [_PALETTE[i % len(_PALETTE)] for i in range(len(pcts))]
 
         fig = go.Figure()
         fig.add_trace(go.Bar(
@@ -13398,36 +13389,13 @@ with tab_kpi:
                 tg = float(tg or 0)
               except Exception:
                 tg = 0.0
-              colors = []
-              for v, lp in zip(values, is_lppc):
-                if lp:
-                  # LPPC: so với mốc 4.3 (hoặc 5.0 Miền Đông)
-                  try:
-                    moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
-                  except Exception:
-                    moc = 4.3
-                  pct_eq = (v / moc * 100) if moc else 0
-                  if pct_eq < 100:
-                    colors.append('#fc8181')
-                  elif pct_eq >= 105:
-                    colors.append('#9f7aea')
-                  else:
-                    colors.append('#68d391')
-                else:
-                  if tg > 0:
-                    if v < tg:
-                      colors.append('#fc8181')
-                    elif v >= tg + 5:
-                      colors.append('#9f7aea')
-                    else:
-                      colors.append('#68d391')
-                  else:
-                    if v < 80:
-                      colors.append('#fc8181')
-                    elif v >= 100:
-                      colors.append('#9f7aea')
-                    else:
-                      colors.append('#68d391')
+              # Palette tương phản — mỗi KPI 1 màu, không lặp
+              _PALETTE = [
+                  '#e53e3e', '#3182ce', '#38a169', '#dd6b20',
+                  '#805ad5', '#d69e2e', '#319795', '#d53f8c',
+                  '#2b6cb0', '#c05621', '#276749', '#6b46c1',
+              ]
+              colors = [_PALETTE[i % len(_PALETTE)] for i in range(len(values))]
 
               fig = go.Figure()
               text_labels = []
