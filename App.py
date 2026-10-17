@@ -3438,12 +3438,24 @@ def render_weekly_lppc_vip_html(df, timegone_pct=None):
       return ('pct-purple', 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;')
     return ('pct-green', 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;')
 
+  max_name = 12
+  if 'Tên NVBH' in df.columns:
+    for n in df['Tên NVBH'].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
+  sticky_stt_h = f'{th}position:sticky;left:0;z-index:6;min-width:44px;max-width:44px;'
+  sticky_ten_h = f'{th}position:sticky;left:44px;z-index:6;min-width:{name_w}px;'
+  sticky_stt_c = f'{td}position:sticky;left:0;z-index:4;min-width:44px;text-align:center;'
+  sticky_ten_c = f'{td}position:sticky;left:44px;z-index:4;min-width:{name_w}px;text-align:left;font-weight:600;'
+  sticky_stt_t = f'{td_tot}position:sticky;left:0;z-index:5;min-width:44px;text-align:center;'
+  sticky_ten_t = f'{td_tot}position:sticky;left:44px;z-index:5;min-width:{name_w}px;text-align:left;'
+
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
       '<thead><tr>',
-      f'<th rowspan="2" style="{th}">STT</th>',
-      f'<th rowspan="2" style="{th}">Tên NVBH</th>',
+      f'<th rowspan="2" style="{sticky_stt_h}">STT</th>',
+      f'<th rowspan="2" style="{sticky_ten_h}">Tên NVBH</th>',
   ]
   for lab in months:
     html.append(f'<th colspan="{len(vip_groups) * 2}" style="{th_month}">{lab}</th>')
@@ -3464,11 +3476,11 @@ def render_weekly_lppc_vip_html(df, timegone_pct=None):
     stt = row.get('STT', '')
     ten = row.get('Tên NVBH', '')
     if is_tot:
-      html.append(f'<td class="row-total-cell" style="{td_tot}">{stt}</td>')
-      html.append(f'<td class="row-total-cell" style="{td_tot}text-align:left !important;">{ten}</td>')
+      html.append(f'<td class="row-total-cell" style="{sticky_stt_t}">{stt}</td>')
+      html.append(f'<td class="row-total-cell" style="{sticky_ten_t}">{ten}</td>')
     else:
-      html.append(f'<td style="{td}background-color:{bg} !important;">{stt}</td>')
-      html.append(f'<td style="{td}background-color:{bg} !important;text-align:left !important;font-weight:600;">{ten}</td>')
+      html.append(f'<td style="{sticky_stt_c}background-color:{bg} !important;">{stt}</td>')
+      html.append(f'<td style="{sticky_ten_c}background-color:{bg} !important;">{ten}</td>')
 
     for lab in months:
       for g in vip_groups:
@@ -3992,12 +4004,15 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
 def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv=None):
   """Tổng hợp ĐH Trái Tuyến từ đầu tháng → ngày BC theo từng NV.
 
-  % ĐH Trái Tuyến = Số ĐH Trái Tuyến / Tổng PC (MOQ, không xét số line) * 100.
-  Cột Check Danh Sách bổ sung = số ĐH có tick / tổng ĐH trái tuyến.
+  % ĐH Trái Tuyến = Số ĐH Trái Tuyến / Tổng PC (MOQ) * 100.
+  Check Danh Sách bổ sung = số ĐH có tick / tổng ĐH trái tuyến.
+  LPPC BQ Nhóm Bổ Sung = bình quân LPPC các ĐH trái tuyến CÓ trong DS bổ sung.
+  LPPC BQ Nhóm Ngoài DS = bình quân LPPC các ĐH trái tuyến KHÔNG trong DS bổ sung.
   """
   empty = pd.DataFrame(columns=[
       'STT', 'Tên NVBH', 'Số ĐH Trái Tuyến', 'Tổng PC',
       '% ĐH Trái Tuyến', 'Check Danh Sách bổ sung',
+      'LPPC BQ Nhóm Bổ Sung', 'LPPC BQ Nhóm Ngoài DS',
   ])
   if report_date is None:
     return empty
@@ -4042,26 +4057,58 @@ def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv
     except Exception:
       pass
 
+  def _is_check(v):
+    s = str(v).strip()
+    return s in ('✓', '✔', 'Y', 'YES', '1', 'TRUE', 'true') or '✓' in s
+
+  def _to_float(v):
+    try:
+      s = str(v).replace('%', '').replace(',', '.').strip()
+      if not s or s.lower() in ('nan', 'none', ''):
+        return None
+      return float(s)
+    except Exception:
+      return None
+
   trai_cnt = {}
   check_cnt = {}
+  lppc_bo_sung = {}  # list of lppc values
+  lppc_ngoai = {}
+
   if detail is not None and not detail.empty and 'Tên NVBH' in detail.columns:
+    c_chk = None
+    for c in detail.columns:
+      cl = str(c).lower()
+      if 'bổ sung' in cl or 'bo sung' in cl or 'danh sách' in cl:
+        c_chk = c
+        break
+    c_lppc = None
+    for c in detail.columns:
+      if str(c).strip().upper() == 'LPPC' or 'lppc' in str(c).lower():
+        c_lppc = c
+        break
+
     for nv, g in detail.groupby(detail['Tên NVBH'].astype(str).str.strip()):
       if not nv or nv.lower() in ('nan', 'none'):
         continue
       trai_cnt[nv] = len(g)
-      c_chk = None
-      for c in g.columns:
-        cl = str(c).lower()
-        if 'bổ sung' in cl or 'bo sung' in cl or 'danh sách' in cl:
-          c_chk = c
-          break
       if c_chk:
-        def _is_check(v):
-          s = str(v).strip()
-          return s in ('✓', '✔', 'Y', 'YES', '1', 'TRUE', 'true') or '✓' in s
-        check_cnt[nv] = int(g[c_chk].map(_is_check).sum())
+        mask_chk = g[c_chk].map(_is_check)
+        check_cnt[nv] = int(mask_chk.sum())
       else:
+        mask_chk = pd.Series(False, index=g.index)
         check_cnt[nv] = 0
+
+      if c_lppc:
+        vals_bs = [_to_float(v) for v in g.loc[mask_chk, c_lppc].tolist()]
+        vals_out = [_to_float(v) for v in g.loc[~mask_chk, c_lppc].tolist()]
+        vals_bs = [v for v in vals_bs if v is not None]
+        vals_out = [v for v in vals_out if v is not None]
+        lppc_bo_sung[nv] = vals_bs
+        lppc_ngoai[nv] = vals_out
+      else:
+        lppc_bo_sung[nv] = []
+        lppc_ngoai[nv] = []
 
   all_nv = sorted(set(list(trai_cnt.keys()) + list(pc_by_nv.keys())))
   if nv_selected(filter_nv):
@@ -4074,14 +4121,22 @@ def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv
     n_pc = int(pc_by_nv.get(nv, 0))
     pct = round(n_trai / n_pc * 100, 1) if n_pc else 0.0
     n_chk = int(check_cnt.get(nv, 0))
+    bs = lppc_bo_sung.get(nv, [])
+    out = lppc_ngoai.get(nv, [])
+    lppc_bs = round(sum(bs) / len(bs), 2) if bs else 0.0
+    lppc_out = round(sum(out) / len(out), 2) if out else 0.0
     rows.append({
         'Tên NVBH': nv,
         'Số ĐH Trái Tuyến': n_trai,
         'Tổng PC': n_pc,
         '% ĐH Trái Tuyến': f'{pct}%',
         'Check Danh Sách bổ sung': f'{n_chk}/{n_trai}' if n_trai else '0/0',
+        'LPPC BQ Nhóm Bổ Sung': lppc_bs,
+        'LPPC BQ Nhóm Ngoài DS': lppc_out,
         '_pct': pct,
         '_trai': n_trai,
+        '_bs_vals': bs,
+        '_out_vals': out,
     })
 
   if not rows:
@@ -4100,6 +4155,17 @@ def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv
       tot_chk += int(str(v).split('/')[0])
     except Exception:
       pass
+  all_bs = []
+  all_out = []
+  for v in df_out.get('_bs_vals', []):
+    if isinstance(v, list):
+      all_bs.extend(v)
+  for v in df_out.get('_out_vals', []):
+    if isinstance(v, list):
+      all_out.extend(v)
+  tot_lppc_bs = round(sum(all_bs) / len(all_bs), 2) if all_bs else 0.0
+  tot_lppc_out = round(sum(all_out) / len(all_out), 2) if all_out else 0.0
+
   tot = {
       'STT': '-',
       'Tên NVBH': 'SS Trương Thanh Tân Total',
@@ -4107,31 +4173,43 @@ def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv
       'Tổng PC': tot_pc,
       '% ĐH Trái Tuyến': f'{tot_pct}%',
       'Check Danh Sách bổ sung': f'{tot_chk}/{tot_trai}' if tot_trai else '0/0',
+      'LPPC BQ Nhóm Bổ Sung': tot_lppc_bs,
+      'LPPC BQ Nhóm Ngoài DS': tot_lppc_out,
   }
   df_out = df_out.drop(columns=[c for c in df_out.columns if str(c).startswith('_')], errors='ignore')
   df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
   return df_out
 
 
+
 def render_weekly_trai_tuyen_html(df):
-  """Bảng tổng hợp ĐH Trái Tuyến MTD."""
+  """Bảng ĐH Trái Tuyến MTD — format sticky giống Trưng Bày."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu ĐH Trái Tuyến MTD.</p>'
+
+  max_name = 12
+  if 'Tên NVBH' in df.columns:
+    for n in df['Tên NVBH'].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
 
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
-      'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;white-space:nowrap;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;white-space:nowrap;'
   )
-  td = (
-      'border:1px solid #bce2f5 !important;padding:5px 6px;'
-      'font-size:11px;text-align:center !important;white-space:nowrap;'
-  )
+  td = 'border:1px solid #bce2f5 !important;padding:5px 6px;font-size:11px;white-space:nowrap;'
   td_tot = (
       'background-color:#1a365d !important;color:#ffffff !important;'
-      'font-weight:900 !important;text-align:center !important;'
-      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+      'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
+      'padding:6px 5px;font-size:11px;'
   )
+  sticky_stt_h = f'{th}position:sticky;left:0;z-index:6;min-width:44px;max-width:44px;'
+  sticky_ten_h = f'{th}position:sticky;left:44px;z-index:6;min-width:{name_w}px;'
+  sticky_stt_c = f'{td}position:sticky;left:0;z-index:4;min-width:44px;text-align:center;'
+  sticky_ten_c = f'{td}position:sticky;left:44px;z-index:4;min-width:{name_w}px;text-align:left;font-weight:600;'
+  sticky_stt_t = f'{td_tot}position:sticky;left:0;z-index:5;min-width:44px;text-align:center;'
+  sticky_ten_t = f'{td_tot}position:sticky;left:44px;z-index:5;min-width:{name_w}px;text-align:left;'
 
   def _pct_style(val):
     try:
@@ -4151,28 +4229,49 @@ def render_weekly_trai_tuyen_html(df):
       '<thead><tr>',
   ]
   for c in cols:
-    html.append(f'<th style="{th}">{c}</th>')
+    if c == 'STT':
+      html.append(f'<th style="{sticky_stt_h}">STT</th>')
+    elif c == 'Tên NVBH':
+      html.append(f'<th style="{sticky_ten_h}">Tên NVBH</th>')
+    else:
+      html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
 
   for pos, (_, row) in enumerate(df.iterrows()):
-    is_tot = 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    is_tot = (
+        'TOTAL' in str(row.get('Tên NVBH', '')).upper()
+        or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    )
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
     for c in cols:
       val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
       if is_tot:
-        align = 'left' if c == 'Tên NVBH' else 'center'
-        html.append(f'<td class="row-total-cell" style="{td_tot}text-align:{align} !important;">{val}</td>')
-      elif c == '% ĐH Trái Tuyến':
-        cls, st_c = _pct_style(val)
-        html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{val}</td>')
-      elif c == 'Tên NVBH':
-        html.append(f'<td style="{td}background-color:{bg} !important;text-align:left !important;font-weight:600;">{val}</td>')
+        if c == 'STT':
+          html.append(f'<td class="row-total-cell" style="{sticky_stt_t}">{val}</td>')
+        elif c == 'Tên NVBH':
+          html.append(f'<td class="row-total-cell" style="{sticky_ten_t}">{val}</td>')
+        elif c == '% ĐH Trái Tuyến':
+          cls, st_c = _pct_style(val)
+          html.append(f'<td data-colored="1" class="{cls} row-total-cell" style="{st_c}font-weight:900 !important;text-align:center !important;">{val}</td>')
+        else:
+          html.append(f'<td class="row-total-cell" style="{td_tot}text-align:center !important;">{val}</td>')
       else:
-        html.append(f'<td style="{td}background-color:{bg} !important;">{val}</td>')
+        if c == 'STT':
+          html.append(f'<td style="{sticky_stt_c}background-color:{bg} !important;">{val}</td>')
+        elif c == 'Tên NVBH':
+          html.append(f'<td style="{sticky_ten_c}background-color:{bg} !important;">{val}</td>')
+        elif c == '% ĐH Trái Tuyến':
+          cls, st_c = _pct_style(val)
+          html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}text-align:center !important;">{val}</td>')
+        else:
+          html.append(f'<td style="{td}background-color:{bg} !important;text-align:center;">{val}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
+
 
 
 def render_weekly_pc_day_html(df):
@@ -4239,13 +4338,25 @@ def render_weekly_pc_day_html(df):
       return ('pct-green', 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;')
     return ('pct-purple', 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;')
 
+  max_name = 12
+  if 'Tên NVBH' in df.columns:
+    for n in df['Tên NVBH'].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
+  sticky_stt_h = f'{th}position:sticky;left:0;z-index:6;min-width:44px;max-width:44px;'
+  sticky_ten_h = f'{th}position:sticky;left:44px;z-index:6;min-width:{name_w}px;'
+  sticky_stt_c = f'{td}position:sticky;left:0;z-index:4;min-width:44px;text-align:center;'
+  sticky_ten_c = f'{td}position:sticky;left:44px;z-index:4;min-width:{name_w}px;text-align:left;font-weight:600;'
+  sticky_stt_t = f'{td_tot}position:sticky;left:0;z-index:5;min-width:44px;text-align:center;'
+  sticky_ten_t = f'{td_tot}position:sticky;left:44px;z-index:5;min-width:{name_w}px;text-align:left;'
+
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
       '<thead>',
       '<tr>',
-      f'<th rowspan="2" style="{th}">STT</th>',
-      f'<th rowspan="2" style="{th}">Tên NVBH</th>',
+      f'<th rowspan="2" style="{sticky_stt_h}">STT</th>',
+      f'<th rowspan="2" style="{sticky_ten_h}">Tên NVBH</th>',
   ]
   for lab in months:
     html.append(f'<th colspan="3" style="{th_month}">{lab}</th>')
@@ -4265,11 +4376,11 @@ def render_weekly_pc_day_html(df):
     stt = row.get('STT', '')
     ten = row.get('Tên NVBH', '')
     if is_tot:
-      html.append(f'<td class="row-total-cell" style="{td_tot}">{stt}</td>')
-      html.append(f'<td class="row-total-cell" style="{td_tot}text-align:left !important;">{ten}</td>')
+      html.append(f'<td class="row-total-cell" style="{sticky_stt_t}">{stt}</td>')
+      html.append(f'<td class="row-total-cell" style="{sticky_ten_t}">{ten}</td>')
     else:
-      html.append(f'<td style="{td}background-color:{bg} !important;">{stt}</td>')
-      html.append(f'<td style="{td}background-color:{bg} !important;text-align:left !important;font-weight:600;">{ten}</td>')
+      html.append(f'<td style="{sticky_stt_c}background-color:{bg} !important;">{stt}</td>')
+      html.append(f'<td style="{sticky_ten_c}background-color:{bg} !important;">{ten}</td>')
 
     for lab in months:
       for prefix in ('MCP', 'CALL PLAN BQ', 'PC/DAY', 'PC/Day'):
