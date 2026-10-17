@@ -3439,6 +3439,36 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
       keys |= set(mp.keys())
     pos_list = sorted(keys)
 
+  # MCP OFF: bê nguyên từ bảng COV MCP OFF (build_weekly_preview)
+  mcp_off_by_name = {f'{m:02d}/{y}': {} for y, m in months}
+  mcp_off_by_pos = {f'{m:02d}/{y}': {} for y, m in months}
+  try:
+    df_cov_off, _ = build_weekly_preview(
+        mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=months
+    )
+    if df_cov_off is not None and not df_cov_off.empty:
+      body = df_cov_off
+      if 'Tên NVBH' in body.columns:
+        body = body[~body['Tên NVBH'].astype(str).str.upper().str.contains('TOTAL|TỔNG', na=False, regex=True)]
+      for y, m in months:
+        label = f'{m:02d}/{y}'
+        col = f'MCP|{label}'
+        if col not in body.columns:
+          continue
+        for _, r in body.iterrows():
+          nm = str(r.get('Tên NVBH', '')).strip()
+          pos_c = str(r.get('Position code', '')).strip()
+          try:
+            v = int(float(r.get(col, 0) or 0))
+          except Exception:
+            v = 0
+          if nm:
+            mcp_off_by_name[label][nm] = v
+          if pos_c and pos_c.lower() not in ('', 'nan', 'none'):
+            mcp_off_by_pos[label][pos_c] = v
+  except Exception:
+    pass
+
   rows = []
   for pos in pos_list:
     nv = pos_name.get(pos, pos)
@@ -3447,9 +3477,15 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
     row = {'Tên NVBH': nv, 'Position code': pos}
     for y, m in months:
       label = f'{m:02d}/{y}'
+      mcp_v = int(
+          mcp_off_by_pos.get(label, {}).get(str(pos).strip(), 0)
+          or mcp_off_by_name.get(label, {}).get(str(nv).strip(), 0)
+          or 0
+      )
       pc = int(pc_by_month.get(label, {}).get(pos, 0) or 0)
       wd = days_by_month.get(label, 1)
       val = round(pc / wd, 2) if wd else 0.0
+      row[f'MCP OFF|{label}'] = mcp_v
       row[f'PC/Day|{label}'] = val
       row[f'_pc|{label}'] = pc
       row[f'_v|{label}'] = val
@@ -3467,13 +3503,22 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (PC/SM/Day OFF)', 'Position code': ''}
   for y, m in months:
     label = f'{m:02d}/{y}'
-    # Total = trung bình PC/Day của các NV (giống ASM system)
     col = f'PC/Day|{label}'
     vals = pd.to_numeric(df_out[col], errors='coerce').dropna()
     tot[col] = round(float(vals.mean()), 2) if len(vals) else 0.0
+    mcol = f'MCP OFF|{label}'
+    if mcol in df_out.columns:
+      tot[mcol] = int(pd.to_numeric(df_out[mcol], errors='coerce').fillna(0).sum())
   drop_cols = [c for c in df_out.columns if str(c).startswith('_')]
   df_out = df_out.drop(columns=drop_cols, errors='ignore')
-  df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
+  ordered = ['STT', 'Tên NVBH']
+  for y, m in months:
+    lab = f'{m:02d}/{y}'
+    ordered += [f'MCP OFF|{lab}', f'PC/Day|{lab}']
+  ordered = [c for c in ordered if c in df_out.columns]
+  df_out = df_out[ordered]
+  tot_df = pd.DataFrame([{c: tot.get(c, '') for c in ordered}])
+  df_out = pd.concat([df_out, tot_df], ignore_index=True)
   return df_out
 
 
