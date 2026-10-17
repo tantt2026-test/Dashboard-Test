@@ -5423,7 +5423,7 @@ def build_summary_report(
         # KPI sau VIP (điền sau khi có kpi_maps)
         'CT DS': 0, 'TH DS': 0, '% MTD DS': '0%',
         'CT PC_BT': 0, 'TH PC_BT': 0, '% MTD PC_BT': '0%',
-        'CT LPPC': 0, 'TH LPPC': 0, '% MTD LPPC': '0%',
+        'CT LPPC': 0.0, 'TH LPPC': 0.0, '% MTD LPPC': '0%',
         'CT Xanh': 0, 'TH Xanh': 0, '% MTD Xanh': '0%',
         'CT Vàng': 0, 'TH Vàng': 0, '% MTD Vàng': '0%',
         'CT PC_ON': 0, 'TH PC_ON': 0, '% MTD PC_ON': '0%',
@@ -5549,7 +5549,6 @@ def build_summary_report(
 
     for rt, c_ct, c_th, c_pct, as_f in [
         ('PC_BT', 'CT PC_BT', 'TH PC_BT', '% MTD PC_BT', False),
-        ('LPPC', 'CT LPPC', 'TH LPPC', '% MTD LPPC', True),
         ('ASO_FOCUS', 'CT Xanh', 'TH Xanh', '% MTD Xanh', False),
         ('ASO_FOCUS_2', 'CT Vàng', 'TH Vàng', '% MTD Vàng', False),
         ('PC_ON', 'CT PC_ON', 'TH PC_ON', '% MTD PC_ON', False),
@@ -5561,6 +5560,55 @@ def build_summary_report(
         _apply_kpi_df(df_k, c_ct, c_th, c_pct, as_float=as_f)
       except Exception:
         pass
+
+    # ---- LPPC riêng: map chắc chắn CT/TH/% ----
+    try:
+      df_lppc, _, _ = build_report(
+          df, report_date, targets, 'LPPC', filter_nv, mcp_df=mcp_df
+      )
+      if df_lppc is not None and not df_lppc.empty:
+        name_col = 'Tên NVBH' if 'Tên NVBH' in df_lppc.columns else None
+        if name_col:
+          body = df_lppc[~df_lppc[name_col].astype(str).str.upper().str.contains(
+              'TOTAL|TỔNG', na=False, regex=True
+          )].copy()
+          col_ct = 'Chỉ Tiêu KPI' if 'Chỉ Tiêu KPI' in body.columns else _find_ct_col(body.columns)
+          col_mtd = 'MTD' if 'MTD' in body.columns else None
+          col_pct = '% MTD' if '% MTD' in body.columns else None
+          # moc mặc định nếu thiếu target
+          try:
+            _moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
+          except Exception:
+            _moc = 4.3
+          lookup = {}
+          for _, kr in body.iterrows():
+            nm = _norm_name(kr[name_col])
+            if not nm:
+              continue
+            try:
+              ct = float(kr[col_ct]) if col_ct and pd.notna(kr.get(col_ct)) else _moc
+            except Exception:
+              ct = _moc
+            if not ct:
+              ct = _moc
+            try:
+              th = float(kr[col_mtd]) if col_mtd and pd.notna(kr.get(col_mtd)) else 0.0
+            except Exception:
+              th = 0.0
+            if col_pct and pd.notna(kr.get(col_pct)):
+              pct = str(kr[col_pct])
+            else:
+              pct = f'{round(th / ct * 100, 1)}%' if ct else '0%'
+            lookup[nm] = (round(ct, 2), round(th, 2), pct)
+          for i, nv in df_out['Tên NV'].astype(str).items():
+            key = _norm_name(nv)
+            if key in lookup:
+              ct, th, pct = lookup[key]
+              df_out.at[i, 'CT LPPC'] = ct
+              df_out.at[i, 'TH LPPC'] = th
+              df_out.at[i, '% MTD LPPC'] = pct
+    except Exception:
+      pass
 
     tot_v_tgt = int(df_out['VIP MCH'].sum())
     tot_v_act = int(df_out['Đã Mua (VIP)'].sum())
@@ -5604,10 +5652,13 @@ def build_summary_report(
     tot_ds_ct, tot_ds_th = _sum_col('CT DS'), _sum_col('TH DS')
     tot_pcbt_ct, tot_pcbt_th = _sum_col('CT PC_BT'), _sum_col('TH PC_BT')
     # LPPC team = weighted average via total isn't exact; dùng mean non-zero
-    _lppc_ct = pd.to_numeric(df_out['CT LPPC'], errors='coerce').fillna(0) if 'CT LPPC' in df_out.columns else pd.Series([0])
-    _lppc_th = pd.to_numeric(df_out['TH LPPC'], errors='coerce').fillna(0) if 'TH LPPC' in df_out.columns else pd.Series([0])
-    tot_lppc_ct = round(float(_lppc_ct[_lppc_ct > 0].mean()), 2) if (_lppc_ct > 0).any() else 0
-    tot_lppc_th = round(float(_lppc_th[_lppc_th > 0].mean()), 2) if (_lppc_th > 0).any() else 0
+    _lppc_ct = pd.to_numeric(df_out['CT LPPC'], errors='coerce').fillna(0) if 'CT LPPC' in df_out.columns else pd.Series([0.0])
+    _lppc_th = pd.to_numeric(df_out['TH LPPC'], errors='coerce').fillna(0) if 'TH LPPC' in df_out.columns else pd.Series([0.0])
+    # CT team = mốc phổ biến (mode/mean của CT > 0); TH team = mean TH
+    _ct_pos = _lppc_ct[_lppc_ct > 0]
+    tot_lppc_ct = round(float(_ct_pos.mean()), 2) if len(_ct_pos) else 0
+    _th_pos = _lppc_th[_lppc_th > 0]
+    tot_lppc_th = round(float(_th_pos.mean()), 2) if len(_th_pos) else round(float(_lppc_th.mean()), 2) if len(_lppc_th) else 0
     tot_xanh_ct, tot_xanh_th = _sum_col('CT Xanh'), _sum_col('TH Xanh')
     tot_vang_ct, tot_vang_th = _sum_col('CT Vàng'), _sum_col('TH Vàng')
     tot_pcon_ct, tot_pcon_th = _sum_col('CT PC_ON'), _sum_col('TH PC_ON')
