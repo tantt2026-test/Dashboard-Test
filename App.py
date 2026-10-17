@@ -5099,6 +5099,7 @@ def build_summary_report(
     mcp_df,
     filter_nv=None,
     f_thu_list=None,
+    targets=None,
 ):
   all_nvs = []
   if not mcp_df.empty:
@@ -5419,6 +5420,13 @@ def build_summary_report(
         'VIP MCH': v_tgt,
         'Đã Mua (VIP)': v_act,
         '% MTD (VIP)': f'{v_pct}%',
+        # KPI sau VIP (điền sau khi có kpi_maps)
+        'CT DS': 0, 'TH DS': 0, '% MTD DS': '0%',
+        'CT PC_BT': 0, 'TH PC_BT': 0, '% MTD PC_BT': '0%',
+        'CT LPPC': 0, 'TH LPPC': 0, '% MTD LPPC': '0%',
+        'CT Xanh': 0, 'TH Xanh': 0, '% MTD Xanh': '0%',
+        'CT Vàng': 0, 'TH Vàng': 0, '% MTD Vàng': '0%',
+        'CT PC_ON': 0, 'TH PC_ON': 0, '% MTD PC_ON': '0%',
         'KH Combo OFF': off_tgt,
         'Đã Mua (OFF)': off_act,
         '% MTD (OFF)': f'{off_pct}%',
@@ -5445,6 +5453,77 @@ def build_summary_report(
         drop=True
     )
     df_out.insert(0, 'STT', range(1, len(df_out) + 1))
+
+    # ---- Gắn KPI từ build_report (sau VIP MCH) ----
+    if targets is None:
+      try:
+        targets = get_targets()
+      except Exception:
+        targets = {}
+    kpi_specs = [
+        ('TURNOVER', 'CT DS', 'TH DS', '% MTD DS'),
+        ('PC_BT', 'CT PC_BT', 'TH PC_BT', '% MTD PC_BT'),
+        ('LPPC', 'CT LPPC', 'TH LPPC', '% MTD LPPC'),
+        ('ASO_FOCUS', 'CT Xanh', 'TH Xanh', '% MTD Xanh'),
+        ('ASO_FOCUS_2', 'CT Vàng', 'TH Vàng', '% MTD Vàng'),
+        ('PC_ON', 'CT PC_ON', 'TH PC_ON', '% MTD PC_ON'),
+    ]
+    for rt, c_ct, c_th, c_pct in kpi_specs:
+      try:
+        df_k, _, _ = build_report(
+            df, report_date, targets, rt, filter_nv, mcp_df=mcp_df
+        )
+        if df_k is None or df_k.empty:
+          continue
+        body = df_k[~df_k['Tên NVBH'].astype(str).str.upper().str.contains(
+            'TOTAL|TỔNG', na=False, regex=True
+        )].copy() if 'Tên NVBH' in df_k.columns else df_k.copy()
+        # xác định cột CT / MTD / %
+        col_ct = None
+        for c in body.columns:
+          cl = str(c).lower()
+          if 'chỉ tiêu' in cl or c in ('Target', 'CT'):
+            col_ct = c
+            break
+        if col_ct is None:
+          for c in ('Chỉ Tiêu MCP', 'Chỉ Tiêu', 'Target'):
+            if c in body.columns:
+              col_ct = c
+              break
+        col_mtd = 'MTD' if 'MTD' in body.columns else None
+        col_pct = '% MTD' if '% MTD' in body.columns else None
+        name_col = 'Tên NVBH' if 'Tên NVBH' in body.columns else None
+        if not name_col or not col_mtd:
+          continue
+        for _, kr in body.iterrows():
+          nm = str(kr[name_col]).strip()
+          mask = df_out['Tên NV'].astype(str).str.strip() == nm
+          if not mask.any():
+            continue
+          if col_ct:
+            try:
+              v = kr[col_ct]
+              df_out.loc[mask, c_ct] = int(float(v)) if pd.notna(v) else 0
+            except Exception:
+              pass
+          try:
+            v = kr[col_mtd]
+            # LPPC giữ decimal
+            if rt == 'LPPC':
+              df_out.loc[mask, c_th] = round(float(v), 2) if pd.notna(v) else 0
+              if col_ct:
+                try:
+                  df_out.loc[mask, c_ct] = round(float(kr[col_ct]), 2) if pd.notna(kr[col_ct]) else 0
+                except Exception:
+                  pass
+            else:
+              df_out.loc[mask, c_th] = int(float(v)) if pd.notna(v) else 0
+          except Exception:
+            pass
+          if col_pct:
+            df_out.loc[mask, c_pct] = str(kr[col_pct])
+      except Exception:
+        pass
 
     tot_v_tgt = int(df_out['VIP MCH'].sum())
     tot_v_act = int(df_out['Đã Mua (VIP)'].sum())
@@ -5480,12 +5559,34 @@ def build_summary_report(
         round(tot_brand_m / tot_brand_ct * 100, 1) if tot_brand_ct else 0
     )
 
+    def _sum_col(c):
+      return float(pd.to_numeric(df_out[c], errors='coerce').fillna(0).sum()) if c in df_out.columns else 0
+    def _pct_s(th, ct):
+      return f'{round(th / ct * 100, 1)}%' if ct else '0%'
+
+    tot_ds_ct, tot_ds_th = _sum_col('CT DS'), _sum_col('TH DS')
+    tot_pcbt_ct, tot_pcbt_th = _sum_col('CT PC_BT'), _sum_col('TH PC_BT')
+    # LPPC team = weighted average via total isn't exact; dùng mean non-zero
+    _lppc_ct = pd.to_numeric(df_out['CT LPPC'], errors='coerce').fillna(0) if 'CT LPPC' in df_out.columns else pd.Series([0])
+    _lppc_th = pd.to_numeric(df_out['TH LPPC'], errors='coerce').fillna(0) if 'TH LPPC' in df_out.columns else pd.Series([0])
+    tot_lppc_ct = round(float(_lppc_ct[_lppc_ct > 0].mean()), 2) if (_lppc_ct > 0).any() else 0
+    tot_lppc_th = round(float(_lppc_th[_lppc_th > 0].mean()), 2) if (_lppc_th > 0).any() else 0
+    tot_xanh_ct, tot_xanh_th = _sum_col('CT Xanh'), _sum_col('TH Xanh')
+    tot_vang_ct, tot_vang_th = _sum_col('CT Vàng'), _sum_col('TH Vàng')
+    tot_pcon_ct, tot_pcon_th = _sum_col('CT PC_ON'), _sum_col('TH PC_ON')
+
     total_row = pd.DataFrame([{
         'STT': '-',
         'Tên NV': 'TỔNG CỘNG',
         'VIP MCH': tot_v_tgt,
         'Đã Mua (VIP)': tot_v_act,
         '% MTD (VIP)': f'{tot_v_pct}%',
+        'CT DS': int(tot_ds_ct), 'TH DS': int(tot_ds_th), '% MTD DS': _pct_s(tot_ds_th, tot_ds_ct),
+        'CT PC_BT': int(tot_pcbt_ct), 'TH PC_BT': int(tot_pcbt_th), '% MTD PC_BT': _pct_s(tot_pcbt_th, tot_pcbt_ct),
+        'CT LPPC': tot_lppc_ct, 'TH LPPC': tot_lppc_th, '% MTD LPPC': _pct_s(tot_lppc_th, tot_lppc_ct) if tot_lppc_ct else '0%',
+        'CT Xanh': int(tot_xanh_ct), 'TH Xanh': int(tot_xanh_th), '% MTD Xanh': _pct_s(tot_xanh_th, tot_xanh_ct),
+        'CT Vàng': int(tot_vang_ct), 'TH Vàng': int(tot_vang_th), '% MTD Vàng': _pct_s(tot_vang_th, tot_vang_ct),
+        'CT PC_ON': int(tot_pcon_ct), 'TH PC_ON': int(tot_pcon_th), '% MTD PC_ON': _pct_s(tot_pcon_th, tot_pcon_ct),
         'KH Combo OFF': tot_off_tgt,
         'Đã Mua (OFF)': tot_off_act,
         '% MTD (OFF)': f'{tot_off_pct}%',
@@ -5514,6 +5615,12 @@ def render_summary_html_table(df, selected_metrics):
   df = df.drop(columns=['Mã NVBH'], errors='ignore')
 
   has_vip = 'VIP MCH' in selected_metrics
+  has_ds = 'Doanh Số' in selected_metrics
+  has_pcbt = 'PC BT' in selected_metrics
+  has_lppc = 'LPPC' in selected_metrics
+  has_xanh = 'ASO Trận Xanh' in selected_metrics
+  has_vang = 'ASO Trận Vàng' in selected_metrics
+  has_pcon = 'PC Kênh ON' in selected_metrics
   has_off = 'KH Combo OFF' in selected_metrics
   has_on = 'KH Combo ON' in selected_metrics
   has_cat = 'MBS Cat' in selected_metrics
@@ -5533,6 +5640,36 @@ def render_summary_html_table(df, selected_metrics):
     html.append(
         '<th colspan="3" style="background-color: #1a365d; color:'
         ' #ffffff;">VIP MCH</th>'
+    )
+  if has_ds:
+    html.append(
+        '<th colspan="3" style="background-color: #1a365d; color:'
+        ' #ffffff;">Doanh Số</th>'
+    )
+  if has_pcbt:
+    html.append(
+        '<th colspan="3" style="background-color: #1a365d; color:'
+        ' #ffffff;">PC BT</th>'
+    )
+  if has_lppc:
+    html.append(
+        '<th colspan="3" style="background-color: #1a365d; color:'
+        ' #ffffff;">LPPC</th>'
+    )
+  if has_xanh:
+    html.append(
+        '<th colspan="3" style="background-color: #1a365d; color:'
+        ' #ffffff;">ASO Trận Xanh</th>'
+    )
+  if has_vang:
+    html.append(
+        '<th colspan="3" style="background-color: #1a365d; color:'
+        ' #ffffff;">ASO Trận Vàng</th>'
+    )
+  if has_pcon:
+    html.append(
+        '<th colspan="3" style="background-color: #1a365d; color:'
+        ' #ffffff;">PC Kênh ON</th>'
     )
   if has_off:
     html.append(
@@ -5560,6 +5697,18 @@ def render_summary_html_table(df, selected_metrics):
   sub_headers = []
   if has_vip:
     sub_headers.extend(['VIP MCH', 'Đã Mua', '% MTD'])
+  if has_ds:
+    sub_headers.extend(['CT', 'TH', '% MTD'])
+  if has_pcbt:
+    sub_headers.extend(['CT', 'TH', '% MTD'])
+  if has_lppc:
+    sub_headers.extend(['CT', 'TH', '% MTD'])
+  if has_xanh:
+    sub_headers.extend(['CT', 'TH', '% MTD'])
+  if has_vang:
+    sub_headers.extend(['CT', 'TH', '% MTD'])
+  if has_pcon:
+    sub_headers.extend(['CT', 'TH', '% MTD'])
   if has_off:
     sub_headers.extend(['KH Combo OFF', 'Đã Mua', '% MTD'])
   if has_on:
@@ -5584,6 +5733,18 @@ def render_summary_html_table(df, selected_metrics):
     cols_order = ['STT', 'Tên NV']
     if has_vip:
       cols_order.extend(['VIP MCH', 'Đã Mua (VIP)', '% MTD (VIP)'])
+    if has_ds:
+      cols_order.extend(['CT DS', 'TH DS', '% MTD DS'])
+    if has_pcbt:
+      cols_order.extend(['CT PC_BT', 'TH PC_BT', '% MTD PC_BT'])
+    if has_lppc:
+      cols_order.extend(['CT LPPC', 'TH LPPC', '% MTD LPPC'])
+    if has_xanh:
+      cols_order.extend(['CT Xanh', 'TH Xanh', '% MTD Xanh'])
+    if has_vang:
+      cols_order.extend(['CT Vàng', 'TH Vàng', '% MTD Vàng'])
+    if has_pcon:
+      cols_order.extend(['CT PC_ON', 'TH PC_ON', '% MTD PC_ON'])
     if has_off:
       cols_order.extend(['KH Combo OFF', 'Đã Mua (OFF)', '% MTD (OFF)'])
     if has_on:
@@ -5612,8 +5773,11 @@ def render_summary_html_table(df, selected_metrics):
       if pd.isna(val):
         val = ''
 
-      if 'CT DS' in col or 'MTD (Cat)' in col or 'MTD (Brand)' in col:
-        val = format_scaled_thousand(val)
+      if col in ['CT DS', 'TH DS'] or 'CT DS' in col or 'MTD (Cat)' in col or 'MTD (Brand)' in col:
+        try:
+          val = format_number_vn(val) if 'format_number_vn' in dir() else format_scaled_thousand(val)
+        except Exception:
+          val = format_scaled_thousand(val)
 
       is_pct = '%' in col
       style_bg = color_pct_bg(val) if is_pct else ''
@@ -11704,6 +11868,12 @@ with tab_kpi:
       )
       metric_opts = [
           'VIP MCH',
+          'Doanh Số',
+          'PC BT',
+          'LPPC',
+          'ASO Trận Xanh',
+          'ASO Trận Vàng',
+          'PC Kênh ON',
           'KH Combo OFF',
           'KH Combo ON',
           'MBS Cat',
@@ -11744,6 +11914,10 @@ with tab_kpi:
     )
     st.query_params['sum_metrics'] = ','.join(selected_metrics)
 
+    try:
+      _tg = get_targets()
+    except Exception:
+      _tg = {}
     df_summary = build_summary_report(
         df,
         report_date,
@@ -11754,6 +11928,7 @@ with tab_kpi:
         mcp,
         filter_nv,
         f_thu_sum,
+        targets=_tg,
     )
     tot_row_s = df_summary.iloc[-1]
 
