@@ -5454,74 +5454,111 @@ def build_summary_report(
     )
     df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
-    # ---- Gắn KPI từ build_report (sau VIP MCH) ----
+    # ---- Gắn KPI (sau VIP MCH) ----
     if targets is None:
       try:
         targets = get_targets()
       except Exception:
         targets = {}
-    kpi_specs = [
-        ('TURNOVER', 'CT DS', 'TH DS', '% MTD DS'),
-        ('PC_BT', 'CT PC_BT', 'TH PC_BT', '% MTD PC_BT'),
-        ('LPPC', 'CT LPPC', 'TH LPPC', '% MTD LPPC'),
-        ('ASO_FOCUS', 'CT Xanh', 'TH Xanh', '% MTD Xanh'),
-        ('ASO_FOCUS_2', 'CT Vàng', 'TH Vàng', '% MTD Vàng'),
-        ('PC_ON', 'CT PC_ON', 'TH PC_ON', '% MTD PC_ON'),
-    ]
-    for rt, c_ct, c_th, c_pct in kpi_specs:
+    try:
+      _to_tgt = get_turnover_targets()
+    except Exception:
+      _to_tgt = {}
+
+    def _norm_name(s):
+      return ' '.join(str(s).strip().lower().split())
+
+    def _find_ct_col(cols):
+      for c in cols:
+        cl = str(c).lower()
+        if 'chỉ tiêu' in cl or 'chi tieu' in cl:
+          return c
+      for c in ('Chỉ Tiêu KPI', 'Chỉ Tiêu MCP', 'Chỉ Tiêu Doanh Số', 'Chỉ Tiêu', 'Target'):
+        if c in cols:
+          return c
+      return None
+
+    def _find_mtd_col(cols, prefer=None):
+      if prefer:
+        for p in prefer:
+          if p in cols:
+            return p
+      for c in cols:
+        cl = str(c).lower()
+        if cl in ('mtd', 'doanh số mtd', 'doanh so mtd'):
+          return c
+      return None
+
+    def _apply_kpi_df(df_k, c_ct, c_th, c_pct, as_float=False):
+      if df_k is None or df_k.empty:
+        return
+      name_col = None
+      for c in ('Tên NVBH', 'Tên NV', 'SM Name'):
+        if c in df_k.columns:
+          name_col = c
+          break
+      if not name_col:
+        return
+      body = df_k[~df_k[name_col].astype(str).str.upper().str.contains(
+          'TOTAL|TỔNG', na=False, regex=True
+      )].copy()
+      col_ct = _find_ct_col(body.columns)
+      col_mtd = _find_mtd_col(
+          body.columns,
+          prefer=['Doanh Số MTD', 'MTD', 'Thực Hiện'] if 'Doanh Số MTD' in body.columns else ['MTD'],
+      )
+      col_pct = '% MTD' if '% MTD' in body.columns else None
+      if not col_mtd and not col_pct:
+        return
+      name_to_idx = {
+          _norm_name(v): i
+          for i, v in df_out['Tên NV'].astype(str).items()
+      }
+      for _, kr in body.iterrows():
+        nm = _norm_name(kr[name_col])
+        if nm not in name_to_idx:
+          continue
+        idx = name_to_idx[nm]
+        if col_ct is not None and pd.notna(kr.get(col_ct)):
+          try:
+            v = float(kr[col_ct])
+            df_out.at[idx, c_ct] = round(v, 2) if as_float else int(round(v))
+          except Exception:
+            pass
+        if col_mtd is not None and pd.notna(kr.get(col_mtd)):
+          try:
+            v = float(kr[col_mtd])
+            df_out.at[idx, c_th] = round(v, 2) if as_float else int(round(v))
+          except Exception:
+            pass
+        if col_pct is not None and pd.notna(kr.get(col_pct)):
+          df_out.at[idx, c_pct] = str(kr[col_pct])
+        elif col_ct is not None and col_mtd is not None:
+          try:
+            ct = float(kr[col_ct]); th = float(kr[col_mtd])
+            df_out.at[idx, c_pct] = f'{round(th / ct * 100, 1)}%' if ct else '0%'
+          except Exception:
+            pass
+
+    # TURNOVER — hàm riêng
+    try:
+      df_to, _, _ = build_turnover_report(df, report_date, _to_tgt, filter_nv)
+      _apply_kpi_df(df_to, 'CT DS', 'TH DS', '% MTD DS', as_float=False)
+    except Exception:
+      pass
+
+    for rt, c_ct, c_th, c_pct, as_f in [
+        ('PC_BT', 'CT PC_BT', 'TH PC_BT', '% MTD PC_BT', False),
+        ('LPPC', 'CT LPPC', 'TH LPPC', '% MTD LPPC', True),
+        ('ASO_FOCUS', 'CT Xanh', 'TH Xanh', '% MTD Xanh', False),
+        ('ASO_FOCUS_2', 'CT Vàng', 'TH Vàng', '% MTD Vàng', False),
+        ('PC_ON', 'CT PC_ON', 'TH PC_ON', '% MTD PC_ON', False),
+    ]:
       try:
         df_k, _, _ = build_report(
             df, report_date, targets, rt, filter_nv, mcp_df=mcp_df
         )
-        if df_k is None or df_k.empty:
-          continue
-        body = df_k[~df_k['Tên NVBH'].astype(str).str.upper().str.contains(
-            'TOTAL|TỔNG', na=False, regex=True
-        )].copy() if 'Tên NVBH' in df_k.columns else df_k.copy()
-        # xác định cột CT / MTD / %
-        col_ct = None
-        for c in body.columns:
-          cl = str(c).lower()
-          if 'chỉ tiêu' in cl or c in ('Target', 'CT'):
-            col_ct = c
-            break
-        if col_ct is None:
-          for c in ('Chỉ Tiêu MCP', 'Chỉ Tiêu', 'Target'):
-            if c in body.columns:
-              col_ct = c
-              break
-        col_mtd = 'MTD' if 'MTD' in body.columns else None
-        col_pct = '% MTD' if '% MTD' in body.columns else None
-        name_col = 'Tên NVBH' if 'Tên NVBH' in body.columns else None
-        if not name_col or not col_mtd:
-          continue
-        for _, kr in body.iterrows():
-          nm = str(kr[name_col]).strip()
-          mask = df_out['Tên NV'].astype(str).str.strip() == nm
-          if not mask.any():
-            continue
-          if col_ct:
-            try:
-              v = kr[col_ct]
-              df_out.loc[mask, c_ct] = int(float(v)) if pd.notna(v) else 0
-            except Exception:
-              pass
-          try:
-            v = kr[col_mtd]
-            # LPPC giữ decimal
-            if rt == 'LPPC':
-              df_out.loc[mask, c_th] = round(float(v), 2) if pd.notna(v) else 0
-              if col_ct:
-                try:
-                  df_out.loc[mask, c_ct] = round(float(kr[col_ct]), 2) if pd.notna(kr[col_ct]) else 0
-                except Exception:
-                  pass
-            else:
-              df_out.loc[mask, c_th] = int(float(v)) if pd.notna(v) else 0
-          except Exception:
-            pass
-          if col_pct:
-            df_out.loc[mask, c_pct] = str(kr[col_pct])
+        _apply_kpi_df(df_k, c_ct, c_th, c_pct, as_float=as_f)
       except Exception:
         pass
 
