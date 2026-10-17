@@ -12115,6 +12115,119 @@ with tab_kpi:
         render_summary_html_table(df_summary, selected_metrics),
         unsafe_allow_html=True,
     )
+
+    # ===== Chart % hoàn thành KPI (theo metric đang chọn) =====
+    try:
+      import plotly.graph_objects as go
+      chart_specs = [
+          ('VIP MCH', 'VIP MCH', '% MTD (VIP)', 'Đã Mua (VIP)', 'VIP MCH'),
+          ('Doanh Số', 'Doanh Số', '% MTD DS', 'TH DS', 'CT DS'),
+          ('PC BT', 'PC BT', '% MTD PC_BT', 'TH PC_BT', 'CT PC_BT'),
+          ('LPPC', 'LPPC', '% MTD LPPC', 'TH LPPC', 'CT LPPC'),
+          ('ASO Trận Xanh', 'ASO Trận Xanh', '% MTD Xanh', 'TH Xanh', 'CT Xanh'),
+          ('ASO Trận Vàng', 'ASO Trận Vàng', '% MTD Vàng', 'TH Vàng', 'CT Vàng'),
+          ('PC Kênh ON', 'PC Kênh ON', '% MTD PC_ON', 'TH PC_ON', 'CT PC_ON'),
+          ('KH Combo OFF', 'KH Combo OFF', '% MTD (OFF)', 'Đã Mua (OFF)', 'KH Combo OFF'),
+          ('KH Combo ON', 'KH Combo ON', '% MTD (ON)', 'Đã Mua (ON)', 'KH Combo ON'),
+          ('MBS Cat', 'MBS Cat', '% MTD (Cat)', 'Đã Mua (Cat)', 'MBS Cat'),
+          ('MBS Brand', 'MBS Brand', '% MTD (Brand)', 'Đã Mua (Brand)', 'MBS Brand'),
+      ]
+      labels, pcts, hover = [], [], []
+      for metric_key, label, pct_col, th_col, ct_col in chart_specs:
+        if metric_key not in selected_metrics:
+          continue
+        try:
+          raw = str(tot_row_s.get(pct_col, '0')).replace('%', '').strip()
+          pct_v = float(raw) if raw else 0.0
+        except Exception:
+          pct_v = 0.0
+        try:
+          th_v = tot_row_s.get(th_col, 0)
+          ct_v = tot_row_s.get(ct_col, 0)
+        except Exception:
+          th_v, ct_v = 0, 0
+        labels.append(label)
+        pcts.append(pct_v)
+        hover.append(f'{label}<br>TH: {th_v}<br>CT: {ct_v}<br>%MTD: {pct_v}%')
+
+      if labels:
+        try:
+          tg = float(st.session_state.get('timegone_pct', 0) or 0)
+        except Exception:
+          tg = 0.0
+        # fallback timegone từ caption / global
+        if not tg:
+          try:
+            from datetime import date as _d
+            _rd = report_date if isinstance(report_date, _d) else pd.Timestamp(report_date).date()
+            _, _, _, tg = get_timegone_stats(_rd)
+            tg = float(tg or 0)
+          except Exception:
+            tg = 0.0
+        colors = []
+        for p in pcts:
+          if tg > 0:
+            if p < tg:
+              colors.append('#fc8181')
+            elif p >= tg + 5:
+              colors.append('#9f7aea')
+            else:
+              colors.append('#68d391')
+          else:
+            if p < 80:
+              colors.append('#fc8181')
+            elif p >= 100:
+              colors.append('#9f7aea')
+            else:
+              colors.append('#68d391')
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=labels,
+            y=pcts,
+            text=[f'{p}%' for p in pcts],
+            textposition='outside',
+            marker_color=colors,
+            hovertext=hover,
+            hoverinfo='text',
+            name='% MTD',
+        ))
+        if tg > 0:
+          fig.add_hline(
+              y=tg, line_dash='dash', line_color='#3182ce', line_width=2,
+              annotation_text=f'Timegone {tg:.0f}%', annotation_position='top right',
+          )
+        fig.add_hline(
+            y=100, line_dash='dot', line_color='#718096', line_width=1,
+            annotation_text='100%', annotation_position='top left',
+        )
+        fig.update_layout(
+            title=dict(
+                text='Mức độ hoàn thành KPI / Chỉ tiêu (% MTD)',
+                font=dict(size=15, color='#1a365d', family='Arial'),
+                x=0.5, xanchor='center',
+            ),
+            yaxis=dict(
+                title='% MTD',
+                range=[0, max(120, (max(pcts) + 15) if pcts else 120)],
+                ticksuffix='%', gridcolor='#e2e8f0',
+            ),
+            xaxis=dict(tickangle=-25, tickfont=dict(size=11)),
+            margin=dict(l=40, r=20, t=50, b=80),
+            height=380,
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            showlegend=False,
+            bargap=0.35,
+        )
+        st.plotly_chart(fig, use_container_width=True, config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+        })
+    except Exception as _e_chart:
+      st.caption(f'Không vẽ được chart KPI: {_e_chart}')
+
     st.markdown(
         f"""
         <div class="note-box">
