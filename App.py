@@ -3800,6 +3800,193 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   return df_out
 
 
+
+def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv=None):
+  """Tổng hợp ĐH Trái Tuyến từ đầu tháng → ngày BC theo từng NV.
+
+  % ĐH Trái Tuyến = Số ĐH Trái Tuyến / Tổng PC (MOQ, không xét số line) * 100.
+  Cột Check Danh Sách bổ sung = số ĐH có tick / tổng ĐH trái tuyến.
+  """
+  empty = pd.DataFrame(columns=[
+      'STT', 'Tên NVBH', 'Số ĐH Trái Tuyến', 'Tổng PC',
+      '% ĐH Trái Tuyến', 'Check Danh Sách bổ sung',
+  ])
+  if report_date is None:
+    return empty
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  start = date(rd.year, rd.month, 1)
+
+  parts = []
+  cur = start
+  while cur <= rd:
+    try:
+      det = build_trai_tuyen_orders(df_rpt, df_visit, mcp_df, cur, filter_nv=filter_nv)
+      if det is not None and not det.empty:
+        if 'Tên NVBH' in det.columns:
+          det = det[~det['Tên NVBH'].astype(str).str.upper().str.contains('TOTAL|TỔNG', na=False, regex=True)]
+        if not det.empty:
+          parts.append(det)
+    except Exception:
+      pass
+    cur = cur + timedelta(days=1)
+
+  detail = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+  pc_by_nv = {}
+  if df_rpt is not None and not df_rpt.empty:
+    try:
+      d = df_rpt.copy()
+      if 'date' in d.columns:
+        d = d[(d['date'] >= start) & (d['date'] <= rd)]
+      if not d.empty:
+        if 'L1' in d.columns:
+          d = d[d['L1'].astype(str).str.contains('Off', case=False, na=False)]
+        order_moq = count_moq_lines_per_order(d)
+        ok = order_moq[order_moq['n_moq_lines'] >= 1] if not order_moq.empty else order_moq
+        if not ok.empty:
+          ok_day = pick_best_pc_per_outlet_day(ok)
+          name_map = {}
+          if 'Tên NVBH' in d.columns and 'Mã NVBH' in d.columns:
+            name_map = d.groupby('Mã NVBH')['Tên NVBH'].first().astype(str).str.strip().to_dict()
+          for ma, g in ok_day.groupby('Mã NVBH'):
+            nm = name_map.get(ma, str(ma))
+            pc_by_nv[nm] = pc_by_nv.get(nm, 0) + int(len(g))
+    except Exception:
+      pass
+
+  trai_cnt = {}
+  check_cnt = {}
+  if detail is not None and not detail.empty and 'Tên NVBH' in detail.columns:
+    for nv, g in detail.groupby(detail['Tên NVBH'].astype(str).str.strip()):
+      if not nv or nv.lower() in ('nan', 'none'):
+        continue
+      trai_cnt[nv] = len(g)
+      c_chk = None
+      for c in g.columns:
+        cl = str(c).lower()
+        if 'bổ sung' in cl or 'bo sung' in cl or 'danh sách' in cl:
+          c_chk = c
+          break
+      if c_chk:
+        def _is_check(v):
+          s = str(v).strip()
+          return s in ('✓', '✔', 'Y', 'YES', '1', 'TRUE', 'true') or '✓' in s
+        check_cnt[nv] = int(g[c_chk].map(_is_check).sum())
+      else:
+        check_cnt[nv] = 0
+
+  all_nv = sorted(set(list(trai_cnt.keys()) + list(pc_by_nv.keys())))
+  if nv_selected(filter_nv):
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    all_nv = [n for n in all_nv if n in vals]
+
+  rows = []
+  for nv in all_nv:
+    n_trai = int(trai_cnt.get(nv, 0))
+    n_pc = int(pc_by_nv.get(nv, 0))
+    pct = round(n_trai / n_pc * 100, 1) if n_pc else 0.0
+    n_chk = int(check_cnt.get(nv, 0))
+    rows.append({
+        'Tên NVBH': nv,
+        'Số ĐH Trái Tuyến': n_trai,
+        'Tổng PC': n_pc,
+        '% ĐH Trái Tuyến': f'{pct}%',
+        'Check Danh Sách bổ sung': f'{n_chk}/{n_trai}' if n_trai else '0/0',
+        '_pct': pct,
+        '_trai': n_trai,
+    })
+
+  if not rows:
+    return empty
+
+  df_out = pd.DataFrame(rows)
+  df_out = df_out.sort_values('_trai', ascending=False).reset_index(drop=True)
+  df_out.insert(0, 'STT', range(1, len(df_out) + 1))
+
+  tot_trai = int(df_out['Số ĐH Trái Tuyến'].sum())
+  tot_pc = int(df_out['Tổng PC'].sum())
+  tot_pct = round(tot_trai / tot_pc * 100, 1) if tot_pc else 0.0
+  tot_chk = 0
+  for v in df_out['Check Danh Sách bổ sung']:
+    try:
+      tot_chk += int(str(v).split('/')[0])
+    except Exception:
+      pass
+  tot = {
+      'STT': '-',
+      'Tên NVBH': 'SS Trương Thanh Tân Total',
+      'Số ĐH Trái Tuyến': tot_trai,
+      'Tổng PC': tot_pc,
+      '% ĐH Trái Tuyến': f'{tot_pct}%',
+      'Check Danh Sách bổ sung': f'{tot_chk}/{tot_trai}' if tot_trai else '0/0',
+  }
+  df_out = df_out.drop(columns=[c for c in df_out.columns if str(c).startswith('_')], errors='ignore')
+  df_out = pd.concat([df_out, pd.DataFrame([tot])], ignore_index=True)
+  return df_out
+
+
+def render_weekly_trai_tuyen_html(df):
+  """Bảng tổng hợp ĐH Trái Tuyến MTD."""
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu ĐH Trái Tuyến MTD.</p>'
+
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;white-space:nowrap;'
+  )
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 6px;'
+      'font-size:11px;text-align:center !important;white-space:nowrap;'
+  )
+  td_tot = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+  )
+
+  def _pct_style(val):
+    try:
+      v = float(str(val).replace('%', ''))
+    except Exception:
+      return '', ''
+    if v >= 10:
+      return ('pct-red', 'background-color:#fc8181 !important;color:#742a2a !important;font-weight:800 !important;')
+    if v >= 5:
+      return ('pct-red', 'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;')
+    return ('pct-green', 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;')
+
+  cols = [c for c in df.columns if not str(c).startswith('_')]
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
+      '<thead><tr>',
+  ]
+  for c in cols:
+    html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
+    for c in cols:
+      val = row.get(c, '')
+      if is_tot:
+        align = 'left' if c == 'Tên NVBH' else 'center'
+        html.append(f'<td class="row-total-cell" style="{td_tot}text-align:{align} !important;">{val}</td>')
+      elif c == '% ĐH Trái Tuyến':
+        cls, st_c = _pct_style(val)
+        html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{val}</td>')
+      elif c == 'Tên NVBH':
+        html.append(f'<td style="{td}background-color:{bg} !important;text-align:left !important;font-weight:600;">{val}</td>')
+      else:
+        html.append(f'<td style="{td}background-color:{bg} !important;">{val}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
 def render_weekly_pc_day_html(df):
   """Bảng PC/SM/Day — format KPI, tô màu theo phân vị trong tháng (đỏ thấp, xanh cao)."""
   if df is None or df.empty:
