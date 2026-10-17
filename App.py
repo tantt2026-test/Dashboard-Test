@@ -385,7 +385,7 @@ MONTH_OPTIONS = {
         'aso_focus2_pat': r'homey|hoa tr[aà]\s*jeju|nước giặt xả homey',
         'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Homey)',
         'pc_on_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
-        'pc_on_name': 'PC_ON - Tea 365 (Kênh ON)',
+        'pc_on_name': 'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)',
         'aso_all_name': 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)',
         'pc_bt_exclude_meat': True,
         'lppc_moc': 4.3,
