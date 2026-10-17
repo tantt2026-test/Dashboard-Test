@@ -5159,6 +5159,12 @@ def render_html_table(df):
       val = row[col]
       if pd.isna(val):
         val = ''
+      # Bỏ .0 với số nguyên (vd MCP ON: 78.0 → 78)
+      elif isinstance(val, (float, np.floating)):
+        if float(val).is_integer():
+          val = int(val)
+        else:
+          val = round(float(val), 2)
 
       salary_cls, salary_style = salary_metric_style(_CURRENT_SALARY_KPI, col, val)
       if salary_cls or salary_style:
