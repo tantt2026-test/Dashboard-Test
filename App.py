@@ -3602,44 +3602,113 @@ def _pc_count_from_orders(df_lines):
   return {str(k): int(v) for k, v in pcs.items()}
 
 
-def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None, report_date=None):
-  """Bảng PC/SM/Day — bình quân PC/NV/ngày, chỉ Kênh OFF.
+def _freq_to_weekdays(freq):
+  """Map cột Thứ/Frequency MCP → tập weekday (0=Mon … 6=Sun)."""
+  s = str(freq).strip().replace(' ', '').upper()
+  if not s or s in ('NAN', 'NONE', ''):
+    return set()
+  mapping = {
+      '25': {0, 3}, '36': {1, 4}, '47': {2, 5},
+      '2': {0}, '3': {1}, '4': {2}, '5': {3}, '6': {4}, '7': {5},
+      'F8': {0, 1, 2, 3},  # ~4 ngày/tuần
+      'F4': {0, 3},        # ~2 ngày/tuần
+      'F2': {0},           # ~1 ngày/tuần
+  }
+  if s in mapping:
+    return mapping[s]
+  # số thuần 1 chữ số
+  if s.isdigit() and len(s) == 1:
+    d = int(s)
+    # 2→Mon … 7→Sat
+    if 2 <= d <= 7:
+      return {d - 2}
+  return set()
 
-  PC = số đơn có ≥1 line đạt MOQ (không trừ Meat/Beer, không lọc ≥4 line).
-  PC/SM/Day = Tổng PC tháng / Số ngày làm việc trong tháng.
+
+def _count_call_days_in_month(freq, year, month, as_of=None):
+  """Số ngày trong tháng (đến as_of nếu có) khớp lịch VT của CH."""
+  wds = _freq_to_weekdays(freq)
+  if not wds:
+    return 0
+  first = date(year, month, 1)
+  if month == 12:
+    last = date(year + 1, 1, 1) - timedelta(days=1)
+  else:
+    last = date(year, month + 1, 1) - timedelta(days=1)
+  if as_of is not None:
+    try:
+      ad = as_of if isinstance(as_of, date) else as_of.date()
+      if ad.year == year and ad.month == month:
+        last = min(last, ad)
+      elif (ad.year, ad.month) < (year, month):
+        return 0
+    except Exception:
+      pass
+  holidays_by_month = {
+      (2026, 9): {1, 2},
+      (2026, 10): set(),
+  }
+  hol = holidays_by_month.get((year, month), set())
+  cnt = 0
+  cur = first
+  while cur <= last:
+    if cur.day not in hol and cur.weekday() in wds:
+      cnt += 1
+    cur += timedelta(days=1)
+  return cnt
+
+
+def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None, report_date=None):
+  """Bảng PC/SM/Day theo format: mỗi tháng MCP | CALL PLAN BQ | PC/DAY.
+
+  - MCP: số CH MCP OFF (từ COV MCP OFF / build_weekly_preview)
+  - CALL PLAN BQ: tổng lượt VT theo lịch MCP trong tháng ÷ số ngày làm việc
+  - PC/DAY: tổng PC OFF (MOQ, max 1 PC/CH/ngày) ÷ số ngày làm việc
   """
   if months is None:
     months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
 
-  empty_cols = ['STT', 'Tên NVBH'] + [f'PC/Day|{m:02d}/{y}' for y, m in months]
+  empty_cols = ['STT', 'Tên NVBH']
+  for y, m in months:
+    lab = f'{m:02d}/{y}'
+    empty_cols += [f'MCP|{lab}', f'CALL PLAN BQ|{lab}', f'PC/DAY|{lab}']
   empty = pd.DataFrame(columns=empty_cols)
 
   pos_name = {}
   pos_list = []
+  mcp_rows = pd.DataFrame()
   if mcp_df is not None and not mcp_df.empty:
     mcp = mcp_df.copy()
     c_nv = find_col(mcp, ['SM name', 'SM Name', 'Tên NVBH'])
     c_pos = find_col(mcp, ['Position code', 'Position Code', 'POS_CODE'])
+    c_thu = find_col(mcp, ['Thứ', 'Frequency', 'Tần suất'])
+    c_l1 = find_col(mcp, ['L1', 'Channel', 'Kênh'])
+    c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH'])
     if c_pos:
       mcp['_pos'] = mcp[c_pos].astype(str).str.strip()
       mcp['_nv'] = mcp[c_nv].astype(str).str.strip() if c_nv else mcp['_pos']
       mcp = mcp[~mcp['_nv'].str.contains('vacant', case=False, na=False)]
+      # chỉ OFF cho CALL PLAN / MCP bảng này
+      if c_l1:
+        mcp = mcp[mcp[c_l1].astype(str).str.contains('Off', case=False, na=False)]
+      mcp['_thu'] = mcp[c_thu].astype(str).str.strip() if c_thu else ''
+      mcp['_ma'] = mcp[c_ma].astype(str).str.strip() if c_ma else ''
       for pos, g in mcp.groupby('_pos', sort=False):
         names = g['_nv'].dropna()
         names = names[names.str.lower() != 'nan']
         pos_name[pos] = names.iloc[-1] if len(names) else pos
       pos_list = sorted(pos_name.keys())
+      mcp_rows = mcp
 
   if nv_selected(filter_nv) and pos_name:
     vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
     pos_list = [p for p in pos_list if pos_name.get(p, '') in vals]
+    if not mcp_rows.empty:
+      mcp_rows = mcp_rows[mcp_rows['_pos'].isin(pos_list)]
 
-  s_norm = _normalize_weekly_sales_for_lppc(sales_hist)  # đã lọc OFF
-  # Bỏ filter Meat — normalize không trừ meat; _lppc trừ meat nhưng PC không trừ
-  # s_norm đã OFF only
+  s_norm = _normalize_weekly_sales_for_lppc(sales_hist)
 
   pc_by_month = {f'{m:02d}/{y}': {} for y, m in months}
-  # Tháng đã qua: full month. Tháng hiện tại (10/2026): số ngày làm việc đã trôi qua (MTD).
   as_of_today = report_date if report_date is not None else date.today()
   try:
     if not isinstance(as_of_today, date):
@@ -3675,7 +3744,6 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
         sub['Mã NVBH'] = sub['Tên NVBH'].astype(str).str.strip()
       pc_by_month[label] = _pc_count_from_orders(sub)
 
-  # Tháng 10 từ RPT — OFF only, không trừ meat
   if df_rpt is not None and not df_rpt.empty:
     for y, m in months:
       label = f'{m:02d}/{y}'
@@ -3697,15 +3765,12 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
           if c_nv and pos_name:
             rev = {v: k for k, v in pos_name.items()}
             d['Mã NVBH'] = d[c_nv].astype(str).str.strip().map(lambda x: rev.get(x, x))
-        # RPT: đếm đơn unique; coi mỗi line đạt nếu có SL>0
         if 'Mã đơn hàng' not in d.columns:
           c_ord = find_col(d, ['Mã đơn hàng', 'ORDER_NUM', 'Số ĐH'])
           if c_ord:
             d['Mã đơn hàng'] = d[c_ord]
         if 'Mã đơn hàng' in d.columns and 'Mã NVBH' in d.columns:
-          # Không có MOQ_FLAG: dùng line_meets_moq nhanh qua nunique order sau khi filter qty>0
           if 'MOQ_FLAG' not in d.columns:
-            # đánh dấu tất cả line có sản phẩm là đạt (weekly PC: SP thoả MOQ — fallback mọi line)
             d['MOQ_FLAG'] = 'Y'
           pc_by_month[label] = _pc_count_from_orders(d)
       except Exception:
@@ -3717,7 +3782,7 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
       keys |= set(mp.keys())
     pos_list = sorted(keys)
 
-  # MCP OFF: bê nguyên từ bảng COV MCP OFF (build_weekly_preview)
+  # MCP OFF từ COV
   mcp_off_by_name = {f'{m:02d}/{y}': {} for y, m in months}
   mcp_off_by_pos = {f'{m:02d}/{y}': {} for y, m in months}
   try:
@@ -3725,9 +3790,9 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
         mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=months
     )
     if df_cov_off is not None and not df_cov_off.empty:
-      body = df_cov_off
-      if 'Tên NVBH' in body.columns:
-        body = body[~body['Tên NVBH'].astype(str).str.upper().str.contains('TOTAL|TỔNG', na=False, regex=True)]
+      body = df_cov_off[~df_cov_off['Tên NVBH'].astype(str).str.upper().str.contains(
+          'TOTAL|TỔNG', na=False, regex=True
+      )] if 'Tên NVBH' in df_cov_off.columns else df_cov_off
       for y, m in months:
         label = f'{m:02d}/{y}'
         col = f'MCP|{label}'
@@ -3747,6 +3812,19 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   except Exception:
     pass
 
+  # CALL PLAN BQ: tổng lượt VT theo lịch MCP / số ngày làm việc
+  call_bq_by_pos = {f'{m:02d}/{y}': {} for y, m in months}
+  if not mcp_rows.empty and '_pos' in mcp_rows.columns:
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      as_of = as_of_today if (y, m) == (as_of_today.year, as_of_today.month) else None
+      wd = days_by_month.get(label, 1) or 1
+      for pos, g in mcp_rows.groupby('_pos'):
+        total_calls = 0
+        for _, r in g.iterrows():
+          total_calls += _count_call_days_in_month(r.get('_thu', ''), y, m, as_of=as_of)
+        call_bq_by_pos[label][str(pos).strip()] = round(total_calls / wd, 2) if wd else 0.0
+
   rows = []
   for pos in pos_list:
     nv = pos_name.get(pos, pos)
@@ -3760,13 +3838,23 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
           or mcp_off_by_name.get(label, {}).get(str(nv).strip(), 0)
           or 0
       )
+      # fallback MCP = count outlets on MCP for pos
+      if mcp_v == 0 and not mcp_rows.empty:
+        try:
+          mcp_v = int((mcp_rows['_pos'] == pos).sum())
+        except Exception:
+          mcp_v = 0
+      call_bq = float(call_bq_by_pos.get(label, {}).get(str(pos).strip(), 0) or 0)
       pc = int(pc_by_month.get(label, {}).get(pos, 0) or 0)
-      wd = days_by_month.get(label, 1)
-      val = round(pc / wd, 2) if wd else 0.0
-      row[f'MCP OFF|{label}'] = mcp_v
-      row[f'PC/Day|{label}'] = val
-      row[f'_pc|{label}'] = pc
-      row[f'_v|{label}'] = val
+      # also try by name key
+      if pc == 0:
+        pc = int(pc_by_month.get(label, {}).get(str(nv).strip(), 0) or 0)
+      wd = days_by_month.get(label, 1) or 1
+      pc_day = round(pc / wd, 2) if wd else 0.0
+      row[f'MCP|{label}'] = mcp_v
+      row[f'CALL PLAN BQ|{label}'] = call_bq
+      row[f'PC/DAY|{label}'] = pc_day
+      row[f'_v|{label}'] = pc_day
     rows.append(row)
 
   if not rows:
@@ -3778,21 +3866,21 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
     df_out = df_out.sort_values(f'_v|{last}', ascending=True).reset_index(drop=True)
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
-  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (PC/SM/Day OFF)', 'Position code': ''}
-  for y, m in months:
-    label = f'{m:02d}/{y}'
-    col = f'PC/Day|{label}'
-    vals = pd.to_numeric(df_out[col], errors='coerce').dropna()
-    tot[col] = round(float(vals.mean()), 2) if len(vals) else 0.0
-    mcol = f'MCP OFF|{label}'
-    if mcol in df_out.columns:
-      tot[mcol] = int(pd.to_numeric(df_out[mcol], errors='coerce').fillna(0).sum())
-  drop_cols = [c for c in df_out.columns if str(c).startswith('_')]
-  df_out = df_out.drop(columns=drop_cols, errors='ignore')
   ordered = ['STT', 'Tên NVBH']
+  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total'}
   for y, m in months:
     lab = f'{m:02d}/{y}'
-    ordered += [f'MCP OFF|{lab}', f'PC/Day|{lab}']
+    for prefix in ('MCP', 'CALL PLAN BQ', 'PC/DAY'):
+      col = f'{prefix}|{lab}'
+      ordered.append(col)
+      if col in df_out.columns:
+        vals = pd.to_numeric(df_out[col], errors='coerce').fillna(0)
+        if prefix == 'MCP':
+          tot[col] = int(vals.sum())
+        else:
+          tot[col] = round(float(vals.mean()), 2) if len(vals) else 0.0
+  drop_cols = [c for c in df_out.columns if str(c).startswith('_') or c == 'Position code']
+  df_out = df_out.drop(columns=drop_cols, errors='ignore')
   ordered = [c for c in ordered if c in df_out.columns]
   df_out = df_out[ordered]
   tot_df = pd.DataFrame([{c: tot.get(c, '') for c in ordered}])
@@ -3988,48 +4076,34 @@ def render_weekly_trai_tuyen_html(df):
 
 
 def render_weekly_pc_day_html(df):
-  """Bảng PC/SM/Day — format KPI, tô màu theo phân vị trong tháng (đỏ thấp, xanh cao)."""
+  """Bảng PC/SM/Day format: mỗi tháng MCP | CALL PLAN BQ | PC/DAY."""
   if df is None or df.empty:
     return '<p>Không có dữ liệu PC/SM/Day.</p>'
 
   months = []
   seen = set()
   for c in df.columns:
-    if isinstance(c, str) and c.startswith('PC/Day|'):
+    if isinstance(c, str) and '|' in c:
       lab = c.split('|', 1)[1]
       if lab not in seen:
         seen.add(lab)
         months.append(lab)
-
-  # Mốc màu: so với median của cột (không tính total)
-  def _style_val(val, med):
-    if val is None or med is None or med <= 0:
-      return '', ''
-    ratio = val / med * 100.0
-    if ratio < 90:
-      return ('pct-red',
-              'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;')
-    if ratio < 110:
-      return ('pct-green',
-              'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;')
-    return ('pct-purple',
-            'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;')
-
-  meds = {}
-  body = df.iloc[:-1] if len(df) > 1 else df
-  for lab in months:
-    col = f'PC/Day|{lab}'
-    if col in body.columns:
-      vals = pd.to_numeric(body[col], errors='coerce').dropna()
-      meds[lab] = float(vals.median()) if len(vals) else 0.0
 
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
       'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;white-space:nowrap;'
   )
-  th_sticky = th + 'position:sticky;left:0;z-index:3;'
-  th_sticky2 = th + 'position:sticky;left:42px;z-index:3;'
+  th_month = (
+      'background-color:#c53030 !important;color:#ffffff !important;'
+      'font-weight:900 !important;text-align:center !important;'
+      'border:1px solid #9b2c2c !important;padding:8px 5px;font-size:12px;'
+  )
+  th_sub = (
+      'background-color:#2c5282 !important;color:#ffffff !important;'
+      'font-weight:700 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:5px 4px;font-size:10px;white-space:nowrap;'
+  )
   td = (
       'border:1px solid #bce2f5 !important;padding:5px 6px;'
       'font-size:11px;text-align:center !important;white-space:nowrap;'
@@ -4040,60 +4114,82 @@ def render_weekly_pc_day_html(df):
       'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
   )
 
+  # median PC/DAY for color
+  body = df.iloc[:-1] if len(df) > 1 else df
+  meds = {}
+  for lab in months:
+    col = f'PC/DAY|{lab}'
+    if col not in body.columns:
+      col = f'PC/Day|{lab}'
+    if col in body.columns:
+      vals = pd.to_numeric(body[col], errors='coerce').dropna()
+      meds[lab] = float(vals.median()) if len(vals) else 0.0
+
+  def _style_pcday(val, med):
+    try:
+      v = float(val)
+    except Exception:
+      return '', ''
+    if med is None or med <= 0:
+      return '', ''
+    ratio = v / med * 100.0
+    if ratio < 90:
+      return ('pct-red', 'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;')
+    if ratio < 110:
+      return ('pct-green', 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;')
+    return ('pct-purple', 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;')
+
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
-      '<thead><tr>',
-      f'<th style="{th_sticky}">STT</th>',
-      f'<th style="{th_sticky2}">Tên NVBH</th>',
+      '<thead>',
+      '<tr>',
+      f'<th rowspan="2" style="{th}">STT</th>',
+      f'<th rowspan="2" style="{th}">Tên NVBH</th>',
   ]
   for lab in months:
-    html.append(f'<th style="{th}">MCP OFF<br/>{lab}</th>')
-    html.append(f'<th style="{th}">PC/Day<br/>{lab}</th>')
+    html.append(f'<th colspan="3" style="{th_month}">{lab}</th>')
+  html.append('</tr><tr>')
+  for _ in months:
+    for sub in ('MCP', 'CALL PLAN BQ', 'PC/DAY'):
+      html.append(f'<th style="{th_sub}">{sub}</th>')
   html.append('</tr></thead><tbody>')
 
   for pos, (_, row) in enumerate(df.iterrows()):
-    is_tot = 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    is_tot = (
+        'TOTAL' in str(row.get('Tên NVBH', '')).upper()
+        or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    )
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
-    stt, ten = row.get('STT', ''), row.get('Tên NVBH', '')
+    stt = row.get('STT', '')
+    ten = row.get('Tên NVBH', '')
     if is_tot:
-      html.append(f'<td class="row-total-cell" style="{td_tot}position:sticky;left:0;">{stt}</td>')
-      html.append(f'<td class="row-total-cell" style="{td_tot}position:sticky;left:42px;text-align:left !important;">{ten}</td>')
+      html.append(f'<td class="row-total-cell" style="{td_tot}">{stt}</td>')
+      html.append(f'<td class="row-total-cell" style="{td_tot}text-align:left !important;">{ten}</td>')
     else:
-      html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:0;">{stt}</td>')
-      html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:42px;text-align:left !important;font-weight:600;">{ten}</td>')
+      html.append(f'<td style="{td}background-color:{bg} !important;">{stt}</td>')
+      html.append(f'<td style="{td}background-color:{bg} !important;text-align:left !important;font-weight:600;">{ten}</td>')
+
     for lab in months:
-      # MCP OFF
-      mcp_key = f'MCP OFF|{lab}'
-      mcp_val = row.get(mcp_key, 0)
-      try:
-        mcp_disp = str(int(float(mcp_val)))
-      except Exception:
-        mcp_disp = str(mcp_val) if mcp_val is not None else '0'
-      if is_tot:
-        html.append(f'<td class="row-total-cell" style="{td_tot}">{mcp_disp}</td>')
-      else:
-        html.append(f'<td style="{td}background-color:{bg} !important;">{mcp_disp}</td>')
-      # PC/Day
-      key = f'PC/Day|{lab}'
-      val = row.get(key, 0)
-      try:
-        fval = float(val)
-        disp = f'{fval:.2f}'
-      except Exception:
-        fval, disp = None, str(val)
-      if is_tot:
-        html.append(f'<td class="row-total-cell" style="{td_tot}">{disp}</td>')
-      else:
-        cls, st_c = _style_val(fval, meds.get(lab, 0))
-        if st_c:
-          html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{disp}</td>')
+      for prefix in ('MCP', 'CALL PLAN BQ', 'PC/DAY', 'PC/Day'):
+        col = f'{prefix}|{lab}'
+        if col not in df.columns:
+          continue
+        if prefix == 'PC/Day' and f'PC/DAY|{lab}' in df.columns:
+          continue
+        val = row.get(col, '')
+        if is_tot:
+          html.append(f'<td class="row-total-cell" style="{td_tot}">{val}</td>')
+        elif prefix in ('PC/DAY', 'PC/Day'):
+          cls, st_c = _style_pcday(val, meds.get(lab))
+          html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{val}</td>')
         else:
-          html.append(f'<td style="{td}background-color:{bg} !important;">{disp}</td>')
+          html.append(f'<td style="{td}background-color:{bg} !important;">{val}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
+
 
 
 def render_weekly_preview_html(df, timegone_pct=None):
