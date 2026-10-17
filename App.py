@@ -5649,6 +5649,9 @@ def build_summary_report(
 
 
 def render_summary_html_table(df, selected_metrics):
+  """Bảng Tổng Hợp — format sticky STT + Tên NV giống Báo Cáo Trưng Bày."""
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu báo cáo tổng hợp.</p>'
   df = df.drop(columns=['Mã NVBH'], errors='ignore')
 
   has_vip = 'VIP MCH' in selected_metrics
@@ -5663,202 +5666,181 @@ def render_summary_html_table(df, selected_metrics):
   has_cat = 'MBS Cat' in selected_metrics
   has_brand = 'MBS Brand' in selected_metrics
 
+  max_name = 12
+  if 'Tên NV' in df.columns:
+    for n in df['Tên NV'].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
+
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:12px;white-space:nowrap;'
+  tot_style = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
+      'padding:5px 4px;font-size:12px;'
+  )
+  sticky_stt_h = f'{th}position:sticky;left:0;z-index:6;min-width:44px;max-width:44px;'
+  sticky_ten_h = f'{th}position:sticky;left:44px;z-index:6;min-width:{name_w}px;'
+  sticky_stt_c = f'{td}position:sticky;left:0;z-index:4;min-width:44px;max-width:44px;text-align:center;'
+  sticky_ten_c = f'{td}position:sticky;left:44px;z-index:4;min-width:{name_w}px;text-align:left;font-weight:600;'
+  sticky_stt_t = f'{tot_style}position:sticky;left:0;z-index:5;min-width:44px;text-align:center;'
+  sticky_ten_t = f'{tot_style}position:sticky;left:44px;z-index:5;min-width:{name_w}px;text-align:left;'
+
+  groups = []
+  if has_vip:
+    groups.append(('VIP MCH', [
+        ('VIP MCH', 'VIP MCH', False, False),
+        ('Đã Mua (VIP)', 'Đã Mua', False, False),
+        ('% MTD (VIP)', '% MTD', True, False),
+    ]))
+  if has_ds:
+    groups.append(('Doanh Số', [
+        ('CT DS', 'CT', False, True),
+        ('TH DS', 'TH', False, True),
+        ('% MTD DS', '% MTD', True, False),
+    ]))
+  if has_pcbt:
+    groups.append(('PC BT', [
+        ('CT PC_BT', 'CT', False, False),
+        ('TH PC_BT', 'TH', False, False),
+        ('% MTD PC_BT', '% MTD', True, False),
+    ]))
+  if has_lppc:
+    groups.append(('LPPC', [
+        ('CT LPPC', 'CT', False, False),
+        ('TH LPPC', 'TH', False, False),
+        ('% MTD LPPC', '% MTD', True, False),
+    ]))
+  if has_xanh:
+    groups.append(('ASO Trận Xanh', [
+        ('CT Xanh', 'CT', False, False),
+        ('TH Xanh', 'TH', False, False),
+        ('% MTD Xanh', '% MTD', True, False),
+    ]))
+  if has_vang:
+    groups.append(('ASO Trận Vàng', [
+        ('CT Vàng', 'CT', False, False),
+        ('TH Vàng', 'TH', False, False),
+        ('% MTD Vàng', '% MTD', True, False),
+    ]))
+  if has_pcon:
+    groups.append(('PC Kênh ON', [
+        ('CT PC_ON', 'CT', False, False),
+        ('TH PC_ON', 'TH', False, False),
+        ('% MTD PC_ON', '% MTD', True, False),
+    ]))
+  if has_off:
+    groups.append(('KH Combo OFF', [
+        ('KH Combo OFF', 'KH Combo OFF', False, False),
+        ('Đã Mua (OFF)', 'Đã Mua', False, False),
+        ('% MTD (OFF)', '% MTD', True, False),
+    ]))
+  if has_on:
+    groups.append(('KH Combo ON', [
+        ('KH Combo ON', 'KH Combo ON', False, False),
+        ('Đã Mua (ON)', 'Đã Mua', False, False),
+        ('% MTD (ON)', '% MTD', True, False),
+    ]))
+  if has_cat:
+    groups.append(('MBS Cat (K VNĐ)', [
+        ('MBS Cat', 'MBS Cat', False, False),
+        ('Đã Mua (Cat)', 'Đã Mua', False, False),
+        ('% MTD (Cat)', '% MTD', True, False),
+        ('CT DS (Cat)', 'CT DS', False, True),
+        ('MTD (Cat)', 'MTD', False, True),
+        ('% MTD DS (Cat)', '% MTD', True, False),
+    ]))
+  if has_brand:
+    groups.append(('MBS Brand (K VNĐ)', [
+        ('MBS Brand', 'MBS Brand', False, False),
+        ('Đã Mua (Brand)', 'Đã Mua', False, False),
+        ('% MTD (Brand)', '% MTD', True, False),
+        ('CT DS (Brand)', 'CT DS', False, True),
+        ('MTD (Brand)', 'MTD', False, True),
+        ('% MTD DS (Brand)', '% MTD', True, False),
+    ]))
+
   html = [
-      '<div style="overflow-x: auto; -webkit-overflow-scrolling:'
-      ' touch;"><table class="custom-kpi-table">'
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
+      '<thead>',
+      '<tr>',
+      f'<th rowspan="2" style="{sticky_stt_h}">STT</th>',
+      f'<th rowspan="2" style="{sticky_ten_h}">Tên NV</th>',
   ]
+  for title, cols in groups:
+    html.append(f'<th colspan="{len(cols)}" style="{th}">{title}</th>')
+  html.append('</tr><tr>')
+  for _, cols in groups:
+    for _, sub, _, _ in cols:
+      html.append(f'<th style="{th}">{sub}</th>')
+  html.append('</tr></thead><tbody>')
 
-  html.append('<thead>')
-  html.append('<tr>')
-  html.append('<th rowspan="2" style="vertical-align: middle;">STT</th>')
-  html.append('<th rowspan="2" style="vertical-align: middle;">Tên NV</th>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = (
+        str(row.get('Tên NV', '')).strip() == 'TỔNG CỘNG'
+        or 'TOTAL' in str(row.get('Tên NV', '')).upper()
+        or 'TỔNG' in str(row.get('Tên NV', '')).upper()
+    )
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
+    stt = row.get('STT', '')
+    ten = row.get('Tên NV', '')
+    if is_tot:
+      html.append(f'<td class="row-total-cell" style="{sticky_stt_t}">{stt}</td>')
+      html.append(f'<td class="row-total-cell" style="{sticky_ten_t}">{ten}</td>')
+    else:
+      html.append(f'<td style="{sticky_stt_c}background-color:{bg} !important;">{stt}</td>')
+      html.append(f'<td style="{sticky_ten_c}background-color:{bg} !important;">{ten}</td>')
 
-  if has_vip:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">VIP MCH</th>'
-    )
-  if has_ds:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">Doanh Số</th>'
-    )
-  if has_pcbt:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">PC BT</th>'
-    )
-  if has_lppc:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">LPPC</th>'
-    )
-  if has_xanh:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">ASO Trận Xanh</th>'
-    )
-  if has_vang:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">ASO Trận Vàng</th>'
-    )
-  if has_pcon:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">PC Kênh ON</th>'
-    )
-  if has_off:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">KH Combo OFF</th>'
-    )
-  if has_on:
-    html.append(
-        '<th colspan="3" style="background-color: #1a365d; color:'
-        ' #ffffff;">KH Combo ON</th>'
-    )
-  if has_cat:
-    html.append(
-        '<th colspan="6" style="background-color: #1a365d; color:'
-        ' #ffffff;">MBS Cat (K VNĐ)</th>'
-    )
-  if has_brand:
-    html.append(
-        '<th colspan="6" style="background-color: #1a365d; color:'
-        ' #ffffff;">MBS Brand (K VNĐ)</th>'
-    )
-  html.append('</tr>')
-
-  html.append('<tr>')
-  sub_headers = []
-  if has_vip:
-    sub_headers.extend(['VIP MCH', 'Đã Mua', '% MTD'])
-  if has_ds:
-    sub_headers.extend(['CT', 'TH', '% MTD'])
-  if has_pcbt:
-    sub_headers.extend(['CT', 'TH', '% MTD'])
-  if has_lppc:
-    sub_headers.extend(['CT', 'TH', '% MTD'])
-  if has_xanh:
-    sub_headers.extend(['CT', 'TH', '% MTD'])
-  if has_vang:
-    sub_headers.extend(['CT', 'TH', '% MTD'])
-  if has_pcon:
-    sub_headers.extend(['CT', 'TH', '% MTD'])
-  if has_off:
-    sub_headers.extend(['KH Combo OFF', 'Đã Mua', '% MTD'])
-  if has_on:
-    sub_headers.extend(['KH Combo ON', 'Đã Mua', '% MTD'])
-  if has_cat:
-    sub_headers.extend(['MBS Cat', 'Đã Mua', '% MTD', 'CT DS', 'MTD', '% MTD'])
-  if has_brand:
-    sub_headers.extend(
-        ['MBS Brand', 'Đã Mua', '% MTD', 'CT DS', 'MTD', '% MTD']
-    )
-
-  for sh in sub_headers:
-    html.append(f'<th>{sh}</th>')
-  html.append('</tr>')
-  html.append('</thead>')
-
-  html.append('<tbody>')
-  for _, row in df.iterrows():
-    is_total = (str(row.get('Tên NV', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NV', '')).upper() or 'TỔNG' in str(row.get('Tên NV', '')).upper())
-    html.append('<tr>')
-
-    cols_order = ['STT', 'Tên NV']
-    if has_vip:
-      cols_order.extend(['VIP MCH', 'Đã Mua (VIP)', '% MTD (VIP)'])
-    if has_ds:
-      cols_order.extend(['CT DS', 'TH DS', '% MTD DS'])
-    if has_pcbt:
-      cols_order.extend(['CT PC_BT', 'TH PC_BT', '% MTD PC_BT'])
-    if has_lppc:
-      cols_order.extend(['CT LPPC', 'TH LPPC', '% MTD LPPC'])
-    if has_xanh:
-      cols_order.extend(['CT Xanh', 'TH Xanh', '% MTD Xanh'])
-    if has_vang:
-      cols_order.extend(['CT Vàng', 'TH Vàng', '% MTD Vàng'])
-    if has_pcon:
-      cols_order.extend(['CT PC_ON', 'TH PC_ON', '% MTD PC_ON'])
-    if has_off:
-      cols_order.extend(['KH Combo OFF', 'Đã Mua (OFF)', '% MTD (OFF)'])
-    if has_on:
-      cols_order.extend(['KH Combo ON', 'Đã Mua (ON)', '% MTD (ON)'])
-    if has_cat:
-      cols_order.extend([
-          'MBS Cat',
-          'Đã Mua (Cat)',
-          '% MTD (Cat)',
-          'CT DS (Cat)',
-          'MTD (Cat)',
-          '% MTD DS (Cat)',
-      ])
-    if has_brand:
-      cols_order.extend([
-          'MBS Brand',
-          'Đã Mua (Brand)',
-          '% MTD (Brand)',
-          'CT DS (Brand)',
-          'MTD (Brand)',
-          '% MTD DS (Brand)',
-      ])
-
-    for col in cols_order:
-      val = row[col]
-      if pd.isna(val):
-        val = ''
-
-      if col in ['CT DS', 'TH DS'] or 'CT DS' in col or 'MTD (Cat)' in col or 'MTD (Brand)' in col:
-        try:
-          val = format_number_vn(val) if 'format_number_vn' in dir() else format_scaled_thousand(val)
-        except Exception:
-          val = format_scaled_thousand(val)
-
-      is_pct = '%' in col
-      style_bg = color_pct_bg(val) if is_pct else ''
-
-      if is_total:
-        if col in ['CT DS (Cat)', 'MTD (Cat)', 'CT DS (Brand)', 'MTD (Brand)']:
-          html.append(
-              f'<td style="background-color:#1a365d !important; color:#ffffff'
-              ' !important; font-weight: 900 !important; text-align: right;'
-              f' white-space: nowrap;">{val}</td>'
-          )
-        elif is_pct:
-          cls = color_pct_class(val)
-          html.append(
-              f'<td align="center" data-colored="1" class="{cls}" '
-              f'style="{style_bg} text-align:center !important;font-weight:900 !important;">{val}</td>'
-          )
+    for _, cols in groups:
+      for col, _, is_pct, is_money in cols:
+        val = row.get(col, '')
+        if pd.isna(val):
+          val = ''
+        if is_money and val != '':
+          try:
+            val = format_scaled_thousand(val)
+          except Exception:
+            try:
+              val = format_number_vn(val)
+            except Exception:
+              pass
+        if is_tot:
+          if is_pct:
+            cls = color_pct_class(val)
+            style_bg = color_pct_bg(val)
+            html.append(
+                f'<td align="center" data-colored="1" class="{cls} row-total-cell" '
+                f'style="{style_bg}font-weight:900 !important;text-align:center !important;">{val}</td>'
+            )
+          else:
+            align = 'right' if is_money else 'center'
+            html.append(
+                f'<td class="row-total-cell" style="{tot_style}text-align:{align} !important;">{val}</td>'
+            )
         else:
-          align = 'left' if col == 'Tên NV' else 'center'
-          html.append(
-              f'<td style="background-color:#1a365d !important; color:#ffffff'
-              ' !important; font-weight: 900 !important; text-align:'
-              f' {align}; white-space: nowrap;">{val}</td>'
-          )
-      else:
-        if col in ['CT DS (Cat)', 'MTD (Cat)', 'CT DS (Brand)', 'MTD (Brand)']:
-          html.append(
-              f'<td style="text-align: right; white-space: nowrap;">{val}</td>'
-          )
-        elif is_pct:
-          cls = color_pct_class(val)
-          html.append(
-              f'<td align="center" data-colored="1" class="{cls}" '
-              f'style="{style_bg} text-align:center !important;">{val}</td>'
-          )
-        else:
-          align = 'left' if col == 'Tên NV' else 'center'
-          html.append(
-              f'<td style="text-align: {align}; white-space: nowrap;">{val}</td>'
-          )
+          if is_pct:
+            cls = color_pct_class(val)
+            style_bg = color_pct_bg(val)
+            html.append(
+                f'<td align="center" data-colored="1" class="{cls}" '
+                f'style="{td}{style_bg}text-align:center !important;">{val}</td>'
+            )
+          else:
+            align = 'right' if is_money else 'center'
+            html.append(
+                f'<td style="{td}background-color:{bg} !important;text-align:{align};">{val}</td>'
+            )
     html.append('</tr>')
-  html.append('</tbody>')
-  html.append('</table></div>')
+  html.append('</tbody></table></div>')
   return ''.join(html)
+
 
 
 def render_html_table(df):
@@ -11980,22 +11962,60 @@ with tab_kpi:
         f" Lọc Thứ/Chu kỳ: {f_thu_sum if f_thu_sum else 'Tất cả'}"
     )
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-      render_metric_card('Tổng VIP MCH', f"{tot_row_s['VIP MCH']:,}")
-    with c2:
-      render_metric_card(
-          'Tổng KH Combo OFF', f"{tot_row_s['KH Combo OFF']:,}"
-      )
-    with c3:
-      render_metric_card(
-          'Tổng KH Combo ON', f"{tot_row_s['KH Combo ON']:,}"
-      )
-    with c4:
-      render_metric_card(
-          'Tổng MBS Cat / Brand',
-          f"{tot_row_s['MBS Cat']:,} / {tot_row_s['MBS Brand']:,}",
-      )
+    # Metric cards theo KPI đang chọn
+    def _card_val(col, fmt='int'):
+      try:
+        v = tot_row_s[col]
+        if fmt == 'pct':
+          return str(v)
+        if fmt == 'float':
+          return f"{float(v):,.2f}".rstrip('0').rstrip('.')
+        return f"{int(float(v)):,}"
+      except Exception:
+        return '0'
+
+    cards = []
+    if 'VIP MCH' in selected_metrics:
+      cards.append(('Tổng VIP MCH', _card_val('VIP MCH')))
+    if 'Doanh Số' in selected_metrics:
+      cards.append(('Doanh Số TH', _card_val('TH DS')))
+    if 'PC BT' in selected_metrics:
+      cards.append(('PC BT TH', _card_val('TH PC_BT')))
+    if 'LPPC' in selected_metrics:
+      cards.append(('LPPC TH', _card_val('TH LPPC', 'float')))
+    if 'ASO Trận Xanh' in selected_metrics:
+      cards.append(('ASO Xanh TH', _card_val('TH Xanh')))
+    if 'ASO Trận Vàng' in selected_metrics:
+      cards.append(('ASO Vàng TH', _card_val('TH Vàng')))
+    if 'PC Kênh ON' in selected_metrics:
+      cards.append(('PC ON TH', _card_val('TH PC_ON')))
+    if 'KH Combo OFF' in selected_metrics:
+      cards.append(('Tổng KH Combo OFF', _card_val('KH Combo OFF')))
+    if 'KH Combo ON' in selected_metrics:
+      cards.append(('Tổng KH Combo ON', _card_val('KH Combo ON')))
+    if 'MBS Cat' in selected_metrics or 'MBS Brand' in selected_metrics:
+      cat_v = _card_val('MBS Cat') if 'MBS Cat' in selected_metrics else '-'
+      brand_v = _card_val('MBS Brand') if 'MBS Brand' in selected_metrics else '-'
+      if 'MBS Cat' in selected_metrics and 'MBS Brand' in selected_metrics:
+        cards.append(('Tổng MBS Cat / Brand', f'{cat_v} / {brand_v}'))
+      elif 'MBS Cat' in selected_metrics:
+        cards.append(('Tổng MBS Cat', cat_v))
+      else:
+        cards.append(('Tổng MBS Brand', brand_v))
+
+    if cards:
+      n = len(cards)
+      row_cards = cards[:4]
+      cols_m = st.columns(len(row_cards))
+      for i, (lab, val) in enumerate(row_cards):
+        with cols_m[i]:
+          render_metric_card(lab, val)
+      if n > 4:
+        row_cards = cards[4:]
+        cols_m = st.columns(len(row_cards))
+        for i, (lab, val) in enumerate(row_cards):
+          with cols_m[i]:
+            render_metric_card(lab, val)
 
     st.markdown(
         render_summary_html_table(df_summary, selected_metrics),
