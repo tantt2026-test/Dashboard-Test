@@ -6060,11 +6060,22 @@ def render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm'):
     labels = [name_map.get(g, f'Nhóm {g}') for g in cnt.index]
     values = cnt.tolist()
     total = sum(values)
+    # Palette tương phản rõ (không lặp màu)
     colors = {
-        1: '#68d391', 2: '#a0aec0', 3: '#90cdf4',
-        4: '#76e4f7', 5: '#fc8181', 6: '#63b3ed',
+        1: '#38a169',  # xanh lá đậm
+        2: '#dd6b20',  # cam
+        3: '#3182ce',  # xanh dương
+        4: '#d69e2e',  # vàng/amber
+        5: '#e53e3e',  # đỏ
+        6: '#805ad5',  # tím
     }
-    marker_colors = [colors.get(int(g), '#a0aec0') for g in cnt.index]
+    fallback = ['#2b6cb0', '#c05621', '#276749', '#b7791f', '#c53030', '#6b46c1']
+    marker_colors = []
+    for i, g in enumerate(cnt.index):
+      try:
+        marker_colors.append(colors.get(int(g), fallback[i % len(fallback)]))
+      except Exception:
+        marker_colors.append(fallback[i % len(fallback)])
     fig = go.Figure(data=[go.Pie(
         labels=labels,
         values=values,
