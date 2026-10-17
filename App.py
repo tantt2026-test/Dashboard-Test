@@ -3538,6 +3538,7 @@ def render_weekly_pc_day_html(df):
       f'<th style="{th_sticky2}">Tên NVBH</th>',
   ]
   for lab in months:
+    html.append(f'<th style="{th}">MCP OFF<br/>{lab}</th>')
     html.append(f'<th style="{th}">PC/Day<br/>{lab}</th>')
   html.append('</tr></thead><tbody>')
 
@@ -3553,6 +3554,18 @@ def render_weekly_pc_day_html(df):
       html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:0;">{stt}</td>')
       html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:42px;text-align:left !important;font-weight:600;">{ten}</td>')
     for lab in months:
+      # MCP OFF
+      mcp_key = f'MCP OFF|{lab}'
+      mcp_val = row.get(mcp_key, 0)
+      try:
+        mcp_disp = str(int(float(mcp_val)))
+      except Exception:
+        mcp_disp = str(mcp_val) if mcp_val is not None else '0'
+      if is_tot:
+        html.append(f'<td class="row-total-cell" style="{td_tot}">{mcp_disp}</td>')
+      else:
+        html.append(f'<td style="{td}background-color:{bg} !important;">{mcp_disp}</td>')
+      # PC/Day
       key = f'PC/Day|{lab}'
       val = row.get(key, 0)
       try:
