@@ -11962,56 +11962,90 @@ with tab_kpi:
         f" Lọc Thứ/Chu kỳ: {f_thu_sum if f_thu_sum else 'Tất cả'}"
     )
 
-    # Metric cards theo KPI đang chọn
-    def _card_val(col, fmt='int'):
+    # Metric cards theo KPI đang chọn — format TH/CT/%MTD
+    def _fmt_num(v, as_float=False, money=False):
       try:
-        v = tot_row_s[col]
-        if fmt == 'pct':
-          return str(v)
-        if fmt == 'float':
-          return f"{float(v):,.2f}".rstrip('0').rstrip('.')
-        return f"{int(float(v)):,}"
+        if pd.isna(v) or v == '':
+          return '0'
+        x = float(v)
+        if money:
+          return f'{int(round(x)):,}'.replace(',', '.')
+        if as_float:
+          s = f'{x:.2f}'.rstrip('0').rstrip('.')
+          return s
+        return f'{int(round(x)):,}'.replace(',', '.')
       except Exception:
-        return '0'
+        return str(v) if v is not None else '0'
+
+    def _card_th_ct_pct(th_col, ct_col, pct_col, as_float=False, money=False):
+      th = _fmt_num(tot_row_s.get(th_col, 0), as_float=as_float, money=money)
+      ct = _fmt_num(tot_row_s.get(ct_col, 0), as_float=as_float, money=money)
+      pct = str(tot_row_s.get(pct_col, '0%'))
+      if pct and not str(pct).endswith('%'):
+        pct = f'{pct}%'
+      return f'{th}/{ct}/{pct}'
 
     cards = []
     if 'VIP MCH' in selected_metrics:
-      cards.append(('Tổng VIP MCH', _card_val('VIP MCH')))
+      cards.append((
+          'VIP MCH',
+          _card_th_ct_pct('Đã Mua (VIP)', 'VIP MCH', '% MTD (VIP)'),
+      ))
     if 'Doanh Số' in selected_metrics:
-      cards.append(('Doanh Số TH', _card_val('TH DS')))
+      cards.append((
+          'Doanh Số',
+          _card_th_ct_pct('TH DS', 'CT DS', '% MTD DS', money=True),
+      ))
     if 'PC BT' in selected_metrics:
-      cards.append(('PC BT TH', _card_val('TH PC_BT')))
+      cards.append((
+          'PC BT',
+          _card_th_ct_pct('TH PC_BT', 'CT PC_BT', '% MTD PC_BT'),
+      ))
     if 'LPPC' in selected_metrics:
-      cards.append(('LPPC TH', _card_val('TH LPPC', 'float')))
+      cards.append((
+          'LPPC',
+          _card_th_ct_pct('TH LPPC', 'CT LPPC', '% MTD LPPC', as_float=True),
+      ))
     if 'ASO Trận Xanh' in selected_metrics:
-      cards.append(('ASO Xanh TH', _card_val('TH Xanh')))
+      cards.append((
+          'ASO Trận Xanh',
+          _card_th_ct_pct('TH Xanh', 'CT Xanh', '% MTD Xanh'),
+      ))
     if 'ASO Trận Vàng' in selected_metrics:
-      cards.append(('ASO Vàng TH', _card_val('TH Vàng')))
+      cards.append((
+          'ASO Trận Vàng',
+          _card_th_ct_pct('TH Vàng', 'CT Vàng', '% MTD Vàng'),
+      ))
     if 'PC Kênh ON' in selected_metrics:
-      cards.append(('PC ON TH', _card_val('TH PC_ON')))
+      cards.append((
+          'PC Kênh ON',
+          _card_th_ct_pct('TH PC_ON', 'CT PC_ON', '% MTD PC_ON'),
+      ))
     if 'KH Combo OFF' in selected_metrics:
-      cards.append(('Tổng KH Combo OFF', _card_val('KH Combo OFF')))
+      cards.append((
+          'KH Combo OFF',
+          _card_th_ct_pct('Đã Mua (OFF)', 'KH Combo OFF', '% MTD (OFF)'),
+      ))
     if 'KH Combo ON' in selected_metrics:
-      cards.append(('Tổng KH Combo ON', _card_val('KH Combo ON')))
-    if 'MBS Cat' in selected_metrics or 'MBS Brand' in selected_metrics:
-      cat_v = _card_val('MBS Cat') if 'MBS Cat' in selected_metrics else '-'
-      brand_v = _card_val('MBS Brand') if 'MBS Brand' in selected_metrics else '-'
-      if 'MBS Cat' in selected_metrics and 'MBS Brand' in selected_metrics:
-        cards.append(('Tổng MBS Cat / Brand', f'{cat_v} / {brand_v}'))
-      elif 'MBS Cat' in selected_metrics:
-        cards.append(('Tổng MBS Cat', cat_v))
-      else:
-        cards.append(('Tổng MBS Brand', brand_v))
+      cards.append((
+          'KH Combo ON',
+          _card_th_ct_pct('Đã Mua (ON)', 'KH Combo ON', '% MTD (ON)'),
+      ))
+    if 'MBS Cat' in selected_metrics:
+      cards.append((
+          'MBS Cat',
+          _card_th_ct_pct('Đã Mua (Cat)', 'MBS Cat', '% MTD (Cat)'),
+      ))
+    if 'MBS Brand' in selected_metrics:
+      cards.append((
+          'MBS Brand',
+          _card_th_ct_pct('Đã Mua (Brand)', 'MBS Brand', '% MTD (Brand)'),
+      ))
 
     if cards:
-      n = len(cards)
-      row_cards = cards[:4]
-      cols_m = st.columns(len(row_cards))
-      for i, (lab, val) in enumerate(row_cards):
-        with cols_m[i]:
-          render_metric_card(lab, val)
-      if n > 4:
-        row_cards = cards[4:]
+      # Hiển thị tối đa 4 card / hàng
+      for start in range(0, len(cards), 4):
+        row_cards = cards[start:start + 4]
         cols_m = st.columns(len(row_cards))
         for i, (lab, val) in enumerate(row_cards):
           with cols_m[i]:
