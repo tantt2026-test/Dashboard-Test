@@ -12924,6 +12924,154 @@ with tab_kpi:
           st.markdown(render_orders_meat_ge4_html(df_meat4), unsafe_allow_html=True)
         except Exception:
           pass
+        # ===== Chart mức độ hoàn thành KPI theo ngày (từ dòng TOTAL 2 bảng) =====
+        try:
+          import plotly.graph_objects as go
+          tot = df_perf.iloc[-1] if df_perf is not None and not df_perf.empty else None
+          if tot is not None:
+            chart_items = [
+                ('% PC/VT OFF', '% PC/VT OFF'),
+                ('% PC/Plan ON', '% PC/Plan ON'),
+                ('LPPC OFF', 'LPPC OFF'),
+                ('% TH SO', '% TH SO'),
+                ('% TH Xanh', '% TH Xanh'),
+                ('% TH Vàng', '% TH Vàng'),
+                ('% TH TB', '% TH TB'),
+            ]
+            labels, values, hover, is_lppc = [], [], [], []
+            for lab, col in chart_items:
+              if col not in tot.index and col not in df_perf.columns:
+                continue
+              raw = tot.get(col, 0)
+              try:
+                s = str(raw).replace('%', '').replace(',', '.').strip()
+                v = float(s) if s and s.lower() not in ('nan', 'none', '') else 0.0
+              except Exception:
+                v = 0.0
+              labels.append(lab)
+              values.append(v)
+              is_lppc.append(col == 'LPPC OFF')
+              hover.append(f'{lab}: {raw}')
+
+            if labels:
+              try:
+                _rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+                _, _, _, tg = get_timegone_stats(_rd)
+                tg = float(tg or 0)
+              except Exception:
+                tg = 0.0
+              colors = []
+              for v, lp in zip(values, is_lppc):
+                if lp:
+                  # LPPC: so với mốc 4.3 (hoặc 5.0 Miền Đông)
+                  try:
+                    moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
+                  except Exception:
+                    moc = 4.3
+                  pct_eq = (v / moc * 100) if moc else 0
+                  if pct_eq < 100:
+                    colors.append('#fc8181')
+                  elif pct_eq >= 105:
+                    colors.append('#9f7aea')
+                  else:
+                    colors.append('#68d391')
+                else:
+                  if tg > 0:
+                    if v < tg:
+                      colors.append('#fc8181')
+                    elif v >= tg + 5:
+                      colors.append('#9f7aea')
+                    else:
+                      colors.append('#68d391')
+                  else:
+                    if v < 80:
+                      colors.append('#fc8181')
+                    elif v >= 100:
+                      colors.append('#9f7aea')
+                    else:
+                      colors.append('#68d391')
+
+              fig = go.Figure()
+              text_labels = []
+              for v, lp in zip(values, is_lppc):
+                if lp:
+                  text_labels.append(f'{v:.2f}')
+                else:
+                  text_labels.append(f'{v:.1f}%')
+              fig.add_trace(go.Bar(
+                  x=labels,
+                  y=values,
+                  text=text_labels,
+                  textposition='outside',
+                  marker_color=colors,
+                  hovertext=hover,
+                  hoverinfo='text',
+              ))
+              # Trục Y chính cho %; LPPC scale khác nên normalize display?
+              # Giữ giá trị thật — LPPC ~4-6, % ~0-120 → LPPC sẽ thấp trên chart.
+              # Scale LPPC lên % so với mốc để cùng trục % MTD
+              y_plot = []
+              text_labels2 = []
+              hover2 = []
+              for v, lp, lab, h in zip(values, is_lppc, labels, hover):
+                if lp:
+                  try:
+                    moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
+                  except Exception:
+                    moc = 4.3
+                  y_plot.append(round(v / moc * 100, 1) if moc else 0)
+                  text_labels2.append(f'{v:.2f} ({y_plot[-1]}%)')
+                  hover2.append(f'{lab}: {v:.2f} (mốc {moc}) → {y_plot[-1]}%')
+                else:
+                  y_plot.append(v)
+                  text_labels2.append(f'{v:.1f}%')
+                  hover2.append(h)
+              fig = go.Figure()
+              fig.add_trace(go.Bar(
+                  x=labels,
+                  y=y_plot,
+                  text=text_labels2,
+                  textposition='outside',
+                  marker_color=colors,
+                  hovertext=hover2,
+                  hoverinfo='text',
+              ))
+              if tg > 0:
+                fig.add_hline(
+                    y=tg, line_dash='dash', line_color='#3182ce', line_width=2,
+                    annotation_text=f'Timegone {tg:.0f}%', annotation_position='top right',
+                )
+              fig.add_hline(
+                  y=100, line_dash='dot', line_color='#718096', line_width=1,
+                  annotation_text='100%', annotation_position='top left',
+              )
+              fig.update_layout(
+                  title=dict(
+                      text=f'Mức độ hoàn thành KPI theo ngày {report_date.strftime("%d/%m/%Y")}',
+                      font=dict(size=15, color='#1a365d', family='Arial'),
+                      x=0.5, xanchor='center',
+                  ),
+                  yaxis=dict(
+                      title='% hoàn thành',
+                      range=[0, max(120, (max(y_plot) + 15) if y_plot else 120)],
+                      ticksuffix='%', gridcolor='#e2e8f0',
+                  ),
+                  xaxis=dict(tickangle=-20, tickfont=dict(size=11)),
+                  margin=dict(l=40, r=20, t=50, b=70),
+                  height=380,
+                  plot_bgcolor='white',
+                  paper_bgcolor='white',
+                  showlegend=False,
+                  bargap=0.35,
+              )
+              st.plotly_chart(fig, use_container_width=True, config={
+                  'displayModeBar': True,
+                  'displaylogo': False,
+                  'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+              })
+        except Exception as _e_perf_chart:
+          st.caption(f'Không vẽ được chart Hiệu Suất: {_e_perf_chart}')
+
         # Nhận xét nằm dưới các bảng chi tiết
         st.markdown(build_performance_comments(df_perf), unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
