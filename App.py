@@ -6043,6 +6043,57 @@ def check_mbs_mission(df_outlet, member_type, col_loai='_loai', col_actual='_act
   return has_new
 
 
+
+def render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm'):
+  """Biểu đồ tròn tỷ lệ từng nhóm / tổng KH đang hiển thị."""
+  try:
+    import plotly.graph_objects as go
+    if df_show is None or df_show.empty or 'Nhóm' not in df_show.columns:
+      return
+    cnt = df_show.groupby('Nhóm').size()
+    if 'Tên nhóm' in df_show.columns:
+      name_map = (
+          df_show.groupby('Nhóm')['Tên nhóm'].first().astype(str).to_dict()
+      )
+    else:
+      name_map = {g: f'Nhóm {g}' for g in cnt.index}
+    labels = [name_map.get(g, f'Nhóm {g}') for g in cnt.index]
+    values = cnt.tolist()
+    total = sum(values)
+    colors = {
+        1: '#68d391', 2: '#a0aec0', 3: '#90cdf4',
+        4: '#76e4f7', 5: '#fc8181', 6: '#63b3ed',
+    }
+    marker_colors = [colors.get(int(g), '#a0aec0') for g in cnt.index]
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.35,
+        marker=dict(colors=marker_colors, line=dict(color='#fff', width=1)),
+        textinfo='percent+label',
+        textposition='outside',
+        hovertemplate='%{label}<br>%{value} KH (%{percent})<extra></extra>',
+    )])
+    fig.update_layout(
+        title=dict(
+            text=f'{title} (Tổng {total:,} KH)'.replace(',', '.'),
+            font=dict(size=14, color='#1a365d'),
+            x=0.5, xanchor='center',
+        ),
+        margin=dict(l=20, r=20, t=50, b=20),
+        height=380,
+        showlegend=True,
+        legend=dict(orientation='h', y=-0.05, x=0.5, xanchor='center', font=dict(size=11)),
+        paper_bgcolor='white',
+    )
+    st.plotly_chart(fig, use_container_width=True, config={
+        'displayModeBar': True, 'displaylogo': False,
+        'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+    })
+  except Exception as e:
+    st.caption(f'Không vẽ được chart nhóm: {e}')
+
+
 def build_mbs_cat_report(df_cat, filter_nv=None, mcp_df=None):
   """Phân loại KH MBS CAT thành 6 nhóm.
   Target = Doanh số nền tảng của OUTLET
@@ -12381,7 +12432,41 @@ with tab_kpi:
       )
       if not nhom_selected:
         nhom_selected = [1, 2, 3, 4, 5, 6]
+
+      # Bộ lọc CAT + Đạt Nhiệm Vụ
+      cat_opts = sorted([
+          str(x).strip() for x in df_detail.get('Member type', pd.Series(dtype=str)).dropna().unique()
+          if str(x).strip() and str(x).strip().lower() not in ('nan', 'none')
+      ]) if 'Member type' in df_detail.columns else []
+      fc_a, fc_b = st.columns(2)
+      with fc_a:
+        st.markdown(
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+            '🏷️ Lọc CAT</p>',
+            unsafe_allow_html=True,
+        )
+        member_selected = st.multiselect(
+            '', options=cat_opts, default=[],
+            key='mbs_cat_member_filter', placeholder='Tất cả CAT',
+            label_visibility='collapsed',
+        )
+      with fc_b:
+        st.markdown(
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+            '✅ Đạt Nhiệm Vụ</p>',
+            unsafe_allow_html=True,
+        )
+        mission_selected = st.multiselect(
+            '', options=['Có', 'Không'], default=[],
+            key='mbs_cat_mission_filter', placeholder='Tất cả',
+            label_visibility='collapsed',
+        )
+
       df_show = df_detail[df_detail['Nhóm'].isin(nhom_selected)].copy()
+      if member_selected and 'Member type' in df_show.columns:
+        df_show = df_show[df_show['Member type'].astype(str).str.strip().isin(member_selected)]
+      if mission_selected and 'Đạt nhiệm vụ' in df_show.columns:
+        df_show = df_show[df_show['Đạt nhiệm vụ'].astype(str).str.strip().isin(mission_selected)]
 
       if not df_show.empty:
         df_show = df_show.sort_values(
@@ -12422,6 +12507,7 @@ with tab_kpi:
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+        render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm — MBS CAT')
         st.download_button(
             label='⬇️ Xuất file CSV - Chi tiết MBS CAT',
             data=df_html.to_csv(index=False).encode('utf-8-sig'),
@@ -12589,7 +12675,40 @@ with tab_kpi:
       )
       if not nhom_selected:
         nhom_selected = [1, 2, 3, 4, 5, 6]
+
+      brand_opts = sorted([
+          str(x).strip() for x in df_detail.get('Member type', pd.Series(dtype=str)).dropna().unique()
+          if str(x).strip() and str(x).strip().lower() not in ('nan', 'none')
+      ]) if 'Member type' in df_detail.columns else []
+      fb_a, fb_b = st.columns(2)
+      with fb_a:
+        st.markdown(
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+            '🏷️ Lọc BRAND</p>',
+            unsafe_allow_html=True,
+        )
+        member_selected_b = st.multiselect(
+            '', options=brand_opts, default=[],
+            key='mbs_brand_member_filter', placeholder='Tất cả BRAND',
+            label_visibility='collapsed',
+        )
+      with fb_b:
+        st.markdown(
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+            '✅ Đạt Nhiệm Vụ</p>',
+            unsafe_allow_html=True,
+        )
+        mission_selected_b = st.multiselect(
+            '', options=['Có', 'Không'], default=[],
+            key='mbs_brand_mission_filter', placeholder='Tất cả',
+            label_visibility='collapsed',
+        )
+
       df_show = df_detail[df_detail['Nhóm'].isin(nhom_selected)].copy()
+      if member_selected_b and 'Member type' in df_show.columns:
+        df_show = df_show[df_show['Member type'].astype(str).str.strip().isin(member_selected_b)]
+      if mission_selected_b and 'Đạt nhiệm vụ' in df_show.columns:
+        df_show = df_show[df_show['Đạt nhiệm vụ'].astype(str).str.strip().isin(mission_selected_b)]
 
       if not df_show.empty:
         df_show = df_show.sort_values(
@@ -12622,6 +12741,7 @@ with tab_kpi:
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+        render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm — MBS BRAND')
         st.download_button(
             label='⬇️ Xuất file CSV - Chi tiết MBS BRAND',
             data=df_html.to_csv(index=False).encode('utf-8-sig'),
