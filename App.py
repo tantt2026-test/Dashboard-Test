@@ -3122,6 +3122,299 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
   return df_out
 
 
+
+def _mcp_vip_outlet_map(mcp_df):
+  """Map Mã CH → VIP group (VIP3/VIP5/VIPSI), chỉ Kênh OFF."""
+  out = {'VIP3': set(), 'VIP5': set(), 'VIPSI': set()}
+  if mcp_df is None or mcp_df.empty:
+    return out
+  mcp = mcp_df.copy()
+  c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH', 'OUTLET_CODE'])
+  c_vip = find_col(mcp, ['VIP MCH', 'VIP_MCH', 'VIP', 'Nhóm VIP', 'VIP Group', 'Customer Group'])
+  c_l1 = find_col(mcp, ['L1', 'x_msc_business_type_l1', 'Kênh', 'Channel'])
+  if not c_ma or not c_vip:
+    return out
+
+  def _nma(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  mcp['_ma'] = mcp[c_ma].map(_nma)
+  mcp['_vip'] = mcp[c_vip].astype(str).str.strip().str.upper()
+  # chuẩn hóa VIPSI
+  mcp['_vip'] = mcp['_vip'].replace({
+      'VIP SI': 'VIPSI', 'VIP_SI': 'VIPSI', 'VIP-SI': 'VIPSI',
+  })
+  if c_l1:
+    mcp = mcp[mcp[c_l1].astype(str).str.contains('Off', case=False, na=False)]
+  for g in ('VIP3', 'VIP5', 'VIPSI'):
+    out[g] = set(mcp.loc[mcp['_vip'] == g, '_ma'].tolist())
+  return out
+
+
+def build_weekly_lppc_vip(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
+  """LPPC OFF theo nhóm KH VIP3 / VIP5 / VIPSI.
+  Map Mã CH với Data_MCP (VIP MCH) → lọc đơn bán → LPPC (trừ Meat/Beer).
+  """
+  if months is None:
+    months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
+  vip_groups = ('VIP3', 'VIP5', 'VIPSI')
+  empty_cols = ['STT', 'Tên NVBH']
+  for y, m in months:
+    lab = f'{m:02d}/{y}'
+    for g in vip_groups:
+      empty_cols.append(f'LPPC {g}|{lab}')
+  empty = pd.DataFrame(columns=empty_cols)
+
+  pos_name = {}
+  pos_list = []
+  if mcp_df is not None and not mcp_df.empty:
+    mcp = mcp_df.copy()
+    c_nv = find_col(mcp, ['SM name', 'SM Name', 'Tên NVBH'])
+    c_pos = find_col(mcp, ['Position code', 'Position Code', 'POS_CODE'])
+    if c_pos:
+      mcp['_pos'] = mcp[c_pos].astype(str).str.strip()
+      mcp['_nv'] = mcp[c_nv].astype(str).str.strip() if c_nv else mcp['_pos']
+      mcp = mcp[~mcp['_nv'].str.contains('vacant', case=False, na=False)]
+      for pos, g in mcp.groupby('_pos', sort=False):
+        names = g['_nv'].dropna()
+        names = names[names.str.lower() != 'nan']
+        pos_name[pos] = names.iloc[-1] if len(names) else pos
+      pos_list = sorted(pos_name.keys())
+
+  if nv_selected(filter_nv) and pos_name:
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    pos_list = [p for p in pos_list if pos_name.get(p, '') in vals]
+
+  vip_map = _mcp_vip_outlet_map(mcp_df)
+  s_norm = _normalize_weekly_sales_for_lppc(sales_hist)
+
+  def _nma(x):
+    if pd.isna(x):
+      return ''
+    s = str(x).strip()
+    if s.endswith('.0'):
+      s = s[:-2]
+    try:
+      return str(int(float(s)))
+    except Exception:
+      return s
+
+  # lppc_by_month[label][vip_group][pos] = {lppc, pc, lines}
+  lppc_by = {f'{m:02d}/{y}': {g: {} for g in vip_groups} for y, m in months}
+
+  def _run_month(sub, label):
+    if sub is None or sub.empty or 'Mã CH' not in sub.columns:
+      return
+    sub = sub.copy()
+    sub['_ma'] = sub['Mã CH'].map(_nma)
+    # Position
+    pos_col = find_col(sub, ['Position code', 'POS_CODE', 'Position Code'])
+    if pos_col:
+      sub['Mã NVBH'] = sub[pos_col].astype(str).str.strip()
+    elif 'Tên NVBH' in sub.columns and pos_name:
+      rev = {v: k for k, v in pos_name.items()}
+      sub['Mã NVBH'] = sub['Tên NVBH'].astype(str).str.strip().map(lambda x: rev.get(x, x))
+    if 'Mã NVBH' not in sub.columns:
+      return
+    for g in vip_groups:
+      outlets = vip_map.get(g, set())
+      if not outlets:
+        continue
+      sg = sub[sub['_ma'].isin(outlets)]
+      if sg.empty:
+        continue
+      lppc_by[label][g] = _lppc_from_orders(sg)
+
+  # Tháng 6-9 từ data-2
+  if not s_norm.empty and 'Month' in s_norm.columns:
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      if m == 10 and y == 2026:
+        continue
+      sub = s_norm[s_norm['Month'].astype(str).str.strip() == label].copy()
+      if sub.empty:
+        continue
+      _run_month(sub, label)
+
+  # Tháng 10 từ RPT
+  if df_rpt is not None and not df_rpt.empty:
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      # nếu đã có data VIP bất kỳ thì skip
+      if any(lppc_by[label][g] for g in vip_groups):
+        continue
+      try:
+        start_d = date(y, m, 1)
+        end_d = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+        d = df_rpt[(df_rpt['date'] >= start_d) & (df_rpt['date'] < end_d)].copy()
+        if d.empty:
+          continue
+        if 'L1' in d.columns:
+          d = d[d['L1'].astype(str).str.contains('Off', case=False, na=False)]
+        _run_month(d, label)
+      except Exception:
+        pass
+
+  if not pos_list:
+    keys = set()
+    for lab in lppc_by:
+      for g in vip_groups:
+        keys |= set(lppc_by[lab][g].keys())
+    pos_list = sorted(keys)
+
+  rows = []
+  for pos in pos_list:
+    nv = pos_name.get(pos, pos)
+    if 'vacant' in str(nv).lower():
+      continue
+    row = {'Tên NVBH': nv, 'Position code': pos}
+    for y, m in months:
+      label = f'{m:02d}/{y}'
+      for g in vip_groups:
+        info = lppc_by.get(label, {}).get(g, {}).get(pos, {})
+        if isinstance(info, dict):
+          val = float(info.get('lppc', 0) or 0)
+          lines = int(info.get('lines', 0) or 0)
+          pc = int(info.get('pc', 0) or 0)
+        else:
+          val, lines, pc = 0.0, 0, 0
+        row[f'LPPC {g}|{label}'] = round(val, 2)
+        row[f'_lines {g}|{label}'] = lines
+        row[f'_pc {g}|{label}'] = pc
+    rows.append(row)
+
+  if not rows:
+    return empty
+
+  df_out = pd.DataFrame(rows)
+  # sort theo LPPC VIP3 tháng cuối
+  last = f'{months[-1][1]:02d}/{months[-1][0]}'
+  sort_col = f'LPPC VIP3|{last}'
+  if sort_col in df_out.columns:
+    df_out = df_out.sort_values(sort_col, ascending=True).reset_index(drop=True)
+  df_out.insert(0, 'STT', range(1, len(df_out) + 1))
+
+  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (LPPC VIP OFF)'}
+  for y, m in months:
+    label = f'{m:02d}/{y}'
+    for g in vip_groups:
+      pc_s = int(pd.to_numeric(df_out[f'_pc {g}|{label}'], errors='coerce').fillna(0).sum()) if f'_pc {g}|{label}' in df_out.columns else 0
+      lines_s = int(pd.to_numeric(df_out[f'_lines {g}|{label}'], errors='coerce').fillna(0).sum()) if f'_lines {g}|{label}' in df_out.columns else 0
+      tot[f'LPPC {g}|{label}'] = round(lines_s / pc_s, 2) if pc_s else 0.0
+  drop_cols = [c for c in df_out.columns if str(c).startswith('_') or c == 'Position code']
+  df_out = df_out.drop(columns=drop_cols, errors='ignore')
+  ordered = ['STT', 'Tên NVBH']
+  for y, m in months:
+    lab = f'{m:02d}/{y}'
+    for g in vip_groups:
+      ordered.append(f'LPPC {g}|{lab}')
+  ordered = [c for c in ordered if c in df_out.columns]
+  df_out = df_out[ordered]
+  tot_df = pd.DataFrame([{c: tot.get(c, '') for c in ordered}])
+  df_out = pd.concat([df_out, tot_df], ignore_index=True)
+  return df_out
+
+
+def render_weekly_lppc_vip_html(df, timegone_pct=None):
+  """Bảng LPPC VIP3/VIP5/VIPSI — format giống LPPC Weekly."""
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu LPPC VIP OFF.</p>'
+
+  months = []
+  seen = set()
+  for c in df.columns:
+    if isinstance(c, str) and c.startswith('LPPC VIP') and '|' in c:
+      lab = c.split('|', 1)[1]
+      if lab not in seen:
+        seen.add(lab)
+        months.append(lab)
+  groups = ('VIP3', 'VIP5', 'VIPSI')
+
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #90cdf4 !important;padding:6px 5px;font-size:11px;white-space:nowrap;'
+  )
+  th_sticky = th + 'position:sticky;left:0;z-index:3;'
+  th_sticky2 = th + 'position:sticky;left:42px;z-index:3;'
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 6px;'
+      'font-size:11px;text-align:center !important;white-space:nowrap;'
+  )
+  td_tot = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+  )
+
+  def _cls(val):
+    try:
+      v = float(val)
+    except Exception:
+      return '', ''
+    # tô theo mốc 4.3 giống LPPC OFF
+    moc = 4.3
+    if timegone_pct is not None:
+      # so với timegone * moc không áp dụng trực tiếp; dùng mốc 4.3 cố định cho VIP
+      pass
+    if v < moc * 0.95:
+      return ('pct-red', 'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;')
+    if v < moc * 1.05:
+      return ('pct-green', 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;')
+    return ('pct-purple', 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;')
+
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:12px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;">',
+      '<thead><tr>',
+      f'<th style="{th_sticky}">STT</th>',
+      f'<th style="{th_sticky2}">Tên NVBH</th>',
+  ]
+  for lab in months:
+    for g in groups:
+      html.append(f'<th style="{th}">LPPC {g}<br/>{lab}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr' + (' class="row-total"' if is_tot else '') + '>')
+    stt, ten = row.get('STT', ''), row.get('Tên NVBH', '')
+    if is_tot:
+      html.append(f'<td class="row-total-cell" style="{td_tot}position:sticky;left:0;">{stt}</td>')
+      html.append(f'<td class="row-total-cell" style="{td_tot}position:sticky;left:42px;text-align:left !important;">{ten}</td>')
+    else:
+      html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:0;">{stt}</td>')
+      html.append(f'<td style="{td}background-color:{bg} !important;position:sticky;left:42px;text-align:left !important;font-weight:600;">{ten}</td>')
+    for lab in months:
+      for g in groups:
+        key = f'LPPC {g}|{lab}'
+        val = row.get(key, 0)
+        try:
+          disp = f'{float(val):.2f}'
+        except Exception:
+          disp = str(val)
+        if is_tot:
+          html.append(f'<td class="row-total-cell" style="{td_tot}">{disp}</td>')
+        else:
+          cls, st_c = _cls(val)
+          if st_c:
+            html.append(f'<td data-colored="1" class="{cls}" style="{td}{st_c}">{disp}</td>')
+          else:
+            html.append(f'<td style="{td}background-color:{bg} !important;">{disp}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
 def render_weekly_lppc_html(df, timegone_pct=None):
   """Bảng LPPC Weekly — PC + LPPC theo tháng, format KPI."""
   if df is None or df.empty:
@@ -12725,6 +13018,35 @@ with tab_kpi:
           file_name=f'Weekly_LPPC_OFF_{report_date.strftime("%Y%m%d")}.csv',
           mime='text/csv',
           key='dl_weekly_lppc',
+      )
+
+    # ---- Bảng LPPC OFF VIP3 / VIP5 / VIPSI ----
+    st.markdown(
+        '<h4 style="color:#034ea2;font-weight:800;margin:16px 0 6px 0;">'
+        'LPPC OFF — Nhóm KH VIP3 / VIP5 / VIPSI [ Not Meat/Beer ]</h4>',
+        unsafe_allow_html=True,
+    )
+    try:
+      df_lppc_vip = build_weekly_lppc_vip(
+          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+      )
+    except Exception as e:
+      st.error('Lỗi LPPC VIP Weekly: ' + str(e))
+      st.exception(e)
+      df_lppc_vip = pd.DataFrame()
+    if df_lppc_vip is None or df_lppc_vip.empty:
+      st.warning('Chưa có dữ liệu LPPC VIP OFF (VIP3/VIP5/VIPSI).')
+    else:
+      st.markdown(
+          render_weekly_lppc_vip_html(df_lppc_vip, timegone_pct=_CURRENT_TIMEGONE),
+          unsafe_allow_html=True,
+      )
+      st.download_button(
+          '📥 Tải CSV Weekly LPPC VIP OFF',
+          data=df_lppc_vip.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'Weekly_LPPC_VIP_OFF_{report_date.strftime("%Y%m%d")}.csv',
+          mime='text/csv',
+          key='dl_weekly_lppc_vip',
       )
 
     # ---- Bảng PC/SM/Day OFF ----
