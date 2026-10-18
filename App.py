@@ -5552,6 +5552,8 @@ def build_summary_report(
             & df_mtd['Mã CH'].astype(str).str.strip().isin(valid_on_ma_set)
         ].copy()
         if not df_on_trans.empty:
+          if 'Tên SP lower' not in df_on_trans.columns and 'Tên sản phẩm' in df_on_trans.columns:
+            df_on_trans['Tên SP lower'] = df_on_trans['Tên sản phẩm'].astype(str).str.lower()
           df_on_trans['is_combo'] = df_on_trans.apply(is_combo_on, axis=1)
           sub = df_on_trans[df_on_trans['is_combo']]
           if not sub.empty:
