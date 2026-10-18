@@ -5483,83 +5483,55 @@ def build_summary_report(
   def is_combo_on(row):
     return is_combo_line_t10(row)
 
+    # Target Combo từ master list (OFF/ON) — giữ lọc Thứ VT nếu có
   off_filtered = df_combo_off_raw.copy()
   if not off_filtered.empty and effective_thu_list:
     c_thu_off = find_col(off_filtered, ['Thứ', 'Frequency'])
     off_filtered = filter_by_thu_multi(off_filtered, c_thu_off, effective_thu_list)
 
-  off_target_map, off_actual_dict = {}, {}
+  off_target_map = {}
   if not off_filtered.empty:
-    c_nv_off = find_col(off_filtered, ['Tên NV', 'SM name', 'Nhân viên'])
+    c_nv_off = find_col(off_filtered, ['Tên NV', 'SM name', 'Nhân viên', 'Tên NVBH'])
     c_ma_off = find_col(off_filtered, ['outlet_code', 'Outlet Code', 'Mã CH'])
     if c_nv_off and c_ma_off:
       df_off_sub = off_filtered.copy()
       df_off_sub['NV'] = df_off_sub[c_nv_off].astype(str).str.strip()
       df_off_sub['MA'] = df_off_sub[c_ma_off].astype(str).str.strip()
-      off_target_map = (
-          df_off_sub.groupby('NV')['MA'].nunique().to_dict()
-      )
-
-      valid_off_ma_set = set(df_off_sub['MA'].unique())
-      off_actual_dict = {}
-      if (
-          not df_mtd.empty
-          and 'L1' in df_mtd.columns
-          and 'Mã CH' in df_mtd.columns
-          and 'Tên NVBH' in df_mtd.columns
-      ):
-        l1s = df_mtd['L1'].astype(str)
-        df_off_trans = df_mtd[
-            l1s.str.contains('Off', case=False, na=False)
-            & df_mtd['Mã CH'].astype(str).str.strip().isin(valid_off_ma_set)
-        ].copy()
-        if not df_off_trans.empty:
-          df_off_trans['is_combo'] = df_off_trans.apply(is_combo_off, axis=1)
-          sub = df_off_trans[df_off_trans['is_combo']]
-          if not sub.empty:
-            off_actual_dict = (
-                sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-            )
+      off_target_map = df_off_sub.groupby('NV')['MA'].nunique().to_dict()
 
   on_filtered = df_combo_on_raw.copy()
   if not on_filtered.empty and effective_thu_list:
     c_thu_on = find_col(on_filtered, ['Thứ', 'Frequency'])
     on_filtered = filter_by_thu_multi(on_filtered, c_thu_on, effective_thu_list)
 
-  on_target_map, on_actual_dict = {}, {}
+  on_target_map = {}
   if not on_filtered.empty:
-    c_nv_on = find_col(on_filtered, ['Tên NV', 'SM name', 'Nhân viên'])
+    c_nv_on = find_col(on_filtered, ['Tên NV', 'SM name', 'Nhân viên', 'Tên NVBH'])
     c_ma_on = find_col(on_filtered, ['outlet_code', 'Outlet Code', 'Mã CH'])
     if c_nv_on and c_ma_on:
       df_on_sub = on_filtered.copy()
       df_on_sub['NV'] = df_on_sub[c_nv_on].astype(str).str.strip()
       df_on_sub['MA'] = df_on_sub[c_ma_on].astype(str).str.strip()
-      on_target_map = (
-          df_on_sub.groupby('NV')['MA'].nunique().to_dict()
-      )
+      on_target_map = df_on_sub.groupby('NV')['MA'].nunique().to_dict()
 
-      valid_on_ma_set = set(df_on_sub['MA'].unique())
-      on_actual_dict = {}
-      if (
-          not df_mtd.empty
-          and 'L1' in df_mtd.columns
-          and 'Mã CH' in df_mtd.columns
-          and 'Tên NVBH' in df_mtd.columns
-      ):
-        l1s = df_mtd['L1'].astype(str)
-        df_on_trans = df_mtd[
-            l1s.str.contains('On', case=False, na=False)
-            & df_mtd['Mã CH'].astype(str).str.strip().isin(valid_on_ma_set)
-        ].copy()
-        if not df_on_trans.empty:
-          if 'Tên SP lower' not in df_on_trans.columns and 'Tên sản phẩm' in df_on_trans.columns:
-            df_on_trans['Tên SP lower'] = df_on_trans['Tên sản phẩm'].astype(str).str.lower()
-          df_on_trans['is_combo'] = df_on_trans.apply(is_combo_on, axis=1)
-          sub = df_on_trans[df_on_trans['is_combo']]
-          if not sub.empty:
-            on_actual_dict = (
-                sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-            )
+  # Actual Combo: CÙNG logic Báo Cáo Combo (tag_combo_orders_t10)
+  # Rule T09/T10 theo tháng, kênh map MCP, đếm unique Mã CH trên ĐH combo
+  off_actual_dict, on_actual_dict = {}, {}
+  try:
+    combo_df = tag_combo_orders_t10(df_mtd, mcp_df=mcp_df)
+    if combo_df is not None and not combo_df.empty and 'Tên NVBH' in combo_df.columns and 'Mã CH' in combo_df.columns:
+      if 'channel' in combo_df.columns:
+        off_sub = combo_df[combo_df['channel'].astype(str).str.upper() == 'OFF']
+        on_sub = combo_df[combo_df['channel'].astype(str).str.upper() == 'ON']
+      else:
+        off_sub = combo_df
+        on_sub = pd.DataFrame()
+      if not off_sub.empty:
+        off_actual_dict = off_sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+      if not on_sub.empty:
+        on_actual_dict = on_sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+  except Exception:
+    off_actual_dict, on_actual_dict = {}, {}
 
   cat_filtered = cat_df.copy()
   if not cat_filtered.empty and effective_thu_list:
