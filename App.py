@@ -2341,12 +2341,24 @@ def build_report(
     cfg = get_month_cfg()
     key, title = 'ASO_FOCUS', cfg.get('aso_focus_name', 'ASO_Focus')
     if get_month_key() == 'Thang09':
-      # Total nhãn Chanté (mọi biến thể: Chanté, Chante, Active, ...)
       pat = r'chant[eé]|chante'
-      mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
     else:
       pat = cfg.get('aso_focus_pat', r'búp non|bup non|tea\s*365|tea365')
-      mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
+    # Tách L1 OFF / ON
+    if df_mtd is not None and not df_mtd.empty and 'L1' in df_mtd.columns:
+      off_src = df_mtd[df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)]
+      on_src = df_mtd[
+          df_mtd['L1'].astype(str).str.contains('On', case=False, na=False)
+          & ~df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
+      ]
+    else:
+      off_src = pd.DataFrame()
+      on_src = pd.DataFrame()
+    mtd_off, ngay_off = _aso_coverage(off_src, pat, min_qty=1)
+    mtd_on, ngay_on = _aso_coverage(on_src, pat, min_qty=1)
+    mtd, ngay = _aso_coverage(
+        df_mtd if df_mtd is not None else pd.DataFrame(), pat, min_qty=1
+    )
 
   elif report_type == 'ASO_FOCUS_2':
     cfg = get_month_cfg()
@@ -2484,19 +2496,45 @@ def build_report(
       pct = round(m / tgt * 100, 1) if tgt else 0
       ratio = m / tgt if tgt else 0
 
-    row = {
-        'Mã NVBH': sm,
-        'Tên NVBH': sm_names.get(sm, ''),
-        'Chỉ Tiêu KPI': tgt if not is_lppc else float(tgt),
-        'Thực Hiện Ngày': n,
-        'MTD': m,
-        '% MTD': f'{pct}%',
-        '_ratio': ratio,
-    }
-    if report_type not in ('LPPC', 'LPPC_MEAT'):
+    if report_type == 'ASO_FOCUS':
+      n_off = int(ngay_off.get(sm, 0) or 0)
+      m_off = int(mtd_off.get(sm, 0) or 0)
+      n_on = int(ngay_on.get(sm, 0) or 0)
+      m_on = int(mtd_on.get(sm, 0) or 0)
+      pct_off = round(m_off / tgt * 100, 1) if tgt else 0
+      pct_on = round(m_on / tgt * 100, 1) if tgt else 0
       _g, _b = _gap_and_bq_day(tgt, m, _remain_days, as_int=True)
-      row['GAP'] = _g
-      row['Bình quân ngày'] = _b
+      row = {
+          'Mã NVBH': sm,
+          'Tên NVBH': sm_names.get(sm, ''),
+          'Chỉ Tiêu KPI': int(tgt) if not isinstance(tgt, float) else tgt,
+          'Thực Hiện Ngày OFF': n_off,
+          'MTD OFF': m_off,
+          '% MTD OFF': f'{pct_off}%',
+          'Thực Hiện Ngày ON': n_on,
+          'MTD ON': m_on,
+          '% MTD ON': f'{pct_on}%',
+          'Thực Hiện Ngày': n,
+          'MTD': m,
+          '% MTD': f'{pct}%',
+          'GAP': _g,
+          'Bình quân ngày': _b,
+          '_ratio': ratio,
+      }
+    else:
+      row = {
+          'Mã NVBH': sm,
+          'Tên NVBH': sm_names.get(sm, ''),
+          'Chỉ Tiêu KPI': tgt if not is_lppc else float(tgt),
+          'Thực Hiện Ngày': n,
+          'MTD': m,
+          '% MTD': f'{pct}%',
+          '_ratio': ratio,
+      }
+      if report_type not in ('LPPC', 'LPPC_MEAT'):
+        _g, _b = _gap_and_bq_day(tgt, m, _remain_days, as_int=True)
+        row['GAP'] = _g
+        row['Bình quân ngày'] = _b
 
     if report_type == 'ASO_ALL':
       # Chỉ Tiêu MCP lấy từ Target_KPI (key ASO_ALL)
@@ -2548,14 +2586,24 @@ def build_report(
         else (
             [
                 'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
-                'Thực Hiện Ngày', 'MTD', '% MTD',
-            ]
-            if report_type in ('LPPC', 'LPPC_MEAT')
-            else [
-                'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+                'Thực Hiện Ngày OFF', 'MTD OFF', '% MTD OFF',
+                'Thực Hiện Ngày ON', 'MTD ON', '% MTD ON',
                 'Thực Hiện Ngày', 'MTD', '% MTD',
                 'GAP', 'Bình quân ngày',
             ]
+            if report_type == 'ASO_FOCUS'
+            else (
+                [
+                    'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+                    'Thực Hiện Ngày', 'MTD', '% MTD',
+                ]
+                if report_type in ('LPPC', 'LPPC_MEAT')
+                else [
+                    'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+                    'Thực Hiện Ngày', 'MTD', '% MTD',
+                    'GAP', 'Bình quân ngày',
+                ]
+            )
         )
     )
     return pd.DataFrame(columns=empty_cols), 0, title
@@ -2614,6 +2662,53 @@ def build_report(
       total_row.loc[0, '% MTD ON'] = (
           f'{round(sum_mtd_on / sum_on * 100, 1)}%' if sum_on else '0%'
       )
+    return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
+
+  if report_type == 'ASO_FOCUS':
+    team_tgt = int(df_out['Chỉ Tiêu KPI'].sum()) if not df_out.empty else 0
+    total_ngay = int(df_out['Thực Hiện Ngày'].sum()) if not df_out.empty else 0
+    total_mtd = int(df_out['MTD'].sum()) if not df_out.empty else 0
+    total_pct = round(total_mtd / team_tgt * 100, 1) if team_tgt else 0
+    sum_ngay_off = int(df_out['Thực Hiện Ngày OFF'].sum()) if 'Thực Hiện Ngày OFF' in df_out.columns else 0
+    sum_mtd_off = int(df_out['MTD OFF'].sum()) if 'MTD OFF' in df_out.columns else 0
+    sum_ngay_on = int(df_out['Thực Hiện Ngày ON'].sum()) if 'Thực Hiện Ngày ON' in df_out.columns else 0
+    sum_mtd_on = int(df_out['MTD ON'].sum()) if 'MTD ON' in df_out.columns else 0
+    pct_off = round(sum_mtd_off / team_tgt * 100, 1) if team_tgt else 0
+    pct_on = round(sum_mtd_on / team_tgt * 100, 1) if team_tgt else 0
+    _g, _b = _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=True)
+    total_row = pd.DataFrame([{
+        'STT': '-',
+        'Mã NVBH': 'TỔNG CỘNG',
+        'Tên NVBH': (
+            'SS Trương Thanh Tân Total'
+            if not nv_selected(filter_nv)
+            else nv_label(filter_nv)
+        ),
+        'Chỉ Tiêu KPI': team_tgt,
+        'Thực Hiện Ngày OFF': sum_ngay_off,
+        'MTD OFF': sum_mtd_off,
+        '% MTD OFF': f'{pct_off}%',
+        'Thực Hiện Ngày ON': sum_ngay_on,
+        'MTD ON': sum_mtd_on,
+        '% MTD ON': f'{pct_on}%',
+        'Thực Hiện Ngày': total_ngay,
+        'MTD': total_mtd,
+        '% MTD': f'{total_pct}%',
+        'GAP': _g,
+        'Bình quân ngày': _b,
+    }])
+    ordered = [
+        'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+        'Thực Hiện Ngày OFF', 'MTD OFF', '% MTD OFF',
+        'Thực Hiện Ngày ON', 'MTD ON', '% MTD ON',
+        'Thực Hiện Ngày', 'MTD', '% MTD',
+        'GAP', 'Bình quân ngày',
+    ]
+    for c in ordered:
+      if c not in df_out.columns:
+        df_out[c] = 0 if c not in ('Tên NVBH', 'STT', '% MTD OFF', '% MTD ON', '% MTD') else ''
+    df_out = df_out[[c for c in ordered if c in df_out.columns]]
+    total_row = total_row[[c for c in ordered if c in total_row.columns]]
     return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
 
   if is_lppc:
