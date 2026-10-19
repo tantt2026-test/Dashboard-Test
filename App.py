@@ -15303,7 +15303,7 @@ with tab_mcp:
         else ''
     )
 
-    # Chi tiết DS theo Sub Division · Group STD · Tên SP (MTD)
+    # Chi tiết DS: giữ FULL cột MCP gốc + Sub Division / Group STD / Tên SP
     try:
       df_detail = build_mcp_sales_detail(df, mcp, report_date=report_date)
     except Exception:
@@ -15311,13 +15311,15 @@ with tab_mcp:
     if df_detail is None or df_detail.empty:
       df_detail = mcp.copy()
 
-    # Map filter cột trên detail
-    d_nv = 'Tên NVBH' if 'Tên NVBH' in df_detail.columns else col_nv
-    d_ma = 'Mã CH' if 'Mã CH' in df_detail.columns else col_ma
-    d_ten = 'Tên KH' if 'Tên KH' in df_detail.columns else col_ten
-    d_thu = 'Thứ VT' if 'Thứ VT' in df_detail.columns else col_thu
-    d_vip = 'VIP MCH' if 'VIP MCH' in df_detail.columns else col_vip
-    d_ds = 'Doanh Số MTD' if 'Doanh Số MTD' in df_detail.columns else col_ds
+    # Dùng đúng tên cột gốc MCP (không rename)
+    d_nv = col_nv
+    d_ma = col_ma
+    d_ten = col_ten
+    d_thu = col_thu
+    d_vip = col_vip
+    d_ds = col_ds if col_ds and col_ds in df_detail.columns else find_col(
+        df_detail, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD']
+    )
 
     df_f = df_detail.copy()
     if f_nv and d_nv and d_nv in df_f.columns:
@@ -15413,13 +15415,18 @@ with tab_mcp:
           df_show['Doanh Số MTD'], errors='coerce'
       ).apply(format_number_vn)
 
-    preferred = [
-        'Tên NVBH', 'Mã CH', 'Tên KH', 'L1', 'VIP MCH', 'Thứ VT',
-        'Sub Division', 'Group STD SKU', 'Tên sản phẩm', 'Doanh Số MTD',
-    ]
-    all_cols_mcp = [c for c in preferred if c in df_show.columns] + [
-        c for c in df_show.columns if c not in preferred
-    ]
+    # Ưu tiên: toàn bộ cột MCP gốc (thứ tự file) + 3 cột chi tiết SP + DS
+    detail_cols = ['Sub Division', 'Group STD SKU', 'Tên sản phẩm']
+    ds_cols = [c for c in df_show.columns if 'doanh' in c.lower().replace(' ', '') and 'mtd' in c.lower()]
+    preferred = []
+    # cột gốc MCP theo thứ tự ban đầu
+    for c in mcp.columns:
+      if c in df_show.columns and c not in preferred:
+        preferred.append(c)
+    for c in detail_cols + ds_cols:
+      if c in df_show.columns and c not in preferred:
+        preferred.append(c)
+    all_cols_mcp = preferred + [c for c in df_show.columns if c not in preferred]
     saved_mcp_cols = st.query_params.get('mcp_cols', None)
     if saved_mcp_cols:
       if isinstance(saved_mcp_cols, str):
@@ -15443,7 +15450,10 @@ with tab_mcp:
     st.query_params['mcp_cols'] = ','.join(selected_mcp_cols)
 
     render_mbs_data_table(df_show, selected_mcp_cols)
-    n_kh = df_f['Mã CH'].nunique() if 'Mã CH' in df_f.columns else len(df_f)
+    _ma_col = col_ma if col_ma and col_ma in df_f.columns else (
+        'Mã CH' if 'Mã CH' in df_f.columns else None
+    )
+    n_kh = df_f[_ma_col].nunique() if _ma_col else len(df_f)
     st.caption(
         f'Hiển thị: {len(df_f):,} dòng SP / {n_kh:,} cửa hàng'
         f' (tổng MCP: {len(mcp):,} CH)'
