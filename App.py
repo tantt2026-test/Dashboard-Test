@@ -14693,6 +14693,11 @@ def update_mcp_params():
       if st.session_state.mcp_vip_input
       else ''
   )
+  st.query_params['mcp_l1'] = (
+      ','.join(st.session_state.mcp_l1_input)
+      if st.session_state.get('mcp_l1_input')
+      else ''
+  )
   st.query_params['mcp_ds'] = (
       ','.join(st.session_state.mcp_ds_input)
       if st.session_state.mcp_ds_input
@@ -15136,6 +15141,7 @@ with tab_mcp:
     )
     col_thu = find_col(mcp, ['Thứ', 'Frequency', 'Tần suất'])
     col_vip = find_col(mcp, ['VIP MCH', 'VIP_MCH'])
+    col_l1 = find_col(mcp, ['L1', 'Channel', 'Kênh', 'x_msc_business_type_l1'])
     col_ds = find_col(
         mcp, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD']
     )
@@ -15161,6 +15167,13 @@ with tab_mcp:
     default_vip_list = (
         [x.strip() for x in saved_mcp_vip.split(',') if x.strip()]
         if saved_mcp_vip
+        else []
+    )
+
+    saved_mcp_l1 = st.query_params.get('mcp_l1', '')
+    default_l1_list = (
+        [x.strip() for x in saved_mcp_l1.split(',') if x.strip()]
+        if saved_mcp_l1
         else []
     )
 
@@ -15233,7 +15246,7 @@ with tab_mcp:
           label_visibility='collapsed',
       )
 
-    c5, c6 = st.columns(2)
+    c5, c6, c6b = st.columns(3)
     with c5:
       st.markdown(
           '<p class="filter-label">⭐ Lọc VIP MCH (Chọn nhiều)</p>',
@@ -15254,6 +15267,25 @@ with tab_mcp:
           label_visibility='collapsed',
       )
     with c6:
+      st.markdown(
+          '<p class="filter-label">🏬 Lọc L1 (Chọn nhiều)</p>',
+          unsafe_allow_html=True,
+      )
+      l1_opts = (
+          sorted(mcp[col_l1].dropna().astype(str).unique().tolist())
+          if col_l1
+          else []
+      )
+      valid_default_l1 = [v for v in default_l1_list if v in l1_opts]
+      f_l1 = st.multiselect(
+          '',
+          l1_opts,
+          default=valid_default_l1,
+          key='mcp_l1_input',
+          on_change=update_mcp_params,
+          label_visibility='collapsed',
+      )
+    with c6b:
       st.markdown(
           '<p class="filter-label">💰 Lọc Doanh Số MTD Thực Tế (Chọn'
           ' nhiều)</p>',
@@ -15291,6 +15323,11 @@ with tab_mcp:
         if st.session_state.mcp_vip_input
         else ''
     )
+    st.query_params['mcp_l1'] = (
+        ','.join(st.session_state.mcp_l1_input)
+        if st.session_state.get('mcp_l1_input')
+        else ''
+    )
     st.query_params['mcp_ds'] = (
         ','.join(st.session_state.mcp_ds_input)
         if st.session_state.mcp_ds_input
@@ -15324,6 +15361,8 @@ with tab_mcp:
       df_f = df_f[df_f[d_ten].astype(str).str.contains(f_ten, case=False, na=False)]
     if f_vip and d_vip and d_vip in df_f.columns:
       df_f = df_f[df_f[d_vip].astype(str).isin(f_vip)]
+    if f_l1 and col_l1 and col_l1 in df_f.columns:
+      df_f = df_f[df_f[col_l1].astype(str).isin(f_l1)]
     if d_thu and d_thu in df_f.columns:
       df_f = filter_by_thu_multi(df_f, d_thu, f_thu)
 
