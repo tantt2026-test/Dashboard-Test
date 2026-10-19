@@ -1288,33 +1288,25 @@ def process_mcp_sales(df_rpt, df_mcp):
 
 
 def build_mcp_sales_detail(df_rpt, df_mcp, report_date=None):
-  """Chi tiết Doanh Số từng KH theo Sub Division · Group STD · Tên SP (MTD).
-
-  Giữ thông tin MCP (NV, Mã CH, Tên CH, Thứ, VIP...) và gắn dòng SP bán được.
-  KH không phát sinh DS vẫn hiện 1 dòng với DS = 0.
-  """
+  """Giữ NGUYÊN mọi cột Data_MCP + thêm Sub Division, Group STD SKU, Tên sản phẩm, Doanh Số MTD chi tiết."""
   if df_mcp is None or df_mcp.empty:
     return pd.DataFrame()
 
   mcp = df_mcp.copy()
-  c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã khách hàng'])
-  c_nv = find_col(mcp, ['SM name', 'SM Name', 'Tên NVBH', 'Nhân viên'])
-  c_ten = find_col(mcp, ['Outlet_name', 'Outlet Name', 'Tên CH', 'Tên khách hàng'])
-  c_thu = find_col(mcp, ['Thứ', 'Frequency', 'Tần suất'])
-  c_vip = find_col(mcp, ['VIP MCH', 'VIP_MCH', 'VIP'])
-  c_l1 = find_col(mcp, ['L1', 'Channel', 'Kênh'])
-
+  c_ma = find_col(
+      mcp,
+      ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã khách hàng', 'Poscode', 'outlet_code'],
+  )
   if not c_ma:
-    return pd.DataFrame()
+    return mcp
 
-  mcp['_ma'] = mcp[c_ma].astype(str).str.strip()
-  # normalize .0
-  mcp['_ma'] = mcp['_ma'].map(
+  mcp = mcp.copy()
+  mcp['__ma'] = mcp[c_ma].astype(str).str.strip()
+  mcp['__ma'] = mcp['__ma'].map(
       lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
   )
 
-  # Aggregate sales detail from RPT
-  detail = pd.DataFrame()
+  detail = pd.DataFrame(columns=['__ma', 'Sub Division', 'Group STD SKU', 'Tên sản phẩm', '__ds'])
   if df_rpt is not None and not df_rpt.empty:
     d = df_rpt.copy()
     status = find_col(d, ['Tình trạng đơn hàng', 'Trạng thái'])
@@ -1331,72 +1323,74 @@ def build_mcp_sales_detail(df_rpt, df_mcp, report_date=None):
     c_sub = find_col(d, ['Sub Division', 'SubDivision', 'Phân nhóm', 'SUB DIV'])
     c_grp = find_col(
         d,
-        [
-            'Group STD', 'Group std', 'Group STD SKU', 'GROUP_STD',
-            'Standard Group', 'STD Group', 'Nhóm STD',
-        ],
+        ['Group STD', 'Group std', 'Group STD SKU', 'GROUP_STD', 'Standard Group', 'STD Group', 'Nhóm STD'],
     )
     c_sp = find_col(
         d,
-        [
-            'Tên sản phẩm', 'Tên SP', 'Item name', 'Product name',
-            'STANDARD_SKU_NAME', 'Group STD SKU Name',
-        ],
+        ['Tên sản phẩm', 'Tên SP', 'Item name', 'Product name', 'STANDARD_SKU_NAME'],
     )
     c_val = find_col(d, ['Tổng tiền', 'Giá trị sau CK', 'Doanh thu']) or 'Tổng tiền'
     if c_ch and c_val in d.columns:
-      d['_ma'] = d[c_ch].astype(str).str.strip()
-      d['_ma'] = d['_ma'].map(
+      d['__ma'] = d[c_ch].astype(str).str.strip()
+      d['__ma'] = d['__ma'].map(
           lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
       )
-      d['_sub'] = d[c_sub].astype(str).str.strip() if c_sub else ''
-      d['_grp'] = d[c_grp].astype(str).str.strip() if c_grp else ''
-      d['_sp'] = d[c_sp].astype(str).str.strip() if c_sp else ''
-      d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
-      # clean nan strings
-      for col in ('_sub', '_grp', '_sp'):
+      d['__sub'] = d[c_sub].astype(str).str.strip() if c_sub else ''
+      d['__grp'] = d[c_grp].astype(str).str.strip() if c_grp else ''
+      d['__sp'] = d[c_sp].astype(str).str.strip() if c_sp else ''
+      d['__val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
+      for col in ('__sub', '__grp', '__sp'):
         d[col] = d[col].replace({'nan': '', 'None': '', 'NaN': ''})
       detail = (
-          d.groupby(['_ma', '_sub', '_grp', '_sp'], dropna=False)['_val']
+          d.groupby(['__ma', '__sub', '__grp', '__sp'], dropna=False)['__val']
           .sum()
           .reset_index()
       )
-      detail.columns = ['Mã CH', 'Sub Division', 'Group STD SKU', 'Tên sản phẩm', 'Doanh Số MTD']
+      detail.columns = ['__ma', 'Sub Division', 'Group STD SKU', 'Tên sản phẩm', '__ds']
 
-  # MCP base columns
-  base_cols = {}
-  base_cols['Mã CH'] = mcp['_ma']
-  if c_nv:
-    base_cols['Tên NVBH'] = mcp[c_nv].astype(str).str.strip()
-  if c_ten:
-    base_cols['Tên KH'] = mcp[c_ten].astype(str).str.strip()
-  if c_thu:
-    base_cols['Thứ VT'] = mcp[c_thu].astype(str).str.strip()
-  if c_vip:
-    base_cols['VIP MCH'] = mcp[c_vip].astype(str).str.strip()
-  if c_l1:
-    base_cols['L1'] = mcp[c_l1].astype(str).str.strip()
-  mcp_base = pd.DataFrame(base_cols).drop_duplicates(subset=['Mã CH'])
+  # FULL MCP rows (không cắt cột)
+  mcp_base = mcp.drop_duplicates(subset=['__ma'], keep='first')
 
-  if detail is None or detail.empty:
+  if detail.empty:
     out = mcp_base.copy()
     out['Sub Division'] = ''
     out['Group STD SKU'] = ''
     out['Tên sản phẩm'] = ''
-    out['Doanh Số MTD'] = 0.0
-    return out
+    ds_col = find_col(out, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD'])
+    if ds_col:
+      out[ds_col] = 0.0
+    else:
+      out['Doanh Số MTD'] = 0.0
+    return out.drop(columns=['__ma'], errors='ignore')
 
-  # Left join: mọi KH MCP + chi tiết SP (KH không bán vẫn 1 dòng DS=0)
-  out = mcp_base.merge(detail, on='Mã CH', how='left')
+  out = mcp_base.merge(detail, on='__ma', how='left')
   out['Sub Division'] = out['Sub Division'].fillna('')
   out['Group STD SKU'] = out['Group STD SKU'].fillna('')
   out['Tên sản phẩm'] = out['Tên sản phẩm'].fillna('')
-  out['Doanh Số MTD'] = pd.to_numeric(out['Doanh Số MTD'], errors='coerce').fillna(0.0)
-  # sort: NV, Mã CH, DS desc
-  sort_cols = [c for c in ['Tên NVBH', 'Mã CH', 'Doanh Số MTD'] if c in out.columns]
+  out['__ds'] = pd.to_numeric(out['__ds'], errors='coerce').fillna(0.0)
+
+  ds_col = find_col(out, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD'])
+  if ds_col:
+    out[ds_col] = out['__ds']
+  else:
+    out['Doanh Số MTD'] = out['__ds']
+
+  out = out.drop(columns=['__ma', '__ds'], errors='ignore')
+
+  c_nv = find_col(out, ['SM name', 'SM Name', 'Tên NVBH', 'Nhân viên'])
+  sort_cols = []
+  if c_nv:
+    sort_cols.append(c_nv)
+  sort_cols.append(c_ma)
+  ds_final = find_col(out, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD'])
+  if ds_final:
+    sort_cols.append(ds_final)
   if sort_cols:
-    ascending = [True if c != 'Doanh Số MTD' else False for c in sort_cols]
-    out = out.sort_values(sort_cols, ascending=ascending).reset_index(drop=True)
+    ascending = [c != ds_final for c in sort_cols]
+    try:
+      out = out.sort_values(sort_cols, ascending=ascending).reset_index(drop=True)
+    except Exception:
+      pass
   return out
 
 
@@ -15415,30 +15409,23 @@ with tab_mcp:
           df_show['Doanh Số MTD'], errors='coerce'
       ).apply(format_number_vn)
 
-    # Ưu tiên: toàn bộ cột MCP gốc (thứ tự file) + 3 cột chi tiết SP + DS
+    # Tất cả cột MCP gốc (thứ tự file) + 3 cột chi tiết SP
     detail_cols = ['Sub Division', 'Group STD SKU', 'Tên sản phẩm']
-    ds_cols = [c for c in df_show.columns if 'doanh' in c.lower().replace(' ', '') and 'mtd' in c.lower()]
     preferred = []
-    # cột gốc MCP theo thứ tự ban đầu
-    for c in mcp.columns:
-      if c in df_show.columns and c not in preferred:
-        preferred.append(c)
-    for c in detail_cols + ds_cols:
+    for c in list(mcp.columns) + detail_cols:
       if c in df_show.columns and c not in preferred:
         preferred.append(c)
     all_cols_mcp = preferred + [c for c in df_show.columns if c not in preferred]
+    # Mặc định HIỆN HẾT cột; chỉ dùng query_params nếu còn khớp ≥ 50% số cột
     saved_mcp_cols = st.query_params.get('mcp_cols', None)
+    default_cols_mcp = all_cols_mcp
     if saved_mcp_cols:
       if isinstance(saved_mcp_cols, str):
-        default_cols_mcp = [
-            c.strip() for c in saved_mcp_cols.split(',') if c.strip() in all_cols_mcp
-        ]
+        saved_list = [c.strip() for c in saved_mcp_cols.split(',') if c.strip() in all_cols_mcp]
       else:
-        default_cols_mcp = [c for c in saved_mcp_cols if c in all_cols_mcp]
-      if not default_cols_mcp:
-        default_cols_mcp = all_cols_mcp
-    else:
-      default_cols_mcp = all_cols_mcp
+        saved_list = [c for c in saved_mcp_cols if c in all_cols_mcp]
+      if saved_list and len(saved_list) >= max(5, int(len(all_cols_mcp) * 0.5)):
+        default_cols_mcp = saved_list
 
     with st.popover('👁️ Chọn cột hiển thị (MCP)', use_container_width=False):
       selected_mcp_cols = st.multiselect(
