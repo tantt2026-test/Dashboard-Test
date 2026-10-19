@@ -1287,6 +1287,120 @@ def process_mcp_sales(df_rpt, df_mcp):
   return df_out.drop(columns=drop_cols)
 
 
+def build_mcp_sales_detail(df_rpt, df_mcp, report_date=None):
+  """Chi tiết Doanh Số từng KH theo Sub Division · Group STD · Tên SP (MTD).
+
+  Giữ thông tin MCP (NV, Mã CH, Tên CH, Thứ, VIP...) và gắn dòng SP bán được.
+  KH không phát sinh DS vẫn hiện 1 dòng với DS = 0.
+  """
+  if df_mcp is None or df_mcp.empty:
+    return pd.DataFrame()
+
+  mcp = df_mcp.copy()
+  c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã khách hàng'])
+  c_nv = find_col(mcp, ['SM name', 'SM Name', 'Tên NVBH', 'Nhân viên'])
+  c_ten = find_col(mcp, ['Outlet_name', 'Outlet Name', 'Tên CH', 'Tên khách hàng'])
+  c_thu = find_col(mcp, ['Thứ', 'Frequency', 'Tần suất'])
+  c_vip = find_col(mcp, ['VIP MCH', 'VIP_MCH', 'VIP'])
+  c_l1 = find_col(mcp, ['L1', 'Channel', 'Kênh'])
+
+  if not c_ma:
+    return pd.DataFrame()
+
+  mcp['_ma'] = mcp[c_ma].astype(str).str.strip()
+  # normalize .0
+  mcp['_ma'] = mcp['_ma'].map(
+      lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
+  )
+
+  # Aggregate sales detail from RPT
+  detail = pd.DataFrame()
+  if df_rpt is not None and not df_rpt.empty:
+    d = df_rpt.copy()
+    status = find_col(d, ['Tình trạng đơn hàng', 'Trạng thái'])
+    if status:
+      d = d[~d[status].astype(str).str.contains('hủy|cancel', case=False, na=False)]
+    if report_date is not None and 'date' in d.columns:
+      try:
+        rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+        start = date(rd.year, rd.month, 1)
+        d = d[(d['date'] >= start) & (d['date'] <= rd)]
+      except Exception:
+        pass
+    c_ch = find_col(d, ['Mã CH', 'Outlet_code', 'Outlet Code'])
+    c_sub = find_col(d, ['Sub Division', 'SubDivision', 'Phân nhóm', 'SUB DIV'])
+    c_grp = find_col(
+        d,
+        [
+            'Group STD', 'Group std', 'Group STD SKU', 'GROUP_STD',
+            'Standard Group', 'STD Group', 'Nhóm STD',
+        ],
+    )
+    c_sp = find_col(
+        d,
+        [
+            'Tên sản phẩm', 'Tên SP', 'Item name', 'Product name',
+            'STANDARD_SKU_NAME', 'Group STD SKU Name',
+        ],
+    )
+    c_val = find_col(d, ['Tổng tiền', 'Giá trị sau CK', 'Doanh thu']) or 'Tổng tiền'
+    if c_ch and c_val in d.columns:
+      d['_ma'] = d[c_ch].astype(str).str.strip()
+      d['_ma'] = d['_ma'].map(
+          lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
+      )
+      d['_sub'] = d[c_sub].astype(str).str.strip() if c_sub else ''
+      d['_grp'] = d[c_grp].astype(str).str.strip() if c_grp else ''
+      d['_sp'] = d[c_sp].astype(str).str.strip() if c_sp else ''
+      d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
+      # clean nan strings
+      for col in ('_sub', '_grp', '_sp'):
+        d[col] = d[col].replace({'nan': '', 'None': '', 'NaN': ''})
+      detail = (
+          d.groupby(['_ma', '_sub', '_grp', '_sp'], dropna=False)['_val']
+          .sum()
+          .reset_index()
+      )
+      detail.columns = ['Mã CH', 'Sub Division', 'Group STD SKU', 'Tên sản phẩm', 'Doanh Số MTD']
+
+  # MCP base columns
+  base_cols = {}
+  base_cols['Mã CH'] = mcp['_ma']
+  if c_nv:
+    base_cols['Tên NVBH'] = mcp[c_nv].astype(str).str.strip()
+  if c_ten:
+    base_cols['Tên KH'] = mcp[c_ten].astype(str).str.strip()
+  if c_thu:
+    base_cols['Thứ VT'] = mcp[c_thu].astype(str).str.strip()
+  if c_vip:
+    base_cols['VIP MCH'] = mcp[c_vip].astype(str).str.strip()
+  if c_l1:
+    base_cols['L1'] = mcp[c_l1].astype(str).str.strip()
+  mcp_base = pd.DataFrame(base_cols).drop_duplicates(subset=['Mã CH'])
+
+  if detail is None or detail.empty:
+    out = mcp_base.copy()
+    out['Sub Division'] = ''
+    out['Group STD SKU'] = ''
+    out['Tên sản phẩm'] = ''
+    out['Doanh Số MTD'] = 0.0
+    return out
+
+  # Left join: mọi KH MCP + chi tiết SP (KH không bán vẫn 1 dòng DS=0)
+  out = mcp_base.merge(detail, on='Mã CH', how='left')
+  out['Sub Division'] = out['Sub Division'].fillna('')
+  out['Group STD SKU'] = out['Group STD SKU'].fillna('')
+  out['Tên sản phẩm'] = out['Tên sản phẩm'].fillna('')
+  out['Doanh Số MTD'] = pd.to_numeric(out['Doanh Số MTD'], errors='coerce').fillna(0.0)
+  # sort: NV, Mã CH, DS desc
+  sort_cols = [c for c in ['Tên NVBH', 'Mã CH', 'Doanh Số MTD'] if c in out.columns]
+  if sort_cols:
+    ascending = [True if c != 'Doanh Số MTD' else False for c in sort_cols]
+    out = out.sort_values(sort_cols, ascending=ascending).reset_index(drop=True)
+  return out
+
+
+
 def process_cat_sales(df_rpt, df_cat):
   if df_cat.empty or df_rpt.empty:
     return df_cat
@@ -15094,42 +15208,128 @@ with tab_mcp:
         else ''
     )
 
-    df_f = mcp.copy()
-    if f_nv and col_nv:
-      df_f = df_f[df_f[col_nv].astype(str).isin(f_nv)]
-    if f_ma and col_ma:
-      df_f = df_f[
-          df_f[col_ma].astype(str).str.contains(f_ma, case=False, na=False)
-      ]
-    if f_ten and col_ten:
-      df_f = df_f[
-          df_f[col_ten].astype(str).str.contains(f_ten, case=False, na=False)
-      ]
-    if f_vip and col_vip:
-      df_f = df_f[df_f[col_vip].astype(str).isin(f_vip)]
+    # Chi tiết DS theo Sub Division · Group STD · Tên SP (MTD)
+    try:
+      df_detail = build_mcp_sales_detail(df, mcp, report_date=report_date)
+    except Exception:
+      df_detail = pd.DataFrame()
+    if df_detail is None or df_detail.empty:
+      df_detail = mcp.copy()
 
-    if f_ds and col_ds:
-      formatted_col_ds = df_f[col_ds].apply(format_number_vn).astype(str)
+    # Map filter cột trên detail
+    d_nv = 'Tên NVBH' if 'Tên NVBH' in df_detail.columns else col_nv
+    d_ma = 'Mã CH' if 'Mã CH' in df_detail.columns else col_ma
+    d_ten = 'Tên KH' if 'Tên KH' in df_detail.columns else col_ten
+    d_thu = 'Thứ VT' if 'Thứ VT' in df_detail.columns else col_thu
+    d_vip = 'VIP MCH' if 'VIP MCH' in df_detail.columns else col_vip
+    d_ds = 'Doanh Số MTD' if 'Doanh Số MTD' in df_detail.columns else col_ds
+
+    df_f = df_detail.copy()
+    if f_nv and d_nv and d_nv in df_f.columns:
+      df_f = df_f[df_f[d_nv].astype(str).isin(f_nv)]
+    if f_ma and d_ma and d_ma in df_f.columns:
+      df_f = df_f[df_f[d_ma].astype(str).str.contains(f_ma, case=False, na=False)]
+    if f_ten and d_ten and d_ten in df_f.columns:
+      df_f = df_f[df_f[d_ten].astype(str).str.contains(f_ten, case=False, na=False)]
+    if f_vip and d_vip and d_vip in df_f.columns:
+      df_f = df_f[df_f[d_vip].astype(str).isin(f_vip)]
+    if d_thu and d_thu in df_f.columns:
+      df_f = filter_by_thu_multi(df_f, d_thu, f_thu)
+
+    # Bộ lọc thông minh: Sub Division / Group STD / Tên SP
+    sub_opts = sorted([
+        x for x in df_f['Sub Division'].dropna().astype(str).unique().tolist()
+        if x and x.lower() not in ('nan', 'none', '')
+    ]) if 'Sub Division' in df_f.columns else []
+    grp_opts = sorted([
+        x for x in df_f['Group STD SKU'].dropna().astype(str).unique().tolist()
+        if x and x.lower() not in ('nan', 'none', '')
+    ]) if 'Group STD SKU' in df_f.columns else []
+    sp_opts = sorted([
+        x for x in df_f['Tên sản phẩm'].dropna().astype(str).unique().tolist()
+        if x and x.lower() not in ('nan', 'none', '')
+    ]) if 'Tên sản phẩm' in df_f.columns else []
+
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+      st.markdown(
+          '<p class="filter-label">📂 Lọc Sub Division</p>',
+          unsafe_allow_html=True,
+      )
+      f_sub = st.multiselect(
+          '', sub_opts, default=[], key='mcp_sub_input',
+          placeholder='Tất cả Sub Division', label_visibility='collapsed',
+      )
+    with fc2:
+      st.markdown(
+          '<p class="filter-label">📦 Lọc Group STD SKU</p>',
+          unsafe_allow_html=True,
+      )
+      # cascade: nếu chọn Sub thì chỉ hiện Group thuộc Sub
+      if f_sub and 'Sub Division' in df_f.columns and 'Group STD SKU' in df_f.columns:
+        grp_opts_f = sorted([
+            x for x in df_f[df_f['Sub Division'].astype(str).isin(f_sub)]['Group STD SKU']
+            .dropna().astype(str).unique().tolist()
+            if x and x.lower() not in ('nan', 'none', '')
+        ])
+      else:
+        grp_opts_f = grp_opts
+      f_grp = st.multiselect(
+          '', grp_opts_f, default=[], key='mcp_grp_input',
+          placeholder='Tất cả Group STD', label_visibility='collapsed',
+      )
+    with fc3:
+      st.markdown(
+          '<p class="filter-label">🏷️ Lọc Tên sản phẩm</p>',
+          unsafe_allow_html=True,
+      )
+      _tmp = df_f
+      if f_sub and 'Sub Division' in _tmp.columns:
+        _tmp = _tmp[_tmp['Sub Division'].astype(str).isin(f_sub)]
+      if f_grp and 'Group STD SKU' in _tmp.columns:
+        _tmp = _tmp[_tmp['Group STD SKU'].astype(str).isin(f_grp)]
+      if 'Tên sản phẩm' in _tmp.columns:
+        sp_opts_f = sorted([
+            x for x in _tmp['Tên sản phẩm'].dropna().astype(str).unique().tolist()
+            if x and x.lower() not in ('nan', 'none', '')
+        ])
+      else:
+        sp_opts_f = sp_opts
+      f_sp = st.multiselect(
+          '', sp_opts_f, default=[], key='mcp_sp_input',
+          placeholder='Tất cả Tên SP', label_visibility='collapsed',
+      )
+
+    if f_sub and 'Sub Division' in df_f.columns:
+      df_f = df_f[df_f['Sub Division'].astype(str).isin(f_sub)]
+    if f_grp and 'Group STD SKU' in df_f.columns:
+      df_f = df_f[df_f['Group STD SKU'].astype(str).isin(f_grp)]
+    if f_sp and 'Tên sản phẩm' in df_f.columns:
+      df_f = df_f[df_f['Tên sản phẩm'].astype(str).isin(f_sp)]
+
+    if f_ds and d_ds and d_ds in df_f.columns:
+      formatted_col_ds = pd.to_numeric(df_f[d_ds], errors='coerce').apply(format_number_vn).astype(str)
       df_f = df_f[formatted_col_ds.isin(f_ds)]
 
-    df_f = filter_by_thu_multi(df_f, col_thu, f_thu)
-    for col in df_f.columns:
-      if any(
-          x in col.lower().replace(' ', '')
-          for x in ['3msales', 'doanhsố', 'doanhso', 'sales', 'doanhsômtd']
-      ):
-        df_f[col] = pd.to_numeric(df_f[col], errors='coerce').apply(
-            format_number_vn
-        )
+    # format số DS
+    df_show = df_f.copy()
+    if 'Doanh Số MTD' in df_show.columns:
+      df_show['Doanh Số MTD'] = pd.to_numeric(
+          df_show['Doanh Số MTD'], errors='coerce'
+      ).apply(format_number_vn)
 
-    all_cols_mcp = df_f.columns.tolist()
+    preferred = [
+        'Tên NVBH', 'Mã CH', 'Tên KH', 'L1', 'VIP MCH', 'Thứ VT',
+        'Sub Division', 'Group STD SKU', 'Tên sản phẩm', 'Doanh Số MTD',
+    ]
+    all_cols_mcp = [c for c in preferred if c in df_show.columns] + [
+        c for c in df_show.columns if c not in preferred
+    ]
     saved_mcp_cols = st.query_params.get('mcp_cols', None)
     if saved_mcp_cols:
       if isinstance(saved_mcp_cols, str):
         default_cols_mcp = [
-            c.strip()
-            for c in saved_mcp_cols.split(',')
-            if c.strip() in all_cols_mcp
+            c.strip() for c in saved_mcp_cols.split(',') if c.strip() in all_cols_mcp
         ]
       else:
         default_cols_mcp = [c for c in saved_mcp_cols if c in all_cols_mcp]
@@ -15147,8 +15347,12 @@ with tab_mcp:
       )
     st.query_params['mcp_cols'] = ','.join(selected_mcp_cols)
 
-    render_mbs_data_table(df_f, selected_mcp_cols)
-    st.caption(f'Hiển thị: {len(df_f):,} / {len(mcp):,} cửa hàng')
+    render_mbs_data_table(df_show, selected_mcp_cols)
+    n_kh = df_f['Mã CH'].nunique() if 'Mã CH' in df_f.columns else len(df_f)
+    st.caption(
+        f'Hiển thị: {len(df_f):,} dòng SP / {n_kh:,} cửa hàng'
+        f' (tổng MCP: {len(mcp):,} CH)'
+    )
 
 
 # ----- TAB CAT -----
