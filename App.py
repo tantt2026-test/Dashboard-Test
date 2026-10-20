@@ -2769,8 +2769,9 @@ def _gap_and_bq_day(target, mtd, remain_days, as_int=True):
 def load_weekly_sales():
   """Load file bán hàng lịch sử cho Weekly Preview (data-2 / WeeklyPreview_Sales)."""
   preferred = [
-      'WeeklyPreview_Sales.xlsx', 'WeeklyPreview_Sales.xls',
+      'data-2-2.xlsx', 'data-2-2.xls',
       'data-2.xlsx', 'data-2.xls',
+      'WeeklyPreview_Sales.xlsx', 'WeeklyPreview_Sales.xls',
       'Weekly_Sales.xlsx', 'WEEKLY_SALES.xlsx',
   ]
   path = None
@@ -3412,39 +3413,71 @@ def _mcp_vip_channel_sets(mcp_df):
 
 
 def _prepare_sales_for_plan(df_rpt, sales_hist, report_date):
-  """Gộp RPT hiện tại + data lịch sử, chuẩn hóa cột ngày / mã CH / L1 / DS."""
+  """Gộp RPT + data-2-2: ORDER_DT, OUTLET_CODE, x_msc_business_type_l1, Sales After Discount."""
   frames = []
-  for src in (sales_hist, df_rpt):
+
+  def _one(src):
     if src is None or (isinstance(src, pd.DataFrame) and src.empty):
-      continue
+      return None
     d = src.copy()
-    if 'date' not in d.columns:
-      c_date = find_col(d, ['Ngày', 'Order Date', 'Invoice Date', 'Tran Date', 'Date', 'Ngày đơn'])
+    if 'date' in d.columns:
+      d['date'] = pd.to_datetime(d['date'], errors='coerce').dt.date
+    else:
+      c_date = find_col(d, [
+          'ORDER_DT', 'Order_DT', 'Order Date', 'INVOICED_DATE',
+          'Ngày', 'Date', 'Ngày đơn', 'Tran Date',
+      ])
       if c_date:
         d['date'] = pd.to_datetime(d[c_date], errors='coerce').dt.date
       else:
-        continue
-    else:
-      d['date'] = pd.to_datetime(d['date'], errors='coerce').dt.date
-    status = find_col(d, ['Tình trạng đơn hàng', 'Trạng thái', 'Status'])
+        c_month = find_col(d, ['Month', 'MONTH', 'YearMonth'])
+        if not c_month:
+          return None
+
+        def _parse_m(v):
+          s = str(v).strip()
+          m = re.search(r'(\d{1,2})[/\-](\d{4})', s)
+          if m:
+            return date(int(m.group(2)), int(m.group(1)), 1)
+          m = re.search(r'(\d{4})[/\-](\d{1,2})', s)
+          if m:
+            return date(int(m.group(1)), int(m.group(2)), 1)
+          return pd.NaT
+
+        d['date'] = d[c_month].map(_parse_m)
+    status = find_col(d, ['Tình trạng đơn hàng', 'Trạng thái', 'STATUS_CD', 'Status'])
     if status:
-      d = d[~d[status].astype(str).str.contains('hủy|cancel', case=False, na=False)]
-    c_ch = find_col(d, ['Mã CH', 'Outlet_code', 'Outlet Code', 'OUTLET_CODE', 'Poscode'])
+      bad = d[status].astype(str).str.contains('hủy|cancel|void|reject', case=False, na=False)
+      d = d[~bad]
+    c_ch = find_col(d, [
+        'Mã CH', 'Outlet_code', 'Outlet Code', 'OUTLET_CODE', 'OUTLET CODE', 'Poscode', 'par_ou_cd',
+    ])
     if not c_ch:
-      continue
+      return None
     d['_ma'] = d[c_ch].map(_norm_outlet_code)
-    c_l1 = find_col(d, ['L1', 'Channel', 'Kênh', 'x_msc_business_type_l1'])
+    c_l1 = find_col(d, [
+        'L1', 'Channel', 'Kênh', 'x_msc_business_type_l1', 'X_MSC_BUSINESS_TYPE_L1',
+    ])
     d['_l1'] = d[c_l1].astype(str) if c_l1 else 'Off'
-    c_val = find_col(d, ['Tổng tiền', 'Giá trị sau CK', 'Doanh thu', 'Net Amount', 'Amount', 'Sell Out', 'SELL OUT'])
+    c_val = find_col(d, [
+        'Sales After Discount', 'Tổng tiền', 'Giá trị sau CK', 'Doanh thu',
+        'Net Amount', 'Amount', 'Sell Out', 'SELL OUT', 'Sales Before Discount',
+    ])
     if not c_val:
-      continue
+      return None
     d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
-    c_nv = find_col(d, ['Tên NVBH', 'SM name', 'SM Name', 'Nhân viên', 'Sale name'])
+    c_nv = find_col(d, ['Tên NVBH', 'SM name', 'SM Name', 'SM_NAME', 'Nhân viên', 'Sale name'])
     d['_nv'] = d[c_nv].astype(str).str.strip() if c_nv else ''
-    frames.append(d[['date', '_ma', '_l1', '_val', '_nv']].dropna(subset=['date']))
+    return d[['date', '_ma', '_l1', '_val', '_nv']].dropna(subset=['date'])
+
+  for src in (sales_hist, df_rpt):
+    part = _one(src)
+    if part is not None and not part.empty:
+      frames.append(part)
   if not frames:
     return pd.DataFrame(columns=['date', '_ma', '_l1', '_val', '_nv'])
   return pd.concat(frames, ignore_index=True)
+
 
 
 def _rr_month_vip(df_sales, vip_sets, year, month):
@@ -3526,9 +3559,6 @@ def _mcp_cov_month(mcp_df, df_sales, year, month):
 
 
 def build_plan_q4(mcp_df, df_rpt, sales_hist, report_date, filter_nv=None, cat_df=None, brand_df=None):
-  """Plan Quý IV: RR 3 tháng VIP×Kênh, SO Plan T10–T12 (+10% MoM),
-  COV MCP Plan T11–T12, MBS CAT/BRAND % cần tăng theo SO Plan.
-  """
   try:
     rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
   except Exception:
@@ -3540,214 +3570,210 @@ def build_plan_q4(mcp_df, df_rpt, sales_hist, report_date, filter_nv=None, cat_d
     months_rr.append((y, m))
     m -= 1
     if m <= 0:
-      m = 12
-      y -= 1
+      m, y = 12, y - 1
   months_rr = list(reversed(months_rr))
 
   vip_sets = _mcp_vip_channel_sets(mcp_df)
   sales = _prepare_sales_for_plan(df_rpt, sales_hist, rd)
 
-  rr_rows = []
-  rr_data = {}
+  rr_rows, rr_data = [], {}
   for yy, mm in months_rr:
-    lab = f'{mm:02d}/{yy}'
     res = _rr_month_vip(sales, vip_sets, yy, mm)
     rr_data[(yy, mm)] = res
     for ch in ('OFF', 'ON'):
       rr_rows.append({
-          'Tháng': lab,
-          'Kênh': ch,
-          'VIP3': round(res[ch]['VIP3']),
-          'VIP5': round(res[ch]['VIP5']),
-          'VIPSI': round(res[ch]['VIPSI']),
-          'Khác': round(res[ch]['OTHER']),
+          'Tháng': f'{mm:02d}/{yy}', 'Kênh': ch,
+          'VIP3': round(res[ch]['VIP3']), 'VIP5': round(res[ch]['VIP5']),
+          'VIPSI': round(res[ch]['VIPSI']), 'Khác': round(res[ch]['OTHER']),
           'Tổng SO': round(res[ch]['TOTAL']),
       })
   df_rr = pd.DataFrame(rr_rows)
 
   base_y, base_m = 2026, 9
   if (base_y, base_m) not in rr_data:
-    candidates = sorted([k for k in rr_data if k < (2026, 10)])
-    if candidates:
-      base_y, base_m = candidates[-1]
+    cands = sorted([k for k in rr_data if k < (2026, 10)])
+    if cands:
+      base_y, base_m = cands[-1]
   base_res = rr_data.get((base_y, base_m), {
       'OFF': {'VIP3': 0, 'VIP5': 0, 'VIPSI': 0, 'OTHER': 0, 'TOTAL': 0},
       'ON': {'VIP3': 0, 'VIP5': 0, 'VIPSI': 0, 'OTHER': 0, 'TOTAL': 0},
   })
-
   plan_months = [(2026, 10), (2026, 11), (2026, 12)]
+  factors = {(2026, 10): 1.10, (2026, 11): 1.21, (2026, 12): 1.331}
   growth = 1.10
-  so_plan_rows = []
-  so_plan = {}
+
+  so_plan_rows, so_plan = [], {}
   prev = {
       ch: {k: float(base_res[ch][k]) for k in ('VIP3', 'VIP5', 'VIPSI', 'OTHER', 'TOTAL')}
       for ch in ('OFF', 'ON')
   }
   for ch in ('OFF', 'ON'):
     so_plan_rows.append({
-        'Tháng': f'{base_m:02d}/{base_y} (Base)',
-        'Kênh': ch,
-        'VIP3': round(prev[ch]['VIP3']),
-        'VIP5': round(prev[ch]['VIP5']),
-        'VIPSI': round(prev[ch]['VIPSI']),
-        'Khác': round(prev[ch]['OTHER']),
-        'Tổng SO': round(prev[ch]['TOTAL']),
-        'Tăng vs trước': '—',
+        'Tháng': f'{base_m:02d}/{base_y} (Base)', 'Kênh': ch,
+        'VIP3': round(prev[ch]['VIP3']), 'VIP5': round(prev[ch]['VIP5']),
+        'VIPSI': round(prev[ch]['VIPSI']), 'Khác': round(prev[ch]['OTHER']),
+        'Tổng SO': round(prev[ch]['TOTAL']), 'Tăng vs trước': '—',
     })
   for yy, mm in plan_months:
     cur = {ch: {k: prev[ch][k] * growth for k in prev[ch]} for ch in ('OFF', 'ON')}
     so_plan[(yy, mm)] = cur
-    lab = f'{mm:02d}/{yy} (Plan)'
     for ch in ('OFF', 'ON'):
       so_plan_rows.append({
-          'Tháng': lab,
-          'Kênh': ch,
-          'VIP3': round(cur[ch]['VIP3']),
-          'VIP5': round(cur[ch]['VIP5']),
-          'VIPSI': round(cur[ch]['VIPSI']),
-          'Khác': round(cur[ch]['OTHER']),
-          'Tổng SO': round(cur[ch]['TOTAL']),
-          'Tăng vs trước': '+10%',
+          'Tháng': f'{mm:02d}/{yy} (Plan)', 'Kênh': ch,
+          'VIP3': round(cur[ch]['VIP3']), 'VIP5': round(cur[ch]['VIP5']),
+          'VIPSI': round(cur[ch]['VIPSI']), 'Khác': round(cur[ch]['OTHER']),
+          'Tổng SO': round(cur[ch]['TOTAL']), 'Tăng vs trước': '+10%',
       })
     prev = cur
   df_so_plan = pd.DataFrame(so_plan_rows)
 
-  so_plan_total_rows = []
   base_total = float(base_res['OFF']['TOTAL']) + float(base_res['ON']['TOTAL'])
-  so_plan_total_rows.append({
+  so_tot = [{
       'Tháng': f'{base_m:02d}/{base_y} (Base)',
       'SO OFF': round(base_res['OFF']['TOTAL']),
       'SO ON': round(base_res['ON']['TOTAL']),
       'Tổng SO': round(base_total),
       'Tăng vs trước': '—',
-  })
+      'Hệ số vs Base': '1.00×',
+  }]
   for yy, mm in plan_months:
     off_t = so_plan[(yy, mm)]['OFF']['TOTAL']
     on_t = so_plan[(yy, mm)]['ON']['TOTAL']
-    so_plan_total_rows.append({
+    so_tot.append({
         'Tháng': f'{mm:02d}/{yy} (Plan)',
         'SO OFF': round(off_t),
         'SO ON': round(on_t),
         'Tổng SO': round(off_t + on_t),
         'Tăng vs trước': '+10%',
+        'Hệ số vs Base': f"{factors[(yy, mm)]:.2f}×",
     })
-  df_so_total = pd.DataFrame(so_plan_total_rows)
+  df_so_total = pd.DataFrame(so_tot)
 
-  cov_rows = []
-  cov_data = {}
+  cov_rows, cov_data = [], {}
   for yy, mm in months_rr:
-    lab = f'{mm:02d}/{yy}'
     cov = _mcp_cov_month(mcp_df, sales, yy, mm)
     cov_data[(yy, mm)] = cov
     for ch in ('OFF', 'ON'):
       cov_rows.append({
-          'Tháng': lab,
-          'Kênh': ch,
-          'MCP': cov[ch]['MCP'],
-          'ASO': cov[ch]['ASO'],
-          '% COV': f"{cov[ch]['COV']}%",
+          'Tháng': f'{mm:02d}/{yy}', 'Kênh': ch,
+          'Số quầy MCP': cov[ch]['MCP'],
+          'ASO (CH có ĐH)': cov[ch]['ASO'],
+          '% COV': round(cov[ch]['COV'], 1),
+          'Ghi chú': 'Actual',
       })
-  cur_key = (rd.year, rd.month)
-  cur_cov = cov_data.get(cur_key) or _mcp_cov_month(mcp_df, sales, rd.year, rd.month)
-  plan_cov_prev = {
-      ch: {'MCP': cur_cov[ch]['MCP'], 'ASO': float(cur_cov[ch]['ASO'])}
-      for ch in ('OFF', 'ON')
-  }
-  for yy, mm in [(2026, 11), (2026, 12)]:
-    lab = f'{mm:02d}/{yy} (Plan)'
+  base_cov = cov_data.get((base_y, base_m)) or _mcp_cov_month(mcp_df, sales, base_y, base_m)
+  for yy, mm in plan_months:
+    fac = factors[(yy, mm)]
     for ch in ('OFF', 'ON'):
-      mcp_n = plan_cov_prev[ch]['MCP']
-      aso_n = min(mcp_n, round(plan_cov_prev[ch]['ASO'] * growth)) if mcp_n else round(plan_cov_prev[ch]['ASO'] * growth)
-      cov_pct = round(aso_n / mcp_n * 100, 1) if mcp_n else 0.0
+      mcp_n = int(base_cov[ch]['MCP'])
+      aso0 = float(base_cov[ch]['ASO'])
+      cov0 = float(base_cov[ch]['COV'])
+      aso_plan = min(mcp_n, int(round(aso0 * fac))) if mcp_n else int(round(aso0 * fac))
+      cov_plan = round(aso_plan / mcp_n * 100, 1) if mcp_n else 0.0
       cov_rows.append({
-          'Tháng': lab,
-          'Kênh': ch,
-          'MCP': mcp_n,
-          'ASO': int(aso_n),
-          '% COV': f'{cov_pct}%',
+          'Tháng': f'{mm:02d}/{yy} (Plan)', 'Kênh': ch,
+          'Số quầy MCP': mcp_n,
+          'ASO (CH có ĐH)': aso_plan,
+          '% COV': cov_plan,
+          'Ghi chú': (
+              f"Cần +{aso_plan - int(aso0)} CH ASO | "
+              f"+{round(cov_plan - cov0, 1)}đ COV vs base (×{fac:.2f})"
+          ),
       })
-      plan_cov_prev[ch]['ASO'] = aso_n
   df_cov = pd.DataFrame(cov_rows)
 
-  def _mbs_stats(df_mbs):
+  def _mbs_detail(df_mbs):
+    empty = {
+        'kh': 0, 'dat': 0, 'chua': 0,
+        'ds_dat': 0.0, 'ds_chua': 0.0, 'ds_total': 0.0, 'pct_dat': 0.0,
+    }
     if df_mbs is None or df_mbs.empty:
-      return {'kh': 0, 'dat': 0, 'ds': 0.0, 'pct_dat': 0.0}
+      return empty
     d = df_mbs.copy()
     c_ma = find_col(d, ['Outlet Code', 'Outlet_code', 'Mã CH'])
-    c_act = find_col(d, ['Actual', 'Doanh số thực đạt', 'Actual (Not Cancel/Pending)', 'Doanh Số'])
-    c_nv_flag = find_col(d, ['Đạt Nhiệm Vụ', 'Dat Nhiem Vu', 'Nhiệm vụ'])
-    if c_ma:
-      d['_ma'] = d[c_ma].map(_norm_outlet_code)
-      n_kh = d['_ma'].nunique()
+    c_act = find_col(d, [
+        'Actual', 'Doanh số thực đạt', 'Actual (Not Cancel/Pending)',
+        'Doanh Số', 'Doanh số', 'MTD',
+    ])
+    c_tgt = find_col(d, ['Target', 'Chỉ tiêu', 'Chỉ Tiêu', 'Doanh số nền tảng'])
+    c_flag = find_col(d, ['Đạt Nhiệm Vụ', 'Dat Nhiem Vu', 'Nhiệm vụ', 'Đạt NV'])
+    if not c_ma:
+      return empty
+    d['_ma'] = d[c_ma].map(_norm_outlet_code)
+    d['_act'] = pd.to_numeric(d[c_act], errors='coerce').fillna(0) if c_act else 0.0
+    if c_flag:
+      d['_dat'] = d[c_flag].astype(str).str.upper().str.contains(
+          r'1|Y|YES|TRUE|ĐẠT|DAT', case=False, na=False, regex=True
+      )
+      g = d.groupby('_ma', as_index=False).agg(ds=('_act', 'sum'), dat=('_dat', 'any'))
+    elif c_tgt:
+      d['_tgt'] = pd.to_numeric(d[c_tgt], errors='coerce').fillna(0)
+      g = d.groupby('_ma', as_index=False).agg(ds=('_act', 'sum'), tgt=('_tgt', 'max'))
+      g['dat'] = g['ds'] >= g['tgt']
     else:
-      n_kh = len(d)
-    ds = float(pd.to_numeric(d[c_act], errors='coerce').fillna(0).sum()) if c_act else 0.0
-    n_dat = 0
-    if c_nv_flag:
-      if c_ma:
-        tmp = d.copy()
-        tmp['_dat'] = tmp[c_nv_flag].astype(str).str.upper().isin(['1', 'Y', 'YES', 'TRUE', 'ĐẠT', 'DAT'])
-        n_dat = int(tmp.groupby('_ma')['_dat'].any().sum())
-      else:
-        n_dat = int(d[c_nv_flag].astype(str).str.upper().isin(['1', 'Y', 'YES', 'TRUE', 'ĐẠT', 'DAT']).sum())
+      g = d.groupby('_ma', as_index=False).agg(ds=('_act', 'sum'))
+      g['dat'] = g['ds'] > 0
+    n_kh = len(g)
+    n_dat = int(g['dat'].sum())
+    n_chua = n_kh - n_dat
+    ds_dat = float(g.loc[g['dat'], 'ds'].sum()) if n_dat else 0.0
+    ds_chua = float(g.loc[~g['dat'], 'ds'].sum()) if n_chua else 0.0
+    ds_total = float(g['ds'].sum())
     pct = round(n_dat / n_kh * 100, 1) if n_kh else 0.0
-    return {'kh': int(n_kh), 'dat': int(n_dat), 'ds': ds, 'pct_dat': pct}
+    return {
+        'kh': n_kh, 'dat': n_dat, 'chua': n_chua,
+        'ds_dat': ds_dat, 'ds_chua': ds_chua, 'ds_total': ds_total, 'pct_dat': pct,
+    }
 
-  cat_st = _mbs_stats(cat_df)
-  brand_st = _mbs_stats(brand_df)
   mbs_rows = []
-  f10, f11, f12 = 1.1, 1.1 ** 2, 1.1 ** 3
-  for label, stt in (('MBS CAT', cat_st), ('MBS BRAND', brand_st)):
-    mbs_rows.append({
-        'Nhóm': label,
-        'Chỉ số': 'Số KH tham gia',
-        f'{base_m:02d}/{base_y}': stt['kh'],
-        'Plan T10': stt['kh'],
-        'Plan T11': stt['kh'],
-        'Plan T12': stt['kh'],
-        '% tăng cần (T10 vs base)': '—',
-        '% tăng cần (T11 vs base)': '—',
-        '% tăng cần (T12 vs base)': '—',
-    })
-    pct0 = stt['pct_dat']
-    p10 = min(100.0, round(pct0 * f10, 1))
-    p11 = min(100.0, round(pct0 * f11, 1))
-    p12 = min(100.0, round(pct0 * f12, 1))
-    mbs_rows.append({
-        'Nhóm': label,
-        'Chỉ số': '% Đạt Nhiệm Vụ',
-        f'{base_m:02d}/{base_y}': f'{pct0}%',
-        'Plan T10': f'{p10}%',
-        'Plan T11': f'{p11}%',
-        'Plan T12': f'{p12}%',
-        '% tăng cần (T10 vs base)': '+10%',
-        '% tăng cần (T11 vs base)': '+21%',
-        '% tăng cần (T12 vs base)': '+33.1%',
-    })
-    ds0 = stt['ds']
-    mbs_rows.append({
-        'Nhóm': label,
-        'Chỉ số': 'Doanh Số Actual',
-        f'{base_m:02d}/{base_y}': round(ds0),
-        'Plan T10': round(ds0 * f10),
-        'Plan T11': round(ds0 * f11),
-        'Plan T12': round(ds0 * f12),
-        '% tăng cần (T10 vs base)': '+10%',
-        '% tăng cần (T11 vs base)': '+21%',
-        '% tăng cần (T12 vs base)': '+33.1%',
-    })
-    dat0 = stt['dat']
-    mbs_rows.append({
-        'Nhóm': label,
-        'Chỉ số': 'Số KH Đạt NV',
-        f'{base_m:02d}/{base_y}': dat0,
-        'Plan T10': min(stt['kh'], int(round(dat0 * f10))) if stt['kh'] else int(round(dat0 * f10)),
-        'Plan T11': min(stt['kh'], int(round(dat0 * f11))) if stt['kh'] else int(round(dat0 * f11)),
-        'Plan T12': min(stt['kh'], int(round(dat0 * f12))) if stt['kh'] else int(round(dat0 * f12)),
-        '% tăng cần (T10 vs base)': '+10%',
-        '% tăng cần (T11 vs base)': '+21%',
-        '% tăng cần (T12 vs base)': '+33.1%',
-    })
+  base_lab = f'{base_m:02d}/{base_y}'
+  for label, df_m in (('MBS CAT', cat_df), ('MBS BRAND', brand_df)):
+    stt = _mbs_detail(df_m)
+    t10 = min(stt['kh'], int(round(stt['dat'] * 1.10))) if stt['kh'] else int(round(stt['dat'] * 1.10))
+    t11 = min(stt['kh'], int(round(stt['dat'] * 1.21))) if stt['kh'] else int(round(stt['dat'] * 1.21))
+    t12 = min(stt['kh'], int(round(stt['dat'] * 1.331))) if stt['kh'] else int(round(stt['dat'] * 1.331))
+    rows_def = [
+        ('Số KH tham gia', stt['kh'], stt['kh'], stt['kh'], stt['kh'], 'Tổng KH chương trình'),
+        ('Số KH Đạt NV', stt['dat'], t10, t11, t12, 'Scale ×1.10/×1.21/×1.331 (cap tổng KH)'),
+        (
+            'Số KH Chưa Đạt', stt['chua'],
+            max(0, stt['kh'] - t10), max(0, stt['kh'] - t11), max(0, stt['kh'] - t12),
+            'Còn lại sau Plan',
+        ),
+        (
+            'KH Đạt cần thêm vs Base', 0,
+            max(0, t10 - stt['dat']), max(0, t11 - stt['dat']), max(0, t12 - stt['dat']),
+            'Kéo từ nhóm Chưa Đạt',
+        ),
+        (
+            '% Đạt NV',
+            f"{stt['pct_dat']}%",
+            f"{min(100.0, round(stt['pct_dat'] * 1.10, 1))}%",
+            f"{min(100.0, round(stt['pct_dat'] * 1.21, 1))}%",
+            f"{min(100.0, round(stt['pct_dat'] * 1.331, 1))}%",
+            '+10%/+21%/+33.1% (cap 100%)',
+        ),
+        (
+            'DS nhóm Đạt', round(stt['ds_dat']),
+            round(stt['ds_dat'] * 1.10), round(stt['ds_dat'] * 1.21), round(stt['ds_dat'] * 1.331),
+            'DS Actual KH đã đạt NV',
+        ),
+        (
+            'DS nhóm Chưa Đạt', round(stt['ds_chua']),
+            round(stt['ds_chua']), round(stt['ds_chua']), round(stt['ds_chua']),
+            'Cơ hội kéo thêm',
+        ),
+        (
+            'Tổng DS Actual', round(stt['ds_total']),
+            round(stt['ds_total'] * 1.10), round(stt['ds_total'] * 1.21), round(stt['ds_total'] * 1.331),
+            'Scale theo SO Plan',
+        ),
+    ]
+    for chi_so, b, p10, p11, p12, note in rows_def:
+      mbs_rows.append({
+          'Nhóm': label, 'Chỉ số': chi_so,
+          base_lab: b, 'Plan T10': p10, 'Plan T11': p11, 'Plan T12': p12, 'Ghi chú': note,
+      })
   df_mbs_plan = pd.DataFrame(mbs_rows)
 
   return {
@@ -3756,10 +3782,9 @@ def build_plan_q4(mcp_df, df_rpt, sales_hist, report_date, filter_nv=None, cat_d
       'df_so_total': df_so_total,
       'df_cov': df_cov,
       'df_mbs_plan': df_mbs_plan,
-      'base_label': f'{base_m:02d}/{base_y}',
+      'base_label': base_lab,
       'months_rr': months_rr,
   }
-
 
 
 def build_weekly_lppc_vip(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
@@ -14879,10 +14904,65 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
     st.caption(
-        'RR 3 tháng gần nhất theo VIP3 / VIP5 / VIPSI × Kênh OFF·ON | '
-        'SO Plan T10–T12: mỗi tháng +10% so với tháng liền trước | '
-        'COV MCP Plan T11–T12 (+10% ASO) | MBS CAT/BRAND % cần tăng theo SO Plan'
+        'RR 3 tháng (data-2-2) VIP×OFF/ON | SO Plan T10–T12 = Base T09 ×1.10/tháng | '
+        'COV MCP: số quầy + lộ trình nâng % | MBS: mốc T09 đạt/chưa đạt → KH cần thêm'
     )
+
+    def _render_plan_table(df_in, title, note=''):
+      if df_in is None or df_in.empty:
+        st.info('Không có dữ liệu: ' + title)
+        return
+      st.markdown(
+          f'<p style="font-weight:800;color:#034ea2;margin:14px 0 4px;">{title}</p>',
+          unsafe_allow_html=True,
+      )
+      if note:
+        st.caption(note)
+      df_show = df_in.copy()
+      for c in df_show.columns:
+        if c in ('Tháng', 'Kênh', 'Tăng vs trước', 'Hệ số vs Base', 'Ghi chú', 'Nhóm', 'Chỉ số'):
+          continue
+        if str(c).startswith('%') and df_show[c].dtype == object:
+          continue
+
+        def _fmt_cell(v):
+          if isinstance(v, (int, float)) and not isinstance(v, bool):
+            if abs(v - round(v)) < 1e-9:
+              return format_number_vn(int(round(v)))
+            return format_number_vn(v)
+          return v
+
+        try:
+          df_show[c] = df_show[c].apply(_fmt_cell)
+        except Exception:
+          pass
+      html = [
+          '<div class="mbs-summary-scroll"><table class="mbs-summary-table">',
+          '<thead><tr>',
+      ]
+      for col in df_show.columns:
+        html.append(f'<th>{col}</th>')
+      html.append('</tr></thead><tbody>')
+      for _, row in df_show.iterrows():
+        first = str(row.iloc[0]) if len(row) else ''
+        tr = ''
+        if 'Base' in first:
+          tr = ' style="background:#e8f0fe !important;font-weight:700;"'
+        elif 'Plan' in first:
+          tr = ' style="background:#f0fdf4 !important;"'
+        html.append(f'<tr{tr}>')
+        for col in df_show.columns:
+          val = row.get(col, '')
+          if pd.isna(val):
+            val = ''
+          align = 'left' if col in ('Tháng', 'Kênh', 'Ghi chú', 'Nhóm', 'Chỉ số') else 'center'
+          html.append(
+              f'<td style="text-align:{align} !important;white-space:nowrap;">{val}</td>'
+          )
+        html.append('</tr>')
+      html.append('</tbody></table></div>')
+      st.markdown(''.join(html), unsafe_allow_html=True)
+
     sales_hist = pd.DataFrame()
     try:
       sales_hist = load_weekly_sales()
@@ -14891,9 +14971,7 @@ with tab_kpi:
     try:
       plan = build_plan_q4(
           mcp, df, sales_hist, report_date,
-          filter_nv=filter_nv,
-          cat_df=df_cat,
-          brand_df=df_brand,
+          filter_nv=filter_nv, cat_df=df_cat, brand_df=df_brand,
       )
     except Exception as e:
       st.error('Lỗi Plan Quý IV: ' + str(e))
@@ -14901,103 +14979,52 @@ with tab_kpi:
       plan = None
 
     if plan:
-      st.markdown(
-          '<p style="font-weight:800;color:#034ea2;margin:12px 0 4px;">'
-          '1. RR DOANH SỐ 3 THÁNG GẦN NHẤT — THEO VIP × KÊNH</p>',
-          unsafe_allow_html=True,
+      n_hist = 0 if sales_hist is None else len(sales_hist)
+      st.caption(f'File lịch sử: {n_hist:,} dòng | Base: {plan["base_label"]}')
+      _render_plan_table(
+          plan['df_rr'],
+          '1. RR DOANH SỐ 3 THÁNG GẦN NHẤT — VIP × KÊNH',
+          'Nguồn data-2-2 (Sales After Discount) + RPT. Map VIP từ Data_MCP theo L1.',
       )
-      st.caption('Nguồn: data-2 (tháng cũ) + DanhSachChiTietDonHang (tháng hiện tại). Map VIP từ Data_MCP.')
-      df_rr_show = plan['df_rr'].copy()
-      for c in ('VIP3', 'VIP5', 'VIPSI', 'Khác', 'Tổng SO'):
-        if c in df_rr_show.columns:
-          df_rr_show[c] = df_rr_show[c].apply(format_number_vn)
-      st.dataframe(df_rr_show, use_container_width=True, hide_index=True, height=320)
       st.download_button(
           '⬇️ CSV — RR 3 tháng VIP',
           plan['df_rr'].to_csv(index=False).encode('utf-8-sig'),
-          file_name='PlanQ4_RR_VIP_3Thang.csv',
-          mime='text/csv',
-          key='dl_plan_rr',
+          file_name='PlanQ4_RR_VIP_3Thang.csv', mime='text/csv', key='dl_plan_rr',
       )
-
-      st.markdown(
-          '<p style="font-weight:800;color:#034ea2;margin:18px 0 4px;">'
-          '2. SO PLAN T10 · T11 · T12 (+10% MoM) — THEO VIP × KÊNH</p>',
-          unsafe_allow_html=True,
+      _render_plan_table(
+          plan['df_so_plan'],
+          '2. SO PLAN T10 · T11 · T12 (+10% MoM) — VIP × KÊNH',
+          f"Base = {plan['base_label']} actual. T10=Base×1.10 | T11=T10×1.10 | T12=T11×1.10",
       )
-      st.caption(
-          f"Base = tháng {plan['base_label']} (actual). "
-          'Plan T10 = Base × 1.10 | T11 = T10 × 1.10 | T12 = T11 × 1.10'
+      _render_plan_table(
+          plan['df_so_total'],
+          '2b. TỔNG SO PLAN (OFF + ON)',
+          'Hệ số vs Base: T10 ×1.10 | T11 ×1.21 | T12 ×1.331',
       )
-      df_so_show = plan['df_so_plan'].copy()
-      for c in ('VIP3', 'VIP5', 'VIPSI', 'Khác', 'Tổng SO'):
-        if c in df_so_show.columns:
-          df_so_show[c] = df_so_show[c].apply(format_number_vn)
-      st.dataframe(df_so_show, use_container_width=True, hide_index=True, height=380)
-
-      st.markdown(
-          '<p style="font-weight:700;color:#1a365d;margin:10px 0 4px;">'
-          '2b. TỔNG SO PLAN (OFF + ON)</p>',
-          unsafe_allow_html=True,
-      )
-      df_tot = plan['df_so_total'].copy()
-      for c in ('SO OFF', 'SO ON', 'Tổng SO'):
-        if c in df_tot.columns:
-          df_tot[c] = df_tot[c].apply(format_number_vn)
-      st.dataframe(df_tot, use_container_width=True, hide_index=True, height=200)
       st.download_button(
-          '⬇️ CSV — SO Plan T10-T12',
+          '⬇️ CSV — SO Plan',
           plan['df_so_plan'].to_csv(index=False).encode('utf-8-sig'),
-          file_name='PlanQ4_SO_Plan.csv',
-          mime='text/csv',
-          key='dl_plan_so',
+          file_name='PlanQ4_SO_Plan.csv', mime='text/csv', key='dl_plan_so',
       )
-
-      st.markdown(
-          '<p style="font-weight:800;color:#034ea2;margin:18px 0 4px;">'
-          '3. COV MCP OFF / ON — 3 THÁNG GẦN NHẤT + PLAN T11 · T12</p>',
-          unsafe_allow_html=True,
+      _render_plan_table(
+          plan['df_cov'],
+          '3. COV MCP OFF / ON — SỐ QUẦY + LỘ TRÌNH NÂNG %COV',
+          'Số quầy MCP giữ nguyên. Plan: ASO scale theo hệ số SO (cap MCP) → %COV & CH ASO cần thêm.',
       )
-      st.caption(
-          'MCP = số CH trên Data_MCP theo L1 | ASO = số CH có đơn trong tháng | '
-          '%COV = ASO/MCP. Plan T11/T12: ASO +10% MoM (không vượt MCP).'
-      )
-      st.dataframe(plan['df_cov'], use_container_width=True, hide_index=True, height=360)
       st.download_button(
-          '⬇️ CSV — COV MCP Plan',
+          '⬇️ CSV — COV MCP',
           plan['df_cov'].to_csv(index=False).encode('utf-8-sig'),
-          file_name='PlanQ4_COV_MCP.csv',
-          mime='text/csv',
-          key='dl_plan_cov',
+          file_name='PlanQ4_COV_MCP.csv', mime='text/csv', key='dl_plan_cov',
       )
-
-      st.markdown(
-          '<p style="font-weight:800;color:#034ea2;margin:18px 0 4px;">'
-          '4. MBS CAT & MBS BRAND — % CẦN TĂNG ĐỂ ĐẠT SO PLAN</p>',
-          unsafe_allow_html=True,
+      _render_plan_table(
+          plan['df_mbs_plan'],
+          '4. MBS CAT & BRAND — MỐC T09 ĐẠT/CHƯA ĐẠT → KH CẦN THÊM',
+          'Mốc T09 = thực đạt hiện tại. Plan ×1.10/×1.21/×1.331. “KH Đạt cần thêm” = kéo từ Chưa Đạt.',
       )
-      st.caption(
-          'Giả định MBS cần tăng cùng nhịp SO Plan: T10 +10% | T11 +21% (1.1²) | T12 +33.1% (1.1³) so với base. '
-          '% Đạt NV và Số KH Đạt được scale tương ứng (cap 100% / tổng KH).'
-      )
-      df_mbs = plan['df_mbs_plan'].copy()
-      for c in df_mbs.columns:
-        if c in ('Nhóm', 'Chỉ số') or str(c).startswith('%'):
-          continue
-
-        def _fm(v):
-          if isinstance(v, (int, float)) and not isinstance(v, bool):
-            return format_number_vn(v)
-          return v
-
-        df_mbs[c] = df_mbs[c].apply(_fm)
-      st.dataframe(df_mbs, use_container_width=True, hide_index=True, height=360)
       st.download_button(
-          '⬇️ CSV — MBS Plan % tăng',
+          '⬇️ CSV — MBS Plan',
           plan['df_mbs_plan'].to_csv(index=False).encode('utf-8-sig'),
-          file_name='PlanQ4_MBS_Plan.csv',
-          mime='text/csv',
-          key='dl_plan_mbs',
+          file_name='PlanQ4_MBS_Plan.csv', mime='text/csv', key='dl_plan_mbs',
       )
 
   elif selected_kpi != 'COMBO':
