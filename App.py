@@ -1599,9 +1599,10 @@ def build_mcp_nv_summary(
         p,
         [
             'KPI_OBJ_CATLOG', 'KPI OBJ CATLOG', 'KPI_OBJ_CATALOG',
-            'KPI_OBJ_CATLOG', 'Group STD', 'Group STD SKU', 'GROUP_STD',
+            'Group STD', 'Group STD SKU', 'GROUP_STD',
         ],
     )
+    c_brand_p = find_col(p, ['BRAND', 'Brand', 'Nhãn', 'Nhãn hàng'])
     c_sp_p = find_col(
         p,
         [
@@ -1626,14 +1627,38 @@ def build_mcp_nv_summary(
         low = {_norm_key(x) for x in f_sub}
         p = p[p[c_cat].astype(str).str.strip().str.lower().isin(low)]
 
-      # Group STD SKU ← KPI_OBJ_CATLOG
-      if f_grp and c_grp_p:
-        mask = p[c_grp_p].apply(lambda v: _fuzzy_match(v, f_grp, min_ratio=0.5))
-        # exact fallback
-        if not mask.any():
+      # Group STD SKU ← KPI_OBJ_CATLOG (ưu tiên) + BRAND (fallback)
+      if f_grp:
+        masks = []
+        if c_grp_p:
+          m1 = p[c_grp_p].apply(lambda v: _fuzzy_match(v, f_grp, min_ratio=0.45))
           low = {_norm_key(x) for x in f_grp}
-          mask = p[c_grp_p].astype(str).str.strip().str.lower().isin(low)
-        p = p[mask]
+          m1 = m1 | p[c_grp_p].astype(str).str.strip().str.lower().isin(low)
+          # contains 2 chiều
+          for s in low:
+            if len(s) >= 3:
+              m1 = m1 | p[c_grp_p].astype(str).str.lower().str.contains(
+                  re.escape(s), na=False
+              )
+              m1 = m1 | p[c_grp_p].astype(str).str.strip().str.lower().apply(
+                  lambda v: s.find(v) >= 0 if v and len(v) >= 3 else False
+              )
+          masks.append(m1)
+        if c_brand_p:
+          m2 = p[c_brand_p].apply(lambda v: _fuzzy_match(v, f_grp, min_ratio=0.45))
+          low = {_norm_key(x) for x in f_grp}
+          m2 = m2 | p[c_brand_p].astype(str).str.strip().str.lower().isin(low)
+          for s in low:
+            if len(s) >= 3:
+              m2 = m2 | p[c_brand_p].astype(str).str.lower().str.contains(
+                  re.escape(s), na=False
+              )
+          masks.append(m2)
+        if masks:
+          mask = masks[0]
+          for m in masks[1:]:
+            mask = mask | m
+          p = p[mask]
 
       # Tên SP ← STANDARD_SKU_DESC_2 (fuzzy — tên RPT khác mô tả file)
       if f_sp and c_sp_p:
