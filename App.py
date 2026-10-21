@@ -15740,7 +15740,8 @@ with tab_mcp:
           placeholder='Tất cả Tên SP', label_visibility='collapsed',
       )
 
-    # SP filters chỉ áp vào bảng chi tiết
+    # SP filters áp vào bảng chi tiết
+    has_sp_filter = bool(f_sub or f_grp or f_sp)
     if f_sub and 'Sub Division' in df_f.columns:
       df_f = df_f[df_f['Sub Division'].astype(str).isin(f_sub)]
     if f_grp and 'Group STD SKU' in df_f.columns:
@@ -15748,8 +15749,47 @@ with tab_mcp:
     if f_sp and 'Tên sản phẩm' in df_f.columns:
       df_f = df_f[df_f['Tên sản phẩm'].astype(str).isin(f_sp)]
 
-    # ===== BẢNG 1: MCP gốc + Doanh Số MTD Total =====
+    # ===== BẢNG 1: MCP gốc — DS MTD theo điều kiện lọc SP (nếu có) =====
     df_total_show = df_total_f.copy()
+
+    # Xác định cột mã CH để map DS từ chi tiết
+    _ma_total = d_ma if d_ma and d_ma in df_total_show.columns else find_col(
+        df_total_show, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH']
+    )
+    _ma_detail = d_ma if d_ma and d_ma in df_f.columns else find_col(
+        df_f, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH']
+    )
+    _ds_col_detail = d_ds_detail if d_ds_detail and d_ds_detail in df_f.columns else find_col(
+        df_f, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD']
+    )
+
+    def _norm_ma_val(x):
+      s = str(x).strip()
+      return s[:-2] if s.endswith('.0') else s
+
+    if has_sp_filter and _ma_detail and _ds_col_detail and not df_f.empty:
+      # Tính lại DS theo Sub/Group/SP đang lọc (sum theo Mã KH)
+      _tmp = df_f[[_ma_detail, _ds_col_detail]].copy()
+      _tmp['_ma'] = _tmp[_ma_detail].map(_norm_ma_val)
+      _tmp['_ds'] = pd.to_numeric(_tmp[_ds_col_detail], errors='coerce').fillna(0)
+      ds_by_ma = _tmp.groupby('_ma')['_ds'].sum().to_dict()
+
+      if _ma_total and d_ds and d_ds in df_total_show.columns:
+        df_total_show['_ma'] = df_total_show[_ma_total].map(_norm_ma_val)
+        # Chỉ giữ CH có DS theo filter (hoặc DS = 0 vẫn hiện? → chỉ hiện CH có trong filter)
+        df_total_show = df_total_show[df_total_show['_ma'].isin(ds_by_ma.keys())].copy()
+        df_total_show[d_ds] = df_total_show['_ma'].map(ds_by_ma).fillna(0)
+        df_total_show = df_total_show.drop(columns=['_ma'], errors='ignore')
+      elif _ma_total:
+        # không có cột DS sẵn → tạo mới
+        df_total_show['_ma'] = df_total_show[_ma_total].map(_norm_ma_val)
+        df_total_show = df_total_show[df_total_show['_ma'].isin(ds_by_ma.keys())].copy()
+        df_total_show['Doanh Số MTD'] = df_total_show['_ma'].map(ds_by_ma).fillna(0)
+        df_total_show = df_total_show.drop(columns=['_ma'], errors='ignore')
+        d_ds = 'Doanh Số MTD'
+    # else: giữ DS total gốc (không lọc SP)
+
+    # format DS sau khi đã tính lại
     if d_ds and d_ds in df_total_show.columns:
       df_total_show[d_ds] = pd.to_numeric(
           df_total_show[d_ds], errors='coerce'
@@ -15785,9 +15825,13 @@ with tab_mcp:
     if not selected_total_cols:
       selected_total_cols = total_all_cols
     render_mbs_data_table(df_total_show, selected_total_cols)
+    _cap_ds = (
+        'Doanh Số MTD theo bộ lọc Sub/Group/SP'
+        if has_sp_filter else
+        'Doanh Số MTD = tổng từ đầu tháng đến ngày BC'
+    )
     st.caption(
-        f'Hiển thị: {len(df_total_f):,} / {len(mcp):,} cửa hàng | '
-        f'Doanh Số MTD = tổng từ đầu tháng đến ngày BC'
+        f'Hiển thị: {len(df_total_show):,} / {len(mcp):,} cửa hàng | {_cap_ds}'
     )
 
     # ===== BẢNG 2: Chi tiết DS theo Sub / Group / SP =====
