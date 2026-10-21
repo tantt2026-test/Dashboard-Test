@@ -12749,17 +12749,18 @@ with tab_kpi:
       st.info('Không có cửa hàng VIP MCH nào chưa mua hàng theo bộ lọc hiện tại.')
     else:
       cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
-      # Render HTML ngay tại đây (render_mbs_data_table định nghĩa sau → tránh NameError)
+      # Format giống bảng KPI (custom-kpi-table)
       _html = [
-          '<div class="mbs-data-scroll">',
-          '<table class="mbs-data-table">',
+          '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+          '<table class="custom-kpi-table">',
           '<thead><tr>',
       ]
       for _c in cols_vip:
         _html.append(f'<th>{_c}</th>')
       _html.append('</tr></thead><tbody>')
-      for _, _row in df_vip_chua[cols_vip].iterrows():
-        _html.append('<tr>')
+      for _i, (_, _row) in enumerate(df_vip_chua[cols_vip].iterrows()):
+        _bg = '#e6f7ff' if _i % 2 == 0 else '#ffffff'
+        _html.append(f'<tr style="background-color:{_bg} !important;">')
         for _c in cols_vip:
           _v = _row.get(_c, '')
           if pd.isna(_v):
@@ -12767,12 +12768,17 @@ with tab_kpi:
           _s = str(_v)
           if _c == 'Trạng Thái':
             _html.append(
-                f'<td style="text-align:center;color:#c53030;font-weight:700;">{_s}</td>'
+                f'<td style="text-align:center;color:#c53030;font-weight:700;'
+                f'background-color:{_bg} !important;">{_s}</td>'
             )
-          elif _c in ('STT', 'Mã KH', 'VIP', 'Thứ VT'):
-            _html.append(f'<td style="text-align:center;">{_s}</td>')
+          elif _c == 'Tên NVBH' or _c == 'Tên KH':
+            _html.append(
+                f'<td style="text-align:left;background-color:{_bg} !important;">{_s}</td>'
+            )
           else:
-            _html.append(f'<td style="text-align:left;">{_s}</td>')
+            _html.append(
+                f'<td style="text-align:center;background-color:{_bg} !important;">{_s}</td>'
+            )
         _html.append('</tr>')
       _html.append('</tbody></table></div>')
       st.markdown(''.join(_html), unsafe_allow_html=True)
