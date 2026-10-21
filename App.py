@@ -7848,6 +7848,38 @@ def build_performance_report(
     aso_v_mid = _count_aso_dh(d_mid, pat_v)
     ct_x, ct_v = 5, 3
 
+    # Combo OFF/ON theo ngày (cùng rule Báo Cáo ĐH Combo)
+    ct_combo_off, ct_combo_on = 5, 3
+    th_combo_off, th_combo_on = 0, 0
+    try:
+      _combo_day = tag_combo_orders_t10(d_nv, mcp_df=df_mcp) if not d_nv.empty else pd.DataFrame()
+      if _combo_day is not None and not _combo_day.empty:
+        if 'Mã đơn hàng' not in _combo_day.columns:
+          for _c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH', 'Doc No']:
+            if _c in _combo_day.columns:
+              _combo_day['Mã đơn hàng'] = _combo_day[_c].astype(str)
+              break
+        if 'channel' not in _combo_day.columns:
+          _combo_day['channel'] = 'OFF'
+        _ch = _combo_day['channel'].astype(str).str.upper()
+        if 'Mã đơn hàng' in _combo_day.columns:
+          th_combo_off = int(
+              _combo_day.loc[_ch.str.contains('OFF', na=False), 'Mã đơn hàng'].nunique()
+          )
+          th_combo_on = int(
+              _combo_day.loc[
+                  _ch.str.contains('ON', na=False) & ~_ch.str.contains('OFF', na=False),
+                  'Mã đơn hàng',
+              ].nunique()
+          )
+        else:
+          th_combo_off = int((_ch.str.contains('OFF', na=False)).sum())
+          th_combo_on = int(
+              (_ch.str.contains('ON', na=False) & ~_ch.str.contains('OFF', na=False)).sum()
+          )
+    except Exception:
+      th_combo_off, th_combo_on = 0, 0
+
     # ----- Chỉ số giữa ngày (RPT < 13h) -----
     d_mid_off = (
         d_mid[d_mid['_ma'].map(lambda m: not _is_on(m))]
@@ -7990,6 +8022,12 @@ def build_performance_report(
         'CT Vàng': ct_v,
         'TH Vàng': aso_v,
         '% TH Vàng': f'{round(aso_v / ct_v * 100, 1)}%',
+        'CT Combo OFF': ct_combo_off,
+        'TH Combo OFF': th_combo_off,
+        '% TH Combo OFF': f'{round(th_combo_off / ct_combo_off * 100, 1) if ct_combo_off else 0}%',
+        'CT Combo ON': ct_combo_on,
+        'TH Combo ON': th_combo_on,
+        '% TH Combo ON': f'{round(th_combo_on / ct_combo_on * 100, 1) if ct_combo_on else 0}%',
         'Số CH TB PER': int(_tb_per_map.get(nv_name, 0) or 0),
         'Chụp hình bởi ĐDKD': int(_tb_chup_map.get(nv_name, 0) or 0),
         '% TH TB': (
@@ -8037,6 +8075,8 @@ def build_performance_report(
   tot_ct, tot_th = _sum('CT Ngày SO'), _sum('TH SO')
   tot_cx, tot_tx = _sum('CT Xanh'), _sum('TH Xanh')
   tot_cv, tot_tv = _sum('CT Vàng'), _sum('TH Vàng')
+  tot_c_off, tot_th_c_off = _sum('CT Combo OFF'), _sum('TH Combo OFF')
+  tot_c_on, tot_th_c_on = _sum('CT Combo ON'), _sum('TH Combo ON')
   total = {
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
@@ -8070,6 +8110,12 @@ def build_performance_report(
       'CT Vàng': tot_cv,
       'TH Vàng': tot_tv,
       '% TH Vàng': f'{round(tot_tv / tot_cv * 100, 1) if tot_cv else 0}%',
+      'CT Combo OFF': tot_c_off,
+      'TH Combo OFF': tot_th_c_off,
+      '% TH Combo OFF': f'{round(tot_th_c_off / tot_c_off * 100, 1) if tot_c_off else 0}%',
+      'CT Combo ON': tot_c_on,
+      'TH Combo ON': tot_th_c_on,
+      '% TH Combo ON': f'{round(tot_th_c_on / tot_c_on * 100, 1) if tot_c_on else 0}%',
       'Số CH TB PER': _sum('Số CH TB PER'),
       'Chụp hình bởi ĐDKD': _sum('Chụp hình bởi ĐDKD'),
       '% TH TB': (
@@ -8130,6 +8176,16 @@ def _perf_table_html(df, section='call'):
             ('CT Vàng', 'CT Ngày'),
             ('TH Vàng', 'TH'),
             ('% TH Vàng', '% TH'),
+        ]),
+        ('ĐH Combo Kênh OFF', [
+            ('CT Combo OFF', 'CT Ngày'),
+            ('TH Combo OFF', 'TH'),
+            ('% TH Combo OFF', '% TH'),
+        ]),
+        ('ĐH Combo Kênh ON', [
+            ('CT Combo ON', 'CT Ngày'),
+            ('TH Combo ON', 'TH'),
+            ('% TH Combo ON', '% TH'),
         ]),
         ('Kỷ Luật Bán Hàng', [
             ('Số CH TB PER', 'Số CH TB PER'),
@@ -8205,10 +8261,10 @@ def _perf_table_html(df, section='call'):
   if section == 'call':
     html.append(f'<th colspan="{n_data}" style="{th_top}">Call Plan</th>')
   else:
-    # Fundamental = SellOut + ASO Xanh + ASO Vàng (9)
+    # Fundamental = SellOut + ASO Xanh + ASO Vàng + Combo OFF/ON (15)
     # Kỷ Luật Bán Hàng: rowspan=2 gộp 2 dòng tiêu đề thành 1 ô
     # Đề xuất & Đánh Giá = Giữa + Cuối (2)
-    html.append(f'<th colspan="9" style="{th_top}">Fundamental</th>')
+    html.append(f'<th colspan="15" style="{th_top}">Fundamental</th>')
     html.append(
         f'<th colspan="3" rowspan="2" style="{th_top}">Kỷ Luật Bán Hàng</th>'
     )
