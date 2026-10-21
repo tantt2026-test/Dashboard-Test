@@ -1395,6 +1395,161 @@ def build_mcp_sales_detail(df_rpt, df_mcp, report_date=None):
 
 
 
+
+def build_mcp_nv_summary(
+    df_mcp,
+    df_detail_filtered,
+    filter_nv=None,
+    f_sub=None,
+    f_grp=None,
+    f_sp=None,
+    report_date=None,
+    df_perf_raw=None,
+):
+  """Tổng hợp theo NV: Chỉ tiêu DS (Performance) / MTD / % / MCP / ASO / %ASO.
+
+  - Chỉ tiêu: TARGET SO từ Performance theo SUB DIV đang lọc
+    (nếu không chọn Sub → suy ra Sub từ dòng chi tiết đã lọc).
+  - MTD: sum Doanh Số MTD trên df_detail_filtered theo NV.
+  - MCP: số CH unique trên MCP (đã base-filter sẵn trong df_mcp truyền vào).
+  - ASO: số CH unique có MTD > 0 trên detail đã lọc.
+  """
+  cols = [
+      'STT', 'Tên NVBH', 'Chỉ tiêu Doanh Số', 'MTD', '% MTD DS',
+      'MCP', 'ASO', '% MTD ASO/MCP',
+  ]
+  empty = pd.DataFrame(columns=cols)
+  if df_mcp is None or df_mcp.empty:
+    return empty
+
+  mcp = df_mcp.copy()
+  c_nv = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
+  c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+  if not c_nv or not c_ma:
+    return empty
+
+  def _norm(x):
+    s = str(x).strip()
+    return s[:-2] if s.endswith('.0') else s
+
+  mcp['_nv'] = mcp[c_nv].astype(str).str.strip()
+  mcp['_ma'] = mcp[c_ma].map(_norm)
+  if filter_nv:
+    if isinstance(filter_nv, (list, tuple, set)):
+      mcp = mcp[mcp['_nv'].isin([str(x).strip() for x in filter_nv])]
+    else:
+      mcp = mcp[mcp['_nv'] == str(filter_nv).strip()]
+
+  # MCP count / NV
+  mcp_cnt = mcp.groupby('_nv')['_ma'].nunique().to_dict()
+
+  # Detail filtered → MTD + ASO + suy ra Sub
+  mtd_map, aso_map = {}, {}
+  subs_by_nv = {}
+  detail = df_detail_filtered.copy() if df_detail_filtered is not None else pd.DataFrame()
+  if not detail.empty:
+    d_nv = find_col(detail, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
+    d_ma = find_col(detail, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+    d_ds = find_col(detail, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD'])
+    d_sub = 'Sub Division' if 'Sub Division' in detail.columns else find_col(
+        detail, ['Sub Division', 'SUB DIV', 'SubDivision']
+    )
+    if d_nv and d_ds:
+      detail['_nv'] = detail[d_nv].astype(str).str.strip()
+      detail['_ds'] = pd.to_numeric(detail[d_ds], errors='coerce').fillna(0)
+      if d_ma:
+        detail['_ma'] = detail[d_ma].map(_norm)
+      mtd_map = detail.groupby('_nv')['_ds'].sum().to_dict()
+      if d_ma:
+        aso_map = (
+            detail[detail['_ds'] > 0]
+            .groupby('_nv')['_ma']
+            .nunique()
+            .to_dict()
+        )
+      if d_sub:
+        detail['_sub'] = detail[d_sub].astype(str).str.strip()
+        for nv, g in detail.groupby('_nv'):
+          subs_by_nv[nv] = set(
+              x for x in g['_sub'].tolist()
+              if x and x.lower() not in ('nan', 'none', '')
+          )
+
+  # Chỉ tiêu từ Performance
+  target_map = {}
+  try:
+    perf = df_perf_raw
+    if perf is None:
+      perf = load_perf_sku_data()
+  except Exception:
+    perf = pd.DataFrame()
+
+  if perf is not None and not getattr(perf, 'empty', True):
+    d = perf.copy()
+    c_month = find_col(d, ['MONTH', 'Month'])
+    c_cat = find_col(d, ['SUB DIV', 'SUB_DIV', 'CAT', 'Category', 'Sub Division'])
+    c_tg = find_col(d, ['TARGET SO', 'Target SO', 'TARGET', 'Target'])
+    c_pnv = find_col(d, ['SM NAME', 'SM_NAME', 'Tên NVBH', 'SM name'])
+    if c_month and c_cat and c_tg and c_pnv:
+      cur_m = _month_key_from_date(report_date) if report_date is not None else ''
+      d['_month'] = d[c_month].astype(str).str.strip()
+      if cur_m:
+        d = d[d['_month'] == cur_m]
+      d['_nv'] = d[c_pnv].astype(str).str.strip()
+      d['_cat'] = d[c_cat].astype(str).str.strip()
+      d['_tg'] = pd.to_numeric(d[c_tg], errors='coerce').fillna(0)
+      # lọc theo Sub Division đã chọn
+      selected_subs = set(f_sub or [])
+      if selected_subs:
+        # match case-insensitive
+        lower_sel = {s.lower() for s in selected_subs}
+        d = d[d['_cat'].str.lower().isin(lower_sel)]
+      # nếu không chọn Sub nhưng có Group/SP → chỉ lấy Sub xuất hiện trong detail
+      elif f_grp or f_sp:
+        all_subs = set()
+        for s in subs_by_nv.values():
+          all_subs |= s
+        if all_subs:
+          lower_sel = {s.lower() for s in all_subs}
+          d = d[d['_cat'].str.lower().isin(lower_sel)]
+      target_map = d.groupby('_nv')['_tg'].sum().to_dict()
+
+  # Tập NV = union MCP + có MTD
+  nvs = sorted(set(list(mcp_cnt.keys()) + list(mtd_map.keys())))
+  if filter_nv:
+    if isinstance(filter_nv, (list, tuple, set)):
+      allow = {str(x).strip() for x in filter_nv}
+      nvs = [n for n in nvs if n in allow]
+    else:
+      nvs = [n for n in nvs if n == str(filter_nv).strip()]
+
+  rows = []
+  for nv in nvs:
+    ct = float(target_map.get(nv, 0) or 0)
+    mtd = float(mtd_map.get(nv, 0) or 0)
+    pct_ds = round(mtd / ct * 100, 1) if ct > 0 else 0.0
+    mcp_n = int(mcp_cnt.get(nv, 0) or 0)
+    aso_n = int(aso_map.get(nv, 0) or 0)
+    pct_aso = round(aso_n / mcp_n * 100, 1) if mcp_n > 0 else 0.0
+    rows.append({
+        'Tên NVBH': nv,
+        'Chỉ tiêu Doanh Số': ct,
+        'MTD': mtd,
+        '% MTD DS': pct_ds,
+        'MCP': mcp_n,
+        'ASO': aso_n,
+        '% MTD ASO/MCP': pct_aso,
+    })
+
+  out = pd.DataFrame(rows)
+  if out.empty:
+    return empty
+  out = out.sort_values('Tên NVBH').reset_index(drop=True)
+  out.insert(0, 'STT', range(1, len(out) + 1))
+  return out[cols]
+
+
+
 def process_cat_sales(df_rpt, df_cat):
   if df_cat.empty or df_rpt.empty:
     return df_cat
@@ -15748,6 +15903,155 @@ with tab_mcp:
       df_f = df_f[df_f['Group STD SKU'].astype(str).isin(f_grp)]
     if f_sp and 'Tên sản phẩm' in df_f.columns:
       df_f = df_f[df_f['Tên sản phẩm'].astype(str).isin(f_sp)]
+
+    # ===== BẢNG 0: Tổng hợp theo Nhân Viên =====
+    try:
+      _perf_raw = load_perf_sku_data()
+    except Exception:
+      _perf_raw = pd.DataFrame()
+    try:
+      df_nv_sum = build_mcp_nv_summary(
+          df_total_f,
+          df_f,
+          filter_nv=f_nv if f_nv else None,
+          f_sub=f_sub,
+          f_grp=f_grp,
+          f_sp=f_sp,
+          report_date=report_date,
+          df_perf_raw=_perf_raw,
+      )
+    except Exception as e:
+      df_nv_sum = pd.DataFrame()
+      st.caption(f'(Lỗi tổng hợp NV MCP: {e})')
+
+    st.markdown(
+        '<p style="font-weight:800;color:#034ea2;margin:10px 0 4px;">'
+        '0. TỔNG HỢP THEO NHÂN VIÊN — CHỈ TIÊU / MTD / MCP / ASO</p>',
+        unsafe_allow_html=True,
+    )
+    if df_nv_sum is None or df_nv_sum.empty:
+      st.info('Không có dữ liệu tổng hợp theo nhân viên.')
+    else:
+      cols_nv = [
+          'STT', 'Tên NVBH', 'Chỉ tiêu Doanh Số', 'MTD', '% MTD DS',
+          'MCP', 'ASO', '% MTD ASO/MCP',
+      ]
+      _html = [
+          '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+          '<table class="custom-kpi-table">',
+          '<thead><tr>',
+      ]
+      for _c in cols_nv:
+        _html.append(f'<th>{_c}</th>')
+      _html.append('</tr></thead><tbody>')
+      _sum = {
+          'Chỉ tiêu Doanh Số': 0.0, 'MTD': 0.0,
+          'MCP': 0, 'ASO': 0,
+      }
+      for _i, (_, _row) in enumerate(df_nv_sum[cols_nv].iterrows()):
+        _bg = '#e6f7ff' if _i % 2 == 0 else '#ffffff'
+        _html.append(f'<tr style="background-color:{_bg} !important;">')
+        for _c in cols_nv:
+          _v = _row.get(_c, '')
+          if pd.isna(_v):
+            _v = ''
+          if _c in ('Chỉ tiêu Doanh Số', 'MTD'):
+            try:
+              _num = float(_v) if _v != '' else 0.0
+            except Exception:
+              _num = 0.0
+            _sum[_c] = _sum.get(_c, 0) + _num
+            _s = format_number_vn(_num)
+            _html.append(
+                f'<td style="text-align:right;background-color:{_bg} !important;">{_s}</td>'
+            )
+          elif _c in ('MCP', 'ASO'):
+            try:
+              _num = int(float(_v)) if _v != '' else 0
+            except Exception:
+              _num = 0
+            _sum[_c] = _sum.get(_c, 0) + _num
+            _html.append(
+                f'<td style="text-align:center;background-color:{_bg} !important;">{_num}</td>'
+            )
+          elif _c in ('% MTD DS', '% MTD ASO/MCP'):
+            try:
+              _pct = float(_v) if _v != '' else 0.0
+            except Exception:
+              _pct = 0.0
+            _s = f'{_pct:.1f}%'.rstrip('0').rstrip('.').replace('.0', '') if False else f'{_pct}%'
+            # color theo timegone rule
+            try:
+              _cls = color_pct_class(f'{_pct}%')
+              _sty = color_pct_bg(f'{_pct}%')
+            except Exception:
+              _cls, _sty = '', ''
+            _html.append(
+                f'<td data-colored="1" class="{_cls}" style="text-align:center;'
+                f'background-color:{_bg} !important;{_sty}">{_pct}%</td>'
+            )
+          elif _c == 'Tên NVBH':
+            _html.append(
+                f'<td style="text-align:left;background-color:{_bg} !important;">{_v}</td>'
+            )
+          else:
+            _html.append(
+                f'<td style="text-align:center;background-color:{_bg} !important;">{_v}</td>'
+            )
+        _html.append('</tr>')
+      # Total
+      _tot_bg = '#1a365d'
+      _pct_ds_tot = (
+          round(_sum['MTD'] / _sum['Chỉ tiêu Doanh Số'] * 100, 1)
+          if _sum['Chỉ tiêu Doanh Số'] > 0 else 0.0
+      )
+      _pct_aso_tot = (
+          round(_sum['ASO'] / _sum['MCP'] * 100, 1)
+          if _sum['MCP'] > 0 else 0.0
+      )
+      _html.append(f'<tr style="background-color:{_tot_bg} !important;">')
+      for _c in cols_nv:
+        if _c == 'STT':
+          _s = ''
+        elif _c == 'Tên NVBH':
+          _s = 'TỔNG CỘNG'
+        elif _c in ('Chỉ tiêu Doanh Số', 'MTD'):
+          _s = format_number_vn(_sum[_c])
+        elif _c == 'MCP':
+          _s = str(_sum['MCP'])
+        elif _c == 'ASO':
+          _s = str(_sum['ASO'])
+        elif _c == '% MTD DS':
+          _s = f'{_pct_ds_tot}%'
+        elif _c == '% MTD ASO/MCP':
+          _s = f'{_pct_aso_tot}%'
+        else:
+          _s = ''
+        if _c in ('% MTD DS', '% MTD ASO/MCP'):
+          try:
+            _cls = color_pct_class(_s)
+            _sty = color_pct_bg(_s)
+          except Exception:
+            _cls, _sty = '', ''
+          _html.append(
+              f'<td data-colored="1" class="{_cls}" style="text-align:center;'
+              f'background-color:{_tot_bg} !important;color:#ffffff !important;'
+              f'font-weight:800 !important;{_sty}">{_s}</td>'
+          )
+        else:
+          _html.append(
+              f'<td style="text-align:{"right" if _c in ("Chỉ tiêu Doanh Số","MTD") else "center"};'
+              f'background-color:{_tot_bg} !important;color:#ffffff !important;'
+              f'font-weight:800 !important;">{_s}</td>'
+          )
+      _html.append('</tr>')
+      _html.append('</tbody></table></div>')
+      st.markdown(''.join(_html), unsafe_allow_html=True)
+      st.caption(
+          f'Hiển thị: {len(df_nv_sum):,} nhân viên | '
+          f'Chỉ tiêu theo Performance'
+          + (' (lọc Sub/Group/SP)' if (f_sub or f_grp or f_sp) else ' (full)')
+      )
 
     # ===== BẢNG 1: MCP gốc — DS MTD theo điều kiện lọc SP (nếu có) =====
     df_total_show = df_total_f.copy()
