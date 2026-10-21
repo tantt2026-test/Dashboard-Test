@@ -5171,11 +5171,7 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
     _, _, _remain_days, _ = get_timegone_stats(_rd0)
   except Exception:
     _remain_days = 0
-  _df_src = df_kpi if df_kpi is not None else df
-  if _df_src is not None and not getattr(_df_src, 'empty', True) and 'date' in getattr(_df_src, 'columns', []):
-    df_mtd = _df_src[_df_src['date'] >= date(report_date.year, report_date.month, 1)].copy()
-  else:
-    df_mtd = pd.DataFrame()
+  df_mtd = df[df['date'] >= date(report_date.year, report_date.month, 1)].copy()
   df_today = df[df['date'] == report_date].copy()
 
   if nv_selected(filter_nv):
@@ -6594,8 +6590,40 @@ def build_summary_report(
     _mcp_kpi = mcp_filtered if effective_thu_list else mcp_df
 
     try:
-      df_to, _, _ = build_turnover_report(df_kpi, report_date, _to_tgt, filter_nv)
-      _apply_kpi_df(df_to, 'CT DS', 'TH DS', '% MTD DS', as_float=False)
+      # CT lấy full tháng (target); TH lấy data đã lọc CH theo Thứ
+      df_to_ct, _, _ = build_turnover_report(df, report_date, _to_tgt, filter_nv)
+      _apply_kpi_df(df_to_ct, 'CT DS', 'TH DS', '% MTD DS', as_float=False)
+      # ghi đè TH bằng data lọc Thứ (nếu có)
+      if effective_thu_list:
+        df_to_th, _, _ = build_turnover_report(df_kpi, report_date, _to_tgt, filter_nv)
+        if df_to_th is not None and not df_to_th.empty:
+          name_col = 'Tên NVBH' if 'Tên NVBH' in df_to_th.columns else None
+          mtd_col = 'Doanh Số MTD' if 'Doanh Số MTD' in df_to_th.columns else None
+          if name_col and mtd_col:
+            body = df_to_th[~df_to_th[name_col].astype(str).str.upper().str.contains(
+                'TOTAL|TỔNG', na=False, regex=True
+            )]
+            name_to_idx = {
+                ' '.join(str(v).strip().lower().split()): i
+                for i, v in df_out['Tên NV'].astype(str).items()
+            }
+            for _, kr in body.iterrows():
+              nm = ' '.join(str(kr[name_col]).strip().lower().split())
+              if nm not in name_to_idx:
+                continue
+              idx = name_to_idx[nm]
+              try:
+                th = float(kr[mtd_col])
+              except Exception:
+                th = 0.0
+              df_out.at[idx, 'TH DS'] = int(round(th))
+              try:
+                ct = float(df_out.at[idx, 'CT DS'])
+                df_out.at[idx, '% MTD DS'] = (
+                    f'{round(th / ct * 100, 1)}%' if ct else '0%'
+                )
+              except Exception:
+                pass
     except Exception:
       pass
 
