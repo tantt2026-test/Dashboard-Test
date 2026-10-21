@@ -12733,6 +12733,59 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
 
+    # ===== Chi tiết VIP MCH chưa mua hàng =====
+    try:
+      df_vip_chua = build_vip_mch_chua_mua(mcp, filter_nv=filter_nv, f_thu_list=f_thu_sum)
+    except Exception as e:
+      df_vip_chua = pd.DataFrame()
+      st.caption(f'(Lỗi tải VIP chưa mua: {e})')
+
+    st.markdown(
+        '<p style="font-weight:800;color:#034ea2;margin:16px 0 6px;">'
+        'CHI TIẾT NHÓM KH VIP MCH CHƯA MUA HÀNG</p>',
+        unsafe_allow_html=True,
+    )
+    if df_vip_chua is None or df_vip_chua.empty:
+      st.info('Không có cửa hàng VIP MCH nào chưa mua hàng theo bộ lọc hiện tại.')
+    else:
+      cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
+      # Render HTML ngay tại đây (render_mbs_data_table định nghĩa sau → tránh NameError)
+      _html = [
+          '<div class="mbs-data-scroll">',
+          '<table class="mbs-data-table">',
+          '<thead><tr>',
+      ]
+      for _c in cols_vip:
+        _html.append(f'<th>{_c}</th>')
+      _html.append('</tr></thead><tbody>')
+      for _, _row in df_vip_chua[cols_vip].iterrows():
+        _html.append('<tr>')
+        for _c in cols_vip:
+          _v = _row.get(_c, '')
+          if pd.isna(_v):
+            _v = ''
+          _s = str(_v)
+          if _c == 'Trạng Thái':
+            _html.append(
+                f'<td style="text-align:center;color:#c53030;font-weight:700;">{_s}</td>'
+            )
+          elif _c in ('STT', 'Mã KH', 'VIP', 'Thứ VT'):
+            _html.append(f'<td style="text-align:center;">{_s}</td>')
+          else:
+            _html.append(f'<td style="text-align:left;">{_s}</td>')
+        _html.append('</tr>')
+      _html.append('</tbody></table></div>')
+      st.markdown(''.join(_html), unsafe_allow_html=True)
+      st.caption(f'Hiển thị: {len(df_vip_chua):,} cửa hàng VIP chưa mua hàng')
+      st.download_button(
+          '📥 Tải CSV VIP MCH chưa mua hàng',
+          data=df_vip_chua.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'VIP_MCH_ChuaMua_{report_date}.csv',
+          mime='text/csv',
+          key='dl_vip_mch_chua_mua',
+      )
+
+
     # ===== Chart % hoàn thành KPI (theo metric đang chọn) =====
     try:
       import plotly.graph_objects as go
@@ -12850,57 +12903,6 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
 
-    # ===== Chi tiết VIP MCH chưa mua hàng =====
-    try:
-      df_vip_chua = build_vip_mch_chua_mua(mcp, filter_nv=filter_nv, f_thu_list=f_thu_sum)
-    except Exception as e:
-      df_vip_chua = pd.DataFrame()
-      st.caption(f'(Lỗi tải VIP chưa mua: {e})')
-
-    st.markdown(
-        '<p style="font-weight:800;color:#034ea2;margin:16px 0 6px;">'
-        'CHI TIẾT NHÓM KH VIP MCH CHƯA MUA HÀNG</p>',
-        unsafe_allow_html=True,
-    )
-    if df_vip_chua is None or df_vip_chua.empty:
-      st.info('Không có cửa hàng VIP MCH nào chưa mua hàng theo bộ lọc hiện tại.')
-    else:
-      cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
-      # Render HTML ngay tại đây (render_mbs_data_table định nghĩa sau → tránh NameError)
-      _html = [
-          '<div class="mbs-data-scroll">',
-          '<table class="mbs-data-table">',
-          '<thead><tr>',
-      ]
-      for _c in cols_vip:
-        _html.append(f'<th>{_c}</th>')
-      _html.append('</tr></thead><tbody>')
-      for _, _row in df_vip_chua[cols_vip].iterrows():
-        _html.append('<tr>')
-        for _c in cols_vip:
-          _v = _row.get(_c, '')
-          if pd.isna(_v):
-            _v = ''
-          _s = str(_v)
-          if _c == 'Trạng Thái':
-            _html.append(
-                f'<td style="text-align:center;color:#c53030;font-weight:700;">{_s}</td>'
-            )
-          elif _c in ('STT', 'Mã KH', 'VIP', 'Thứ VT'):
-            _html.append(f'<td style="text-align:center;">{_s}</td>')
-          else:
-            _html.append(f'<td style="text-align:left;">{_s}</td>')
-        _html.append('</tr>')
-      _html.append('</tbody></table></div>')
-      st.markdown(''.join(_html), unsafe_allow_html=True)
-      st.caption(f'Hiển thị: {len(df_vip_chua):,} cửa hàng VIP chưa mua hàng')
-      st.download_button(
-          '📥 Tải CSV VIP MCH chưa mua hàng',
-          data=df_vip_chua.to_csv(index=False).encode('utf-8-sig'),
-          file_name=f'VIP_MCH_ChuaMua_{report_date}.csv',
-          mime='text/csv',
-          key='dl_vip_mch_chua_mua',
-      )
 
 
   elif selected_kpi == 'MBS_CAT':
@@ -15517,8 +15519,7 @@ with tab_mcp:
         else ''
     )
 
-    # ===== BẢNG 1: MCP gốc + Doanh Số MTD Total (1 dòng / CH) =====
-    # mcp đã qua process_mcp_sales → có Doanh Số MTD total
+    # ===== MCP: chuẩn bị data + lọc (tất cả bộ lọc nằm TRÊN 2 bảng) =====
     df_total = mcp.copy()
     d_nv = col_nv
     d_ma = col_ma
@@ -15550,31 +15551,6 @@ with tab_mcp:
         dfx = dfx[formatted_col_ds.isin(f_ds)]
       return dfx
 
-    df_total_f = _apply_mcp_base_filters(df_total)
-    df_total_show = df_total_f.copy()
-    if d_ds and d_ds in df_total_show.columns:
-      df_total_show[d_ds] = pd.to_numeric(
-          df_total_show[d_ds], errors='coerce'
-      ).apply(format_number_vn)
-
-    # Cột bảng total = cột MCP gốc (không có Sub Division / Group / SP)
-    total_cols = [c for c in list(mcp.columns) if c in df_total_show.columns]
-    # đảm bảo cột DS có trong list
-    if d_ds and d_ds in df_total_show.columns and d_ds not in total_cols:
-      total_cols.append(d_ds)
-
-    st.markdown(
-        '<p style="font-weight:800;color:#034ea2;margin:10px 0 4px;">'
-        '1. DATA MCP GỐC — DOANH SỐ MTD TOTAL (theo cửa hàng)</p>',
-        unsafe_allow_html=True,
-    )
-    render_mbs_data_table(df_total_show, total_cols)
-    st.caption(
-        f'Hiển thị: {len(df_total_f):,} / {len(mcp):,} cửa hàng | '
-        f'Doanh Số MTD = tổng từ đầu tháng đến ngày BC'
-    )
-
-    # ===== BẢNG 2: Chi tiết DS theo Sub Division / Group STD / Tên SP =====
     try:
       df_detail = build_mcp_sales_detail(df, mcp, report_date=report_date)
     except Exception:
@@ -15586,9 +15562,11 @@ with tab_mcp:
         df_detail, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD']
     )
 
+    # Base filter cho cả 2 bảng
+    df_total_f = _apply_mcp_base_filters(df_total)
     df_f = _apply_mcp_base_filters(df_detail)
 
-    # Bộ lọc thông minh: Sub Division / Group STD / Tên SP
+    # Bộ lọc SP (chung, nằm trên cả 2 bảng)
     sub_opts = sorted([
         x for x in df_f['Sub Division'].dropna().astype(str).unique().tolist()
         if x and x.lower() not in ('nan', 'none', '')
@@ -15601,12 +15579,6 @@ with tab_mcp:
         x for x in df_f['Tên sản phẩm'].dropna().astype(str).unique().tolist()
         if x and x.lower() not in ('nan', 'none', '')
     ]) if 'Tên sản phẩm' in df_f.columns else []
-
-    st.markdown(
-        '<p style="font-weight:800;color:#034ea2;margin:16px 0 4px;">'
-        '2. DOANH SỐ MTD CHI TIẾT — Sub Division / Group STD SKU / Tên sản phẩm</p>',
-        unsafe_allow_html=True,
-    )
 
     fc1, fc2, fc3 = st.columns(3)
     with fc1:
@@ -15657,6 +15629,7 @@ with tab_mcp:
           placeholder='Tất cả Tên SP', label_visibility='collapsed',
       )
 
+    # SP filters chỉ áp vào bảng chi tiết
     if f_sub and 'Sub Division' in df_f.columns:
       df_f = df_f[df_f['Sub Division'].astype(str).isin(f_sub)]
     if f_grp and 'Group STD SKU' in df_f.columns:
@@ -15664,7 +15637,49 @@ with tab_mcp:
     if f_sp and 'Tên sản phẩm' in df_f.columns:
       df_f = df_f[df_f['Tên sản phẩm'].astype(str).isin(f_sp)]
 
-    # format số DS chi tiết
+    # ===== BẢNG 1: MCP gốc + Doanh Số MTD Total =====
+    df_total_show = df_total_f.copy()
+    if d_ds and d_ds in df_total_show.columns:
+      df_total_show[d_ds] = pd.to_numeric(
+          df_total_show[d_ds], errors='coerce'
+      ).apply(format_number_vn)
+
+    total_all_cols = [c for c in list(mcp.columns) if c in df_total_show.columns]
+    if d_ds and d_ds in df_total_show.columns and d_ds not in total_all_cols:
+      total_all_cols.append(d_ds)
+
+    saved_mcp_total_cols = st.query_params.get('mcp_total_cols', None)
+    default_total_cols = total_all_cols
+    if saved_mcp_total_cols:
+      if isinstance(saved_mcp_total_cols, str):
+        saved_t = [c.strip() for c in saved_mcp_total_cols.split(',') if c.strip() in total_all_cols]
+      else:
+        saved_t = [c for c in saved_mcp_total_cols if c in total_all_cols]
+      if saved_t and len(saved_t) >= max(3, int(len(total_all_cols) * 0.4)):
+        default_total_cols = saved_t
+
+    st.markdown(
+        '<p style="font-weight:800;color:#034ea2;margin:10px 0 4px;">'
+        '1. DATA MCP GỐC — DOANH SỐ MTD TOTAL (theo cửa hàng)</p>',
+        unsafe_allow_html=True,
+    )
+    with st.popover('👁️ Chọn cột hiển thị (MCP Gốc)', use_container_width=False):
+      selected_total_cols = st.multiselect(
+          'Bỏ chọn để ẩn cột:',
+          total_all_cols,
+          default=default_total_cols,
+          key='mcp_total_cols_input',
+      )
+    st.query_params['mcp_total_cols'] = ','.join(selected_total_cols)
+    if not selected_total_cols:
+      selected_total_cols = total_all_cols
+    render_mbs_data_table(df_total_show, selected_total_cols)
+    st.caption(
+        f'Hiển thị: {len(df_total_f):,} / {len(mcp):,} cửa hàng | '
+        f'Doanh Số MTD = tổng từ đầu tháng đến ngày BC'
+    )
+
+    # ===== BẢNG 2: Chi tiết DS theo Sub / Group / SP =====
     df_show = df_f.copy()
     if d_ds_detail and d_ds_detail in df_show.columns:
       df_show[d_ds_detail] = pd.to_numeric(
@@ -15691,6 +15706,11 @@ with tab_mcp:
       if saved_list and len(saved_list) >= max(5, int(len(all_cols_mcp) * 0.5)):
         default_cols_mcp = saved_list
 
+    st.markdown(
+        '<p style="font-weight:800;color:#034ea2;margin:16px 0 4px;">'
+        '2. DOANH SỐ MTD CHI TIẾT — Sub Division / Group STD SKU / Tên sản phẩm</p>',
+        unsafe_allow_html=True,
+    )
     with st.popover('👁️ Chọn cột hiển thị (Chi tiết SP)', use_container_width=False):
       selected_mcp_cols = st.multiselect(
           'Bỏ chọn để ẩn cột:',
@@ -15699,7 +15719,8 @@ with tab_mcp:
           key='mcp_cols_input',
       )
     st.query_params['mcp_cols'] = ','.join(selected_mcp_cols)
-
+    if not selected_mcp_cols:
+      selected_mcp_cols = all_cols_mcp
     render_mbs_data_table(df_show, selected_mcp_cols)
     _ma_col = col_ma if col_ma and col_ma in df_f.columns else (
         'Mã CH' if 'Mã CH' in df_f.columns else None
