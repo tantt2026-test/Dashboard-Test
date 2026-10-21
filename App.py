@@ -1405,14 +1405,21 @@ def build_mcp_nv_summary(
     f_sp=None,
     report_date=None,
     df_perf_raw=None,
+    df_rpt=None,
 ):
-  """Tổng hợp theo NV: Chỉ tiêu DS (Performance) / MTD / % / MCP / ASO / %ASO.
+  """Tổng hợp theo NV — khớp rule Performance.
 
-  - Chỉ tiêu: TARGET SO từ Performance theo SUB DIV đang lọc
-    (nếu không chọn Sub → suy ra Sub từ dòng chi tiết đã lọc).
-  - MTD: sum Doanh Số MTD trên df_detail_filtered theo NV.
-  - MCP: số CH unique trên MCP (đã base-filter sẵn trong df_mcp truyền vào).
-  - ASO: số CH unique có MTD > 0 trên detail đã lọc.
+  Chỉ tiêu:
+    - Ưu tiên match theo Tên SP / Group STD SKU nếu Performance có cột tương ứng
+    - Không thì match SUB DIV (đang chọn hoặc suy từ detail đã lọc)
+
+  MTD (Sell Out):
+    - Cùng rule Performance: Thành tiền trước CK, loại Đã hủy, tháng report_date
+    - Lọc theo Sub / Group STD / Tên SP đang chọn
+
+  MCP / ASO:
+    - MCP: số CH unique trên MCP (đã base-filter)
+    - ASO: số CH unique có DS > 0 trên detail đã lọc
   """
   cols = [
       'STT', 'Tên NVBH', 'Chỉ tiêu Doanh Số', 'MTD', '% MTD DS',
@@ -1422,15 +1429,18 @@ def build_mcp_nv_summary(
   if df_mcp is None or df_mcp.empty:
     return empty
 
+  def _norm(x):
+    s = str(x).strip()
+    return s[:-2] if s.endswith('.0') else s
+
+  def _norm_key(x):
+    return str(x).strip().lower()
+
   mcp = df_mcp.copy()
   c_nv = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
   c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
   if not c_nv or not c_ma:
     return empty
-
-  def _norm(x):
-    s = str(x).strip()
-    return s[:-2] if s.endswith('.0') else s
 
   mcp['_nv'] = mcp[c_nv].astype(str).str.strip()
   mcp['_ma'] = mcp[c_ma].map(_norm)
@@ -1440,82 +1450,175 @@ def build_mcp_nv_summary(
     else:
       mcp = mcp[mcp['_nv'] == str(filter_nv).strip()]
 
-  # MCP count / NV
   mcp_cnt = mcp.groupby('_nv')['_ma'].nunique().to_dict()
 
-  # Detail filtered → MTD + ASO + suy ra Sub
-  mtd_map, aso_map = {}, {}
-  subs_by_nv = {}
+  # ----- ASO từ detail đã lọc -----
+  aso_map = {}
   detail = df_detail_filtered.copy() if df_detail_filtered is not None else pd.DataFrame()
+  inferred_subs, inferred_grps, inferred_sps = set(), set(), set()
   if not detail.empty:
     d_nv = find_col(detail, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
     d_ma = find_col(detail, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
     d_ds = find_col(detail, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD'])
-    d_sub = 'Sub Division' if 'Sub Division' in detail.columns else find_col(
-        detail, ['Sub Division', 'SUB DIV', 'SubDivision']
-    )
-    if d_nv and d_ds:
+    if d_nv and d_ds and d_ma:
       detail['_nv'] = detail[d_nv].astype(str).str.strip()
+      detail['_ma'] = detail[d_ma].map(_norm)
       detail['_ds'] = pd.to_numeric(detail[d_ds], errors='coerce').fillna(0)
-      if d_ma:
-        detail['_ma'] = detail[d_ma].map(_norm)
-      mtd_map = detail.groupby('_nv')['_ds'].sum().to_dict()
-      if d_ma:
-        aso_map = (
-            detail[detail['_ds'] > 0]
-            .groupby('_nv')['_ma']
-            .nunique()
-            .to_dict()
-        )
-      if d_sub:
-        detail['_sub'] = detail[d_sub].astype(str).str.strip()
-        for nv, g in detail.groupby('_nv'):
-          subs_by_nv[nv] = set(
-              x for x in g['_sub'].tolist()
-              if x and x.lower() not in ('nan', 'none', '')
-          )
+      aso_map = (
+          detail[detail['_ds'] > 0]
+          .groupby('_nv')['_ma']
+          .nunique()
+          .to_dict()
+      )
+    if 'Sub Division' in detail.columns:
+      inferred_subs = {
+          x for x in detail['Sub Division'].astype(str).str.strip().tolist()
+          if x and x.lower() not in ('nan', 'none', '')
+      }
+    if 'Group STD SKU' in detail.columns:
+      inferred_grps = {
+          x for x in detail['Group STD SKU'].astype(str).str.strip().tolist()
+          if x and x.lower() not in ('nan', 'none', '')
+      }
+    if 'Tên sản phẩm' in detail.columns:
+      inferred_sps = {
+          x for x in detail['Tên sản phẩm'].astype(str).str.strip().tolist()
+          if x and x.lower() not in ('nan', 'none', '')
+      }
 
-  # Chỉ tiêu từ Performance
+  sel_sub = set(f_sub or []) or inferred_subs
+  sel_grp = set(f_grp or []) or (inferred_grps if (f_grp or f_sp) else set())
+  sel_sp = set(f_sp or [])
+
+  # ----- MTD từ RPT — cùng rule Performance -----
+  mtd_map = {}
+  if df_rpt is not None and not getattr(df_rpt, 'empty', True) and report_date is not None:
+    d = df_rpt.copy()
+    if 'date' in d.columns:
+      d['_d'] = pd.to_datetime(d['date'], errors='coerce')
+    else:
+      c_date = find_col(d, [
+          'Ngày tạo đơn hàng', 'Ngày tạo đơn', 'Order Date', 'ORDER_DT',
+      ])
+      if c_date:
+        d['_d'] = pd.to_datetime(d[c_date], dayfirst=True, errors='coerce')
+      else:
+        d['_d'] = pd.NaT
+
+    c_cat = find_col(d, ['Sub Division', 'SUB DIV', 'SubDivision', 'Phân nhóm'])
+    c_grp = find_col(
+        d,
+        ['Group STD', 'Group std', 'Group STD SKU', 'GROUP_STD', 'Standard Group', 'STD Group', 'Nhóm STD'],
+    )
+    c_sp = find_col(
+        d,
+        ['Tên sản phẩm', 'Tên SP', 'Item name', 'Product name', 'STANDARD_SKU_NAME'],
+    )
+    c_nv_r = find_col(d, ['Tên NVBH', 'SM NAME', 'SM_NAME', 'Nhân viên'])
+    c_val = find_col(d, [
+        'Thành tiền trước CK', 'Thành tiền trước chiết khấu',
+        'Tổng tiền', 'Giá trị sau CK', 'Doanh thu',
+    ])
+    c_status = find_col(d, ['Tình trạng đơn hàng', 'Status', 'STATUS_CD'])
+
+    if c_val is not None:
+      y, m = int(report_date.year), int(report_date.month)
+      d = d[d['_d'].apply(
+          lambda x: (int(x.year), int(x.month)) == (y, m) if pd.notna(x) else False
+      )]
+      if c_status:
+        st = d[c_status].astype(str).str.strip().str.lower()
+        d = d[~st.isin(['đã hủy', 'da huy', 'cancelled', 'canceled'])]
+        d = d[~st.str.contains('hủy|huy', na=False)]
+
+      if sel_sub and c_cat:
+        low = {_norm_key(x) for x in sel_sub}
+        d = d[d[c_cat].astype(str).str.strip().str.lower().isin(low)]
+      if f_grp and c_grp:
+        low = {_norm_key(x) for x in f_grp}
+        d = d[d[c_grp].astype(str).str.strip().str.lower().isin(low)]
+      if f_sp and c_sp:
+        low = {_norm_key(x) for x in f_sp}
+        d = d[d[c_sp].astype(str).str.strip().str.lower().isin(low)]
+
+      d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
+      if c_nv_r:
+        d['_nv'] = d[c_nv_r].astype(str).str.strip()
+        if filter_nv:
+          if isinstance(filter_nv, (list, tuple, set)):
+            d = d[d['_nv'].isin([str(x).strip() for x in filter_nv])]
+          else:
+            d = d[d['_nv'] == str(filter_nv).strip()]
+        mtd_map = d.groupby('_nv')['_val'].sum().to_dict()
+
+  # ----- Chỉ tiêu từ Performance -----
   target_map = {}
   try:
-    perf = df_perf_raw
-    if perf is None:
-      perf = load_perf_sku_data()
+    perf = df_perf_raw if df_perf_raw is not None else load_perf_sku_data()
   except Exception:
     perf = pd.DataFrame()
 
   if perf is not None and not getattr(perf, 'empty', True):
-    d = perf.copy()
-    c_month = find_col(d, ['MONTH', 'Month'])
-    c_cat = find_col(d, ['SUB DIV', 'SUB_DIV', 'CAT', 'Category', 'Sub Division'])
-    c_tg = find_col(d, ['TARGET SO', 'Target SO', 'TARGET', 'Target'])
-    c_pnv = find_col(d, ['SM NAME', 'SM_NAME', 'Tên NVBH', 'SM name'])
-    if c_month and c_cat and c_tg and c_pnv:
-      cur_m = _month_key_from_date(report_date) if report_date is not None else ''
-      d['_month'] = d[c_month].astype(str).str.strip()
-      if cur_m:
-        d = d[d['_month'] == cur_m]
-      d['_nv'] = d[c_pnv].astype(str).str.strip()
-      d['_cat'] = d[c_cat].astype(str).str.strip()
-      d['_tg'] = pd.to_numeric(d[c_tg], errors='coerce').fillna(0)
-      # lọc theo Sub Division đã chọn
-      selected_subs = set(f_sub or [])
-      if selected_subs:
-        # match case-insensitive
-        lower_sel = {s.lower() for s in selected_subs}
-        d = d[d['_cat'].str.lower().isin(lower_sel)]
-      # nếu không chọn Sub nhưng có Group/SP → chỉ lấy Sub xuất hiện trong detail
-      elif f_grp or f_sp:
-        all_subs = set()
-        for s in subs_by_nv.values():
-          all_subs |= s
-        if all_subs:
-          lower_sel = {s.lower() for s in all_subs}
-          d = d[d['_cat'].str.lower().isin(lower_sel)]
-      target_map = d.groupby('_nv')['_tg'].sum().to_dict()
+    p = perf.copy()
+    c_month = find_col(p, ['MONTH', 'Month'])
+    c_cat = find_col(p, ['SUB DIV', 'SUB_DIV', 'CAT', 'Category', 'Sub Division'])
+    c_grp_p = find_col(
+        p,
+        [
+            'Group STD', 'Group std', 'Group STD SKU', 'GROUP_STD',
+            'STD Group', 'Nhóm STD', 'GROUP STD SKU', 'Standard Group',
+        ],
+    )
+    c_sp_p = find_col(
+        p,
+        [
+            'Tên sản phẩm', 'Tên SP', 'Item name', 'Product name',
+            'STANDARD_SKU_NAME', 'STD SKU', 'SKU NAME', 'SKU',
+        ],
+    )
+    c_tg = find_col(p, ['TARGET SO', 'Target SO', 'TARGET', 'Target'])
+    c_pnv = find_col(p, ['SM NAME', 'SM_NAME', 'Tên NVBH', 'SM name'])
 
-  # Tập NV = union MCP + có MTD
-  nvs = sorted(set(list(mcp_cnt.keys()) + list(mtd_map.keys())))
+    if c_month and c_tg and c_pnv:
+      cur_m = _month_key_from_date(report_date) if report_date is not None else ''
+      p['_month'] = p[c_month].astype(str).str.strip()
+      if cur_m:
+        p = p[p['_month'] == cur_m]
+      p['_nv'] = p[c_pnv].astype(str).str.strip()
+      p['_tg'] = pd.to_numeric(p[c_tg], errors='coerce').fillna(0)
+
+      # Ưu tiên lọc theo Tên SP → Group STD → Sub Division
+      applied = False
+      if f_sp and c_sp_p:
+        low = {_norm_key(x) for x in f_sp}
+        p2 = p[p[c_sp_p].astype(str).str.strip().str.lower().isin(low)]
+        if not p2.empty:
+          p = p2
+          applied = True
+      if not applied and f_grp and c_grp_p:
+        low = {_norm_key(x) for x in f_grp}
+        p2 = p[p[c_grp_p].astype(str).str.strip().str.lower().isin(low)]
+        if not p2.empty:
+          p = p2
+          applied = True
+      if not applied and c_cat:
+        # Sub Division: chọn hoặc suy từ detail
+        subs = set(f_sub or []) or sel_sub
+        if subs:
+          low = {_norm_key(x) for x in subs}
+          p = p[p[c_cat].astype(str).str.strip().str.lower().isin(low)]
+          applied = True
+        # nếu có Group/SP filter nhưng không match được cột Group/SP trên file
+        # → vẫn giữ Sub đã suy; không cộng full team target
+
+      # Nếu user lọc Group/SP nhưng file không có cột tương ứng
+      # và cũng không suy được Sub → không gán full target (tránh sai)
+      if (f_grp or f_sp) and not applied and not (c_cat and sel_sub):
+        p = p.iloc[0:0]
+
+      target_map = p.groupby('_nv')['_tg'].sum().to_dict()
+
+  nvs = sorted(set(list(mcp_cnt.keys()) + list(mtd_map.keys()) + list(target_map.keys())))
   if filter_nv:
     if isinstance(filter_nv, (list, tuple, set)):
       allow = {str(x).strip() for x in filter_nv}
@@ -15919,6 +16022,7 @@ with tab_mcp:
           f_sp=f_sp,
           report_date=report_date,
           df_perf_raw=_perf_raw,
+          df_rpt=df,
       )
     except Exception as e:
       df_nv_sum = pd.DataFrame()
