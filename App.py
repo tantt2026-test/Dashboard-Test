@@ -1412,10 +1412,9 @@ def build_mcp_nv_summary(
   Map cột TARGETACTUAL:
     - Sub Division      → SUB DIV
     - Group STD SKU     → KPI_OBJ_CATLOG
-    - Tên sản phẩm      → STANDARD_SKU_DESC_2
+    - Tên sản phẩm      → STANDARD_SKU_DESC_2  (fuzzy match với tên SP RPT)
 
   MTD: Thành tiền trước CK (cùng rule Performance), lọc Sub/Group/SP.
-  MCP / ASO: theo MCP + detail đã lọc.
   """
   cols = [
       'STT', 'Tên NVBH', 'Chỉ tiêu Doanh Số', 'MTD', '% MTD DS',
@@ -1431,6 +1430,57 @@ def build_mcp_nv_summary(
 
   def _norm_key(x):
     return str(x).strip().lower()
+
+  def _tokens(s):
+    s = _norm_key(s)
+    # bỏ mã SKU đầu "0166 - "
+    s = re.sub(r'^\d{3,5}\s*[-–:]\s*', '', s)
+    # bỏ thông tin pack phổ biến
+    s = re.sub(
+        r'\b(\d+\s*[x×]\s*)+(\d+\s*)?(bl|chai|hộp|goi|gói|lon|thùng|loc|lốc)?\b',
+        ' ',
+        s,
+        flags=re.I,
+    )
+    s = re.sub(r'\b\d+([.,]\d+)?\s*(ml|gr|g|kg|l|lit|mm)\b', ' ', s, flags=re.I)
+    s = re.sub(r'[^a-z0-9àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ\s]', ' ', s)
+    stop = {
+        'x', 'bl', 'chai', 'hop', 'hộp', 'goi', 'gói', 'lon', 'thung', 'thùng',
+        'loc', 'lốc', 'ml', 'gr', 'kg', 'va', 'và', 'cua', 'của', 'the', 'and',
+    }
+    return {t for t in s.split() if t and t not in stop and len(t) > 1}
+
+  def _fuzzy_match(cell_val, filter_vals, min_ratio=0.55):
+    """Match exact / contains / token overlap giữa cell Performance và giá trị lọc MCP."""
+    if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
+      return False
+    cell = str(cell_val).strip()
+    if not cell or cell.lower() in ('nan', 'none', ''):
+      return False
+    cl = cell.lower()
+    # bỏ prefix mã SKU
+    cl_nopref = re.sub(r'^\d{3,5}\s*[-–:]\s*', '', cl).strip()
+    cell_toks = _tokens(cell)
+    for fv in filter_vals:
+      fl = _norm_key(fv)
+      if not fl:
+        continue
+      if cl == fl or cl_nopref == fl:
+        return True
+      if fl in cl or fl in cl_nopref or cl_nopref in fl or cl in fl:
+        return True
+      # token overlap
+      ft = _tokens(fv)
+      if cell_toks and ft:
+        inter = cell_toks & ft
+        ratio = len(inter) / max(1, min(len(cell_toks), len(ft)))
+        # yêu cầu overlap đủ + ít nhất 2 token chung (tránh match 1 từ ngắn)
+        if ratio >= min_ratio and len(inter) >= 2:
+          return True
+        # nếu filter có >= 3 token và hầu hết nằm trong cell
+        if len(ft) >= 3 and len(inter) / len(ft) >= 0.7:
+          return True
+    return False
 
   mcp = df_mcp.copy()
   c_nv = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
@@ -1514,8 +1564,12 @@ def build_mcp_nv_summary(
         low = {_norm_key(x) for x in f_grp}
         d = d[d[c_grp].astype(str).str.strip().str.lower().isin(low)]
       if f_sp and c_sp:
+        # exact trước, fallback fuzzy
         low = {_norm_key(x) for x in f_sp}
-        d = d[d[c_sp].astype(str).str.strip().str.lower().isin(low)]
+        mask = d[c_sp].astype(str).str.strip().str.lower().isin(low)
+        if not mask.any():
+          mask = d[c_sp].apply(lambda v: _fuzzy_match(v, f_sp))
+        d = d[mask]
 
       d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
       if c_nv_r:
@@ -1536,14 +1590,16 @@ def build_mcp_nv_summary(
 
   if perf is not None and not getattr(perf, 'empty', True):
     p = perf.copy()
+    # chuẩn hoá tên cột (bỏ quote/ngoặc)
+    p.columns = [re.sub(r"^['\"]|['\"]$", '', str(c)).strip() for c in p.columns]
+
     c_month = find_col(p, ['MONTH', 'Month'])
-    # Map đúng file TARGETACTUAL
     c_cat = find_col(p, ['SUB DIV', 'SUB_DIV', 'Sub Division', 'CAT', 'Category'])
     c_grp_p = find_col(
         p,
         [
             'KPI_OBJ_CATLOG', 'KPI OBJ CATLOG', 'KPI_OBJ_CATALOG',
-            'Group STD', 'Group STD SKU', 'GROUP_STD', 'STD Group',
+            'KPI_OBJ_CATLOG', 'Group STD', 'Group STD SKU', 'GROUP_STD',
         ],
     )
     c_sp_p = find_col(
@@ -1553,6 +1609,7 @@ def build_mcp_nv_summary(
             'Tên sản phẩm', 'Tên SP', 'SKU NAME', 'STD SKU',
         ],
     )
+    c_sku_code = find_col(p, ['STANDARD_SKU_CODE', 'STD_SKU_CODE', 'SKU_CODE', 'SKU'])
     c_tg = find_col(p, ['TARGET SO', 'Target SO', 'TARGET', 'Target'])
     c_pnv = find_col(p, ['SM NAME', 'SM_NAME', 'Tên NVBH', 'SM name'])
 
@@ -1564,32 +1621,38 @@ def build_mcp_nv_summary(
       p['_nv'] = p[c_pnv].astype(str).str.strip()
       p['_tg'] = pd.to_numeric(p[c_tg], errors='coerce').fillna(0)
 
-      # Lọc tầng: Tên SP → Group → Sub (AND nếu chọn nhiều tầng)
-      if f_sp and c_sp_p:
-        low = {_norm_key(x) for x in f_sp}
-        # match exact hoặc chứa (SKU desc dài)
-        mask = p[c_sp_p].astype(str).str.strip().str.lower().isin(low)
-        if not mask.any():
-          # fallback: contains any selected name
-          mask = False
-          for s in low:
-            mask = mask | p[c_sp_p].astype(str).str.lower().str.contains(
-                re.escape(s), na=False
-            )
-        p = p[mask]
-      if f_grp and c_grp_p:
-        low = {_norm_key(x) for x in f_grp}
-        mask = p[c_grp_p].astype(str).str.strip().str.lower().isin(low)
-        if not mask.any():
-          mask = False
-          for s in low:
-            mask = mask | p[c_grp_p].astype(str).str.lower().str.contains(
-                re.escape(s), na=False
-            )
-        p = p[mask]
+      # Sub Division
       if f_sub and c_cat:
         low = {_norm_key(x) for x in f_sub}
         p = p[p[c_cat].astype(str).str.strip().str.lower().isin(low)]
+
+      # Group STD SKU ← KPI_OBJ_CATLOG
+      if f_grp and c_grp_p:
+        mask = p[c_grp_p].apply(lambda v: _fuzzy_match(v, f_grp, min_ratio=0.5))
+        # exact fallback
+        if not mask.any():
+          low = {_norm_key(x) for x in f_grp}
+          mask = p[c_grp_p].astype(str).str.strip().str.lower().isin(low)
+        p = p[mask]
+
+      # Tên SP ← STANDARD_SKU_DESC_2 (fuzzy — tên RPT khác mô tả file)
+      if f_sp and c_sp_p:
+        mask = p[c_sp_p].apply(lambda v: _fuzzy_match(v, f_sp, min_ratio=0.5))
+        # thử match theo mã SKU nếu tên lọc bắt đầu bằng mã
+        if not mask.any() and c_sku_code:
+          codes = set()
+          for s in f_sp:
+            m = re.match(r'^(\d{3,5})\b', str(s).strip())
+            if m:
+              codes.add(m.group(1))
+            # cũng tìm mã trong STANDARD_SKU_DESC_2 prefix
+          if codes:
+            mask = p[c_sku_code].astype(str).str.strip().isin(codes)
+            if not mask.any():
+              mask = p[c_sp_p].astype(str).str.strip().str.match(
+                  r'^(' + '|'.join(codes) + r')\b'
+              )
+        p = p[mask]
 
       if filter_nv:
         if isinstance(filter_nv, (list, tuple, set)):
