@@ -5601,6 +5601,75 @@ def build_combo_matrix(
   return pd.concat([df_out, total_row], ignore_index=True), tot_tgt_off, tot_tgt_on
 
 
+
+def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None):
+  """Chi tiết KH VIP MCH (VIP3/VIP5/VIPSI) chưa phát sinh Doanh Số MTD."""
+  cols = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
+  empty = pd.DataFrame(columns=cols)
+  if mcp_df is None or mcp_df.empty:
+    return empty
+
+  mcp = mcp_df.copy()
+  c_nv = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
+  c_ma = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+  c_ten = find_col(mcp, ['Outlet Name', 'Outlet_name', 'Tên KH', 'Tên cửa hàng', 'Customer Name'])
+  c_vip = find_col(mcp, ['VIP MCH', 'VIP_MCH', 'VIP', 'Nhóm VIP'])
+  c_thu = find_col(mcp, ['Thứ', 'Frequency', 'Tần suất', 'Thứ VT'])
+  c_ds = find_col(mcp, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD'])
+
+  if not c_ma or not c_vip:
+    return empty
+
+  mcp['_vip'] = mcp[c_vip].astype(str).str.strip().str.upper()
+  mcp['_vip'] = mcp['_vip'].replace({
+      'VIP SI': 'VIPSI', 'VIP_SI': 'VIPSI', 'VIP-SI': 'VIPSI',
+  })
+  mcp = mcp[mcp['_vip'].isin(['VIP3', 'VIP5', 'VIPSI'])].copy()
+  if mcp.empty:
+    return empty
+
+  if filter_nv and c_nv:
+    if isinstance(filter_nv, (list, tuple, set)):
+      mcp = mcp[mcp[c_nv].astype(str).str.strip().isin([str(x).strip() for x in filter_nv])]
+    else:
+      mcp = mcp[mcp[c_nv].astype(str).str.strip() == str(filter_nv).strip()]
+
+  if f_thu_list and c_thu:
+    mcp = filter_by_thu_multi(mcp, c_thu, list(f_thu_list))
+
+  if c_ds:
+    mcp['_ds'] = pd.to_numeric(mcp[c_ds], errors='coerce').fillna(0)
+  else:
+    mcp['_ds'] = 0.0
+
+  mcp = mcp[mcp['_ds'] <= 0].copy()
+  if mcp.empty:
+    return empty
+
+  mcp['_ma'] = mcp[c_ma].astype(str).str.strip().map(
+      lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
+  )
+  mcp = mcp.drop_duplicates(subset=['_ma'], keep='first')
+
+  rows = []
+  for _, r in mcp.iterrows():
+    rows.append({
+        'Tên NVBH': str(r[c_nv]).strip() if c_nv else '',
+        'Mã KH': r['_ma'],
+        'Tên KH': str(r[c_ten]).strip() if c_ten else '',
+        'VIP': str(r['_vip']).strip(),
+        'Thứ VT': str(r[c_thu]).strip() if c_thu and pd.notna(r.get(c_thu)) else '',
+        'Trạng Thái': 'Chưa mua hàng',
+    })
+
+  out = pd.DataFrame(rows)
+  if out.empty:
+    return empty
+  out = out.sort_values(['Tên NVBH', 'Mã KH'], ascending=True).reset_index(drop=True)
+  out.insert(0, 'STT', range(1, len(out) + 1))
+  return out[cols]
+
+
 def build_summary_report(
     df,
     report_date,
@@ -12780,6 +12849,33 @@ with tab_kpi:
         """,
         unsafe_allow_html=True,
     )
+
+    # ===== Chi tiết VIP MCH chưa mua hàng =====
+    try:
+      df_vip_chua = build_vip_mch_chua_mua(mcp, filter_nv=filter_nv, f_thu_list=f_thu_sum)
+    except Exception as e:
+      df_vip_chua = pd.DataFrame()
+      st.caption(f'(Lỗi tải VIP chưa mua: {e})')
+
+    st.markdown(
+        '<p style="font-weight:800;color:#034ea2;margin:16px 0 6px;">'
+        'CHI TIẾT NHÓM KH VIP MCH CHƯA MUA HÀNG</p>',
+        unsafe_allow_html=True,
+    )
+    if df_vip_chua is None or df_vip_chua.empty:
+      st.info('Không có cửa hàng VIP MCH nào chưa mua hàng theo bộ lọc hiện tại.')
+    else:
+      cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
+      render_mbs_data_table(df_vip_chua, cols_vip)
+      st.caption(f'Hiển thị: {len(df_vip_chua):,} cửa hàng VIP chưa mua hàng')
+      st.download_button(
+          '📥 Tải CSV VIP MCH chưa mua hàng',
+          data=df_vip_chua.to_csv(index=False).encode('utf-8-sig'),
+          file_name=f'VIP_MCH_ChuaMua_{report_date}.csv',
+          mime='text/csv',
+          key='dl_vip_mch_chua_mua',
+      )
+
 
   elif selected_kpi == 'MBS_CAT':
     set_color_moc_for_kpi('MBS_CAT')
