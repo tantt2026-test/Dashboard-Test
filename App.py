@@ -6140,6 +6140,42 @@ def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None, df_cat=None,
 
 
 
+
+def _weekdays_from_thu_filter(f_thu_list):
+  """Map mã Thứ/chu kỳ → set weekday Python (Mon=0 ... Sun=6).
+  2=T2 ... 7=T7; 25=T2+T5; 36=T3+T6; 47=T4+T7.
+  """
+  mapping = {
+      '2': {0}, '3': {1}, '4': {2}, '5': {3}, '6': {4}, '7': {5},
+      '25': {0, 3}, '36': {1, 4}, '47': {2, 5},
+  }
+  out = set()
+  for t in (f_thu_list or []):
+    out |= mapping.get(str(t).strip(), set())
+  return out
+
+
+def _filter_df_by_thu_weekdays(df, f_thu_list, report_date=None):
+  """Lọc dòng bán hàng theo weekday khớp Thứ/chu kỳ (từ đầu tháng → report_date)."""
+  if df is None or getattr(df, 'empty', True) or not f_thu_list:
+    return df
+  wdays = _weekdays_from_thu_filter(f_thu_list)
+  if not wdays or 'date' not in df.columns:
+    return df
+  d = df.copy()
+  d['_d'] = pd.to_datetime(d['date'], errors='coerce')
+  d = d[d['_d'].notna()]
+  if report_date is not None:
+    try:
+      rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+      start = date(rd.year, rd.month, 1)
+      d = d[(d['_d'].dt.date >= start) & (d['_d'].dt.date <= rd)]
+    except Exception:
+      pass
+  d = d[d['_d'].dt.weekday.isin(wdays)]
+  return d.drop(columns=['_d'], errors='ignore')
+
+
 def build_summary_report(
     df,
     report_date,
@@ -6197,16 +6233,19 @@ def build_summary_report(
         return s[:-2] if s.endswith('.0') else s
       allowed_ma = set(mcp_filtered[c_ma_m].map(_nma).tolist())
 
-  # Data bán hàng: lọc CH theo Thứ khi có chọn; trống = full tháng
+  # Data bán hàng: lọc CH theo Thứ + chỉ lấy ngày bán khớp weekday chu kỳ
+  # Trống bộ lọc = full tháng
   df_kpi = df
-  if effective_thu_list and allowed_ma and df is not None and not getattr(df, 'empty', True):
+  if effective_thu_list and df is not None and not getattr(df, 'empty', True):
     df_kpi = df.copy()
-    c_ch = find_col(df_kpi, ['Mã CH', 'Outlet_code', 'Outlet Code'])
-    if c_ch:
-      def _nma2(x):
-        s = str(x).strip()
-        return s[:-2] if s.endswith('.0') else s
-      df_kpi = df_kpi[df_kpi[c_ch].map(_nma2).isin(allowed_ma)].copy()
+    if allowed_ma:
+      c_ch = find_col(df_kpi, ['Mã CH', 'Outlet_code', 'Outlet Code'])
+      if c_ch:
+        def _nma2(x):
+          s = str(x).strip()
+          return s[:-2] if s.endswith('.0') else s
+        df_kpi = df_kpi[df_kpi[c_ch].map(_nma2).isin(allowed_ma)].copy()
+    df_kpi = _filter_df_by_thu_weekdays(df_kpi, effective_thu_list, report_date)
 
   vip_target_map, vip_actual_map = {}, {}
   if not mcp_filtered.empty:
@@ -6593,8 +6632,27 @@ def build_summary_report(
       # CT lấy full tháng (target); TH lấy data đã lọc CH theo Thứ
       df_to_ct, _, _ = build_turnover_report(df, report_date, _to_tgt, filter_nv)
       _apply_kpi_df(df_to_ct, 'CT DS', 'TH DS', '% MTD DS', as_float=False)
-      # ghi đè TH bằng data lọc Thứ (nếu có)
+      # TH Doanh Số theo Thứ/chu kỳ: tổng DS các ngày khớp weekday
+      # → chia cho số ngày khớp đã trôi qua để ra TH/ngày (cùng đơn vị CT ngày)
       if effective_thu_list:
+        try:
+          _rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+        except Exception:
+          _rd = report_date
+        wdays = _weekdays_from_thu_filter(effective_thu_list)
+        # số ngày bán (weekday khớp) từ đầu tháng → report_date
+        n_days = 0
+        try:
+          _cur = date(_rd.year, _rd.month, 1)
+          while _cur <= _rd:
+            if _cur.weekday() in wdays:
+              # trừ CN đã loại vì wdays không có 6=Sun; trừ lễ nếu có
+              n_days += 1
+            _cur += timedelta(days=1)
+        except Exception:
+          n_days = 1
+        n_days = max(n_days, 1)
+
         df_to_th, _, _ = build_turnover_report(df_kpi, report_date, _to_tgt, filter_nv)
         if df_to_th is not None and not df_to_th.empty:
           name_col = 'Tên NVBH' if 'Tên NVBH' in df_to_th.columns else None
@@ -6613,14 +6671,16 @@ def build_summary_report(
                 continue
               idx = name_to_idx[nm]
               try:
-                th = float(kr[mtd_col])
+                th_sum = float(kr[mtd_col])
               except Exception:
-                th = 0.0
-              df_out.at[idx, 'TH DS'] = int(round(th))
+                th_sum = 0.0
+              th_day = th_sum / n_days
+              df_out.at[idx, 'TH DS'] = int(round(th_day))
               try:
                 ct = float(df_out.at[idx, 'CT DS'])
+                # CT lúc này vẫn là tháng; CT ngày apply sau — tạm % theo tháng CT
                 df_out.at[idx, '% MTD DS'] = (
-                    f'{round(th / ct * 100, 1)}%' if ct else '0%'
+                    f'{round(th_day / ct * 100, 1)}%' if ct else '0%'
                 )
               except Exception:
                 pass
