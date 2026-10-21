@@ -12866,7 +12866,33 @@ with tab_kpi:
       st.info('Không có cửa hàng VIP MCH nào chưa mua hàng theo bộ lọc hiện tại.')
     else:
       cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
-      render_mbs_data_table(df_vip_chua, cols_vip)
+      # Render HTML ngay tại đây (render_mbs_data_table định nghĩa sau → tránh NameError)
+      _html = [
+          '<div class="mbs-data-scroll">',
+          '<table class="mbs-data-table">',
+          '<thead><tr>',
+      ]
+      for _c in cols_vip:
+        _html.append(f'<th>{_c}</th>')
+      _html.append('</tr></thead><tbody>')
+      for _, _row in df_vip_chua[cols_vip].iterrows():
+        _html.append('<tr>')
+        for _c in cols_vip:
+          _v = _row.get(_c, '')
+          if pd.isna(_v):
+            _v = ''
+          _s = str(_v)
+          if _c == 'Trạng Thái':
+            _html.append(
+                f'<td style="text-align:center;color:#c53030;font-weight:700;">{_s}</td>'
+            )
+          elif _c in ('STT', 'Mã KH', 'VIP', 'Thứ VT'):
+            _html.append(f'<td style="text-align:center;">{_s}</td>')
+          else:
+            _html.append(f'<td style="text-align:left;">{_s}</td>')
+        _html.append('</tr>')
+      _html.append('</tbody></table></div>')
+      st.markdown(''.join(_html), unsafe_allow_html=True)
       st.caption(f'Hiển thị: {len(df_vip_chua):,} cửa hàng VIP chưa mua hàng')
       st.download_button(
           '📥 Tải CSV VIP MCH chưa mua hàng',
