@@ -5605,8 +5605,12 @@ def build_combo_matrix(
 def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None, df_cat=None, df_brand=None):
   """Chi tiết KH VIP MCH (VIP3/VIP5/VIPSI) chưa phát sinh Doanh Số MTD.
   Chỉ tiêu = Target MBS Cat (ưu tiên) hoặc MBS Brand theo Mã KH.
+  Member Type lấy từ MBS Cat/Brand; không có → 'KH Combo'.
   """
-  cols = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Chỉ Tiêu', 'Trạng Thái']
+  cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Member Type',
+      'Thứ VT', 'Chỉ Tiêu', 'Trạng Thái',
+  ]
   empty = pd.DataFrame(columns=cols)
   if mcp_df is None or mcp_df.empty:
     return empty
@@ -5653,10 +5657,15 @@ def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None, df_cat=None,
   )
   mcp = mcp.drop_duplicates(subset=['_ma'], keep='first')
 
-  # Map Chỉ tiêu từ MBS Cat / Brand (ưu tiên Cat)
+  # Map Chỉ tiêu + Member Type từ MBS Cat / Brand
   target_map = {}
+  member_map = {}
 
-  def _collect_target(df_src):
+  def _norm_ma(x):
+    s = str(x).strip()
+    return s[:-2] if s.endswith('.0') else s
+
+  def _collect(df_src):
     if df_src is None or df_src.empty:
       return
     c_ma_s = find_col(df_src, ['Outlet Code', 'Outlet_code', 'Mã CH', 'Mã KH'])
@@ -5673,30 +5682,52 @@ def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None, df_cat=None,
             'Target',
         ],
     )
-    if not c_ma_s or not c_tg:
-      return
-    tmp = df_src[[c_ma_s, c_tg]].copy()
-    tmp['_ma'] = tmp[c_ma_s].astype(str).str.strip().map(
-        lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
+    c_mem = find_col(
+        df_src,
+        ['Member type', 'Member Type', 'Phân loại CAT', 'Phân loại Brand', 'Member'],
     )
-    tmp['_tg'] = pd.to_numeric(tmp[c_tg], errors='coerce').fillna(0)
-    # 1 outlet có thể nhiều dòng CAT/Brand → lấy max chỉ tiêu outlet
-    agg = tmp.groupby('_ma')['_tg'].max().to_dict()
-    for k, v in agg.items():
-      if k not in target_map or float(v) > float(target_map.get(k, 0)):
-        target_map[k] = float(v)
+    if not c_ma_s:
+      return
+    cols_use = [c_ma_s]
+    if c_tg:
+      cols_use.append(c_tg)
+    if c_mem:
+      cols_use.append(c_mem)
+    tmp = df_src[cols_use].copy()
+    tmp['_ma'] = tmp[c_ma_s].map(_norm_ma)
+    if c_tg:
+      tmp['_tg'] = pd.to_numeric(tmp[c_tg], errors='coerce').fillna(0)
+      agg = tmp.groupby('_ma')['_tg'].max().to_dict()
+      for k, v in agg.items():
+        if k not in target_map or float(v) > float(target_map.get(k, 0)):
+          target_map[k] = float(v)
+    if c_mem:
+      tmp['_mem'] = tmp[c_mem].astype(str).str.strip()
+      tmp['_mem'] = tmp['_mem'].replace({'nan': '', 'None': '', 'NaN': ''})
+      # lấy member type đầu tiên khác rỗng
+      for ma_k, g in tmp.groupby('_ma'):
+        if ma_k in member_map and member_map[ma_k]:
+          continue
+        vals = [x for x in g['_mem'].tolist() if x]
+        if vals:
+          member_map[ma_k] = vals[0]
 
-  _collect_target(df_cat)
-  _collect_target(df_brand)
+  # Cat trước, Brand sau (ưu tiên Cat nếu đã có member)
+  _collect(df_cat)
+  _collect(df_brand)
 
   rows = []
   for _, r in mcp.iterrows():
     ma = r['_ma']
+    mem = member_map.get(ma, '')
+    if not mem:
+      mem = 'KH Combo'
     rows.append({
         'Tên NVBH': str(r[c_nv]).strip() if c_nv else '',
         'Mã KH': ma,
         'Tên KH': str(r[c_ten]).strip() if c_ten else '',
         'VIP': str(r['_vip']).strip(),
+        'Member Type': mem,
         'Thứ VT': str(r[c_thu]).strip() if c_thu and pd.notna(r.get(c_thu)) else '',
         'Chỉ Tiêu': float(target_map.get(ma, 0) or 0),
         'Trạng Thái': 'Chưa mua hàng',
@@ -12789,7 +12820,7 @@ with tab_kpi:
     if df_vip_chua is None or df_vip_chua.empty:
       st.info('Không có cửa hàng VIP MCH nào chưa mua hàng theo bộ lọc hiện tại.')
     else:
-      cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Chỉ Tiêu', 'Trạng Thái']
+      cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Member Type', 'Thứ VT', 'Chỉ Tiêu', 'Trạng Thái']
       # Format giống bảng KPI (custom-kpi-table) + dòng Tổng Cộng
       _html = [
           '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
