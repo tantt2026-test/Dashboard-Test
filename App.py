@@ -14243,6 +14243,8 @@ with tab_kpi:
                 ('% TH SO', '% TH SO'),
                 ('% TH Xanh', '% TH Xanh'),
                 ('% TH Vàng', '% TH Vàng'),
+                ('% TH Combo OFF', '% TH Combo OFF'),
+                ('% TH Combo ON', '% TH Combo ON'),
                 ('% TH TB', '% TH TB'),
             ]
             labels, values, hover, is_lppc = [], [], [], []
