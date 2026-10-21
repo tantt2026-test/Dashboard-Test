@@ -1407,14 +1407,14 @@ def build_mcp_nv_summary(
     df_perf_raw=None,
     df_rpt=None,
 ):
-  """Tổng hợp theo NV — Chỉ tiêu từ Performance map đúng tầng lọc.
+  """Tổng hợp theo NV.
 
-  Map cột TARGETACTUAL:
-    - Sub Division      → SUB DIV
-    - Group STD SKU     → KPI_OBJ_CATLOG
-    - Tên sản phẩm      → STANDARD_SKU_DESC_2  (fuzzy match với tên SP RPT)
+  Chỉ tiêu (TARGETACTUAL):
+    Sub Division  → SUB DIV
+    Group STD SKU → KPI_OBJ_CATLOG (đúng tên group; fallback BRAND nếu không khớp)
+    Tên sản phẩm  → STANDARD_SKU_DESC_2 (fuzzy) / STANDARD_SKU_CODE
 
-  MTD: Thành tiền trước CK (cùng rule Performance), lọc Sub/Group/SP.
+  MTD: Thành tiền trước CK từ RPT, lọc cùng Sub/Group/SP.
   """
   cols = [
       'STT', 'Tên NVBH', 'Chỉ tiêu Doanh Số', 'MTD', '% MTD DS',
@@ -1431,56 +1431,95 @@ def build_mcp_nv_summary(
   def _norm_key(x):
     return str(x).strip().lower()
 
+  def _norm_nv(x):
+    return re.sub(r'\s+', ' ', str(x).strip())
+
   def _tokens(s):
     s = _norm_key(s)
-    # bỏ mã SKU đầu "0166 - "
     s = re.sub(r'^\d{3,5}\s*[-–:]\s*', '', s)
-    # bỏ thông tin pack phổ biến
     s = re.sub(
         r'\b(\d+\s*[x×]\s*)+(\d+\s*)?(bl|chai|hộp|goi|gói|lon|thùng|loc|lốc)?\b',
-        ' ',
-        s,
-        flags=re.I,
+        ' ', s, flags=re.I,
     )
     s = re.sub(r'\b\d+([.,]\d+)?\s*(ml|gr|g|kg|l|lit|mm)\b', ' ', s, flags=re.I)
-    s = re.sub(r'[^a-z0-9àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ\s]', ' ', s)
+    s = re.sub(
+        r'[^a-z0-9àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ\s]',
+        ' ', s,
+    )
     stop = {
         'x', 'bl', 'chai', 'hop', 'hộp', 'goi', 'gói', 'lon', 'thung', 'thùng',
-        'loc', 'lốc', 'ml', 'gr', 'kg', 'va', 'và', 'cua', 'của', 'the', 'and',
+        'loc', 'lốc', 'ml', 'gr', 'kg', 'va', 'và', 'cua', 'của',
     }
     return {t for t in s.split() if t and t not in stop and len(t) > 1}
 
-  def _fuzzy_match(cell_val, filter_vals, min_ratio=0.55):
-    """Match exact / contains / token overlap giữa cell Performance và giá trị lọc MCP."""
+  def _fuzzy_product(cell_val, filter_vals, min_ratio=0.8):
+    """Match SP: ưu tiên exact/contains; fuzzy yêu cầu ≥80% token filter nằm trong cell.
+    Loại biến thể (amazon, …) nếu filter không chứa token đó.
+    """
     if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
       return False
     cell = str(cell_val).strip()
-    if not cell or cell.lower() in ('nan', 'none', ''):
+    if not cell or cell.lower() in ('nan', 'none'):
       return False
     cl = cell.lower()
-    # bỏ prefix mã SKU
-    cl_nopref = re.sub(r'^\d{3,5}\s*[-–:]\s*', '', cl).strip()
-    cell_toks = _tokens(cell)
+    cl2 = re.sub(r'^\d{3,5}\s*[-–:]\s*', '', cl).strip()
+    ct = _tokens(cell)
+    # token đặc trưng của biến thể — chỉ chấp nhận nếu filter cũng có
+    variant_tokens = {
+        'amazon', 'compact', 'lemona', 'vivant', 'chanh', 'cam', 'dâu', 'dau',
+        'xoài', 'xoai', 'vải', 'vai', 'đào', 'dao',
+    }
     for fv in filter_vals:
       fl = _norm_key(fv)
       if not fl:
         continue
-      if cl == fl or cl_nopref == fl:
+      if cl == fl or cl2 == fl:
         return True
-      if fl in cl or fl in cl_nopref or cl_nopref in fl or cl in fl:
+      # contains: filter nằm gọn trong cell (sau bỏ mã) hoặc ngược lại nếu cell ngắn
+      if fl in cl2 or fl in cl:
         return True
-      # token overlap
+      if len(cl2) >= 10 and cl2 in fl:
+        return True
       ft = _tokens(fv)
-      if cell_toks and ft:
-        inter = cell_toks & ft
-        ratio = len(inter) / max(1, min(len(cell_toks), len(ft)))
-        # yêu cầu overlap đủ + ít nhất 2 token chung (tránh match 1 từ ngắn)
-        if ratio >= min_ratio and len(inter) >= 2:
-          return True
-        # nếu filter có >= 3 token và hầu hết nằm trong cell
-        if len(ft) >= 3 and len(inter) / len(ft) >= 0.7:
-          return True
+      if not ct or not ft:
+        continue
+      # loại biến thể không có trong filter
+      extra_var = (ct & variant_tokens) - ft
+      if extra_var:
+        continue
+      inter = ct & ft
+      # phần lớn token của FILTER phải có trong cell
+      cover = len(inter) / len(ft)
+      if cover >= min_ratio and len(inter) >= 3:
+        return True
     return False
+
+  def _match_group_series(series, filter_vals):
+    """Exact → contains full string → fuzzy token (min 3 token chung)."""
+    s = series.astype(str).str.strip()
+    low = s.str.lower()
+    f_low = [_norm_key(x) for x in filter_vals if str(x).strip()]
+    mask = pd.Series(False, index=series.index)
+    for fl in f_low:
+      mask = mask | (low == fl)
+    if not mask.any():
+      for fl in f_low:
+        if len(fl) >= 4:
+          mask = mask | low.str.contains(re.escape(fl), na=False)
+    if not mask.any():
+      # fuzzy nhẹ: cần ≥ 3 token chung
+      def _ok(v):
+        vt = _tokens(v)
+        for fl in f_low:
+          ft = _tokens(fl)
+          if not vt or not ft:
+            continue
+          inter = vt & ft
+          if len(inter) >= 3 and len(inter) / min(len(vt), len(ft)) >= 0.6:
+            return True
+        return False
+      mask = s.apply(_ok)
+    return mask
 
   mcp = df_mcp.copy()
   c_nv = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
@@ -1488,17 +1527,18 @@ def build_mcp_nv_summary(
   if not c_nv or not c_ma:
     return empty
 
-  mcp['_nv'] = mcp[c_nv].astype(str).str.strip()
+  mcp['_nv'] = mcp[c_nv].map(_norm_nv)
   mcp['_ma'] = mcp[c_ma].map(_norm)
   if filter_nv:
     if isinstance(filter_nv, (list, tuple, set)):
-      mcp = mcp[mcp['_nv'].isin([str(x).strip() for x in filter_nv])]
+      allow = {_norm_nv(x) for x in filter_nv}
+      mcp = mcp[mcp['_nv'].isin(allow)]
     else:
-      mcp = mcp[mcp['_nv'] == str(filter_nv).strip()]
+      mcp = mcp[mcp['_nv'] == _norm_nv(filter_nv)]
 
   mcp_cnt = mcp.groupby('_nv')['_ma'].nunique().to_dict()
 
-  # ----- ASO từ detail đã lọc -----
+  # ----- ASO -----
   aso_map = {}
   detail = df_detail_filtered.copy() if df_detail_filtered is not None else pd.DataFrame()
   if not detail.empty:
@@ -1506,7 +1546,7 @@ def build_mcp_nv_summary(
     d_ma = find_col(detail, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
     d_ds = find_col(detail, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD'])
     if d_nv and d_ds and d_ma:
-      detail['_nv'] = detail[d_nv].astype(str).str.strip()
+      detail['_nv'] = detail[d_nv].map(_norm_nv)
       detail['_ma'] = detail[d_ma].map(_norm)
       detail['_ds'] = pd.to_numeric(detail[d_ds], errors='coerce').fillna(0)
       aso_map = (
@@ -1516,7 +1556,7 @@ def build_mcp_nv_summary(
           .to_dict()
       )
 
-  # ----- MTD từ RPT — cùng rule Performance -----
+  # ----- MTD từ RPT -----
   mtd_map = {}
   if df_rpt is not None and not getattr(df_rpt, 'empty', True) and report_date is not None:
     d = df_rpt.copy()
@@ -1526,10 +1566,10 @@ def build_mcp_nv_summary(
       c_date = find_col(d, [
           'Ngày tạo đơn hàng', 'Ngày tạo đơn', 'Order Date', 'ORDER_DT',
       ])
-      if c_date:
-        d['_d'] = pd.to_datetime(d[c_date], dayfirst=True, errors='coerce')
-      else:
-        d['_d'] = pd.NaT
+      d['_d'] = (
+          pd.to_datetime(d[c_date], dayfirst=True, errors='coerce')
+          if c_date else pd.NaT
+      )
 
     c_cat = find_col(d, ['Sub Division', 'SUB DIV', 'SubDivision', 'Phân nhóm'])
     c_grp = find_col(
@@ -1561,27 +1601,25 @@ def build_mcp_nv_summary(
         low = {_norm_key(x) for x in f_sub}
         d = d[d[c_cat].astype(str).str.strip().str.lower().isin(low)]
       if f_grp and c_grp:
-        low = {_norm_key(x) for x in f_grp}
-        d = d[d[c_grp].astype(str).str.strip().str.lower().isin(low)]
+        d = d[_match_group_series(d[c_grp], f_grp)]
       if f_sp and c_sp:
-        # exact trước, fallback fuzzy
         low = {_norm_key(x) for x in f_sp}
         mask = d[c_sp].astype(str).str.strip().str.lower().isin(low)
         if not mask.any():
-          mask = d[c_sp].apply(lambda v: _fuzzy_match(v, f_sp))
+          mask = d[c_sp].apply(lambda v: _fuzzy_product(v, f_sp))
         d = d[mask]
 
       d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
       if c_nv_r:
-        d['_nv'] = d[c_nv_r].astype(str).str.strip()
+        d['_nv'] = d[c_nv_r].map(_norm_nv)
         if filter_nv:
           if isinstance(filter_nv, (list, tuple, set)):
-            d = d[d['_nv'].isin([str(x).strip() for x in filter_nv])]
+            d = d[d['_nv'].isin({_norm_nv(x) for x in filter_nv})]
           else:
-            d = d[d['_nv'] == str(filter_nv).strip()]
+            d = d[d['_nv'] == _norm_nv(filter_nv)]
         mtd_map = d.groupby('_nv')['_val'].sum().to_dict()
 
-  # ----- Chỉ tiêu từ Performance (map đúng tầng) -----
+  # ----- Chỉ tiêu từ Performance -----
   target_map = {}
   try:
     perf = df_perf_raw if df_perf_raw is not None else load_perf_sku_data()
@@ -1590,27 +1628,20 @@ def build_mcp_nv_summary(
 
   if perf is not None and not getattr(perf, 'empty', True):
     p = perf.copy()
-    # chuẩn hoá tên cột (bỏ quote/ngoặc)
     p.columns = [re.sub(r"^['\"]|['\"]$", '', str(c)).strip() for c in p.columns]
 
     c_month = find_col(p, ['MONTH', 'Month'])
     c_cat = find_col(p, ['SUB DIV', 'SUB_DIV', 'Sub Division', 'CAT', 'Category'])
-    c_grp_p = find_col(
-        p,
-        [
-            'KPI_OBJ_CATLOG', 'KPI OBJ CATLOG', 'KPI_OBJ_CATALOG',
-            'Group STD', 'Group STD SKU', 'GROUP_STD',
-        ],
-    )
+    c_grp_p = find_col(p, [
+        'KPI_OBJ_CATLOG', 'KPI OBJ CATLOG', 'KPI_OBJ_CATALOG',
+        'Group STD', 'Group STD SKU', 'GROUP_STD',
+    ])
     c_brand_p = find_col(p, ['BRAND', 'Brand', 'Nhãn', 'Nhãn hàng'])
-    c_sp_p = find_col(
-        p,
-        [
-            'STANDARD_SKU_DESC_2', 'STANDARD_SKU_DESC', 'STANDARD_SKU_NAME',
-            'Tên sản phẩm', 'Tên SP', 'SKU NAME', 'STD SKU',
-        ],
-    )
-    c_sku_code = find_col(p, ['STANDARD_SKU_CODE', 'STD_SKU_CODE', 'SKU_CODE', 'SKU'])
+    c_sp_p = find_col(p, [
+        'STANDARD_SKU_DESC_2', 'STANDARD_SKU_DESC', 'STANDARD_SKU_NAME',
+        'Tên sản phẩm', 'Tên SP', 'SKU NAME',
+    ])
+    c_sku_code = find_col(p, ['STANDARD_SKU_CODE', 'STD_SKU_CODE', 'SKU_CODE'])
     c_tg = find_col(p, ['TARGET SO', 'Target SO', 'TARGET', 'Target'])
     c_pnv = find_col(p, ['SM NAME', 'SM_NAME', 'Tên NVBH', 'SM name'])
 
@@ -1619,81 +1650,54 @@ def build_mcp_nv_summary(
       p['_month'] = p[c_month].astype(str).str.strip()
       if cur_m:
         p = p[p['_month'] == cur_m]
-      p['_nv'] = p[c_pnv].astype(str).str.strip()
+      p['_nv'] = p[c_pnv].map(_norm_nv)
       p['_tg'] = pd.to_numeric(p[c_tg], errors='coerce').fillna(0)
 
-      # Sub Division
+      # 1) Sub Division
       if f_sub and c_cat:
         low = {_norm_key(x) for x in f_sub}
         p = p[p[c_cat].astype(str).str.strip().str.lower().isin(low)]
 
-      # Group STD SKU ← KPI_OBJ_CATLOG (ưu tiên) + BRAND (fallback)
-      if f_grp:
-        masks = []
-        if c_grp_p:
-          m1 = p[c_grp_p].apply(lambda v: _fuzzy_match(v, f_grp, min_ratio=0.45))
-          low = {_norm_key(x) for x in f_grp}
-          m1 = m1 | p[c_grp_p].astype(str).str.strip().str.lower().isin(low)
-          # contains 2 chiều
-          for s in low:
-            if len(s) >= 3:
-              m1 = m1 | p[c_grp_p].astype(str).str.lower().str.contains(
-                  re.escape(s), na=False
-              )
-              m1 = m1 | p[c_grp_p].astype(str).str.strip().str.lower().apply(
-                  lambda v: s.find(v) >= 0 if v and len(v) >= 3 else False
-              )
-          masks.append(m1)
-        if c_brand_p:
-          m2 = p[c_brand_p].apply(lambda v: _fuzzy_match(v, f_grp, min_ratio=0.45))
-          low = {_norm_key(x) for x in f_grp}
-          m2 = m2 | p[c_brand_p].astype(str).str.strip().str.lower().isin(low)
-          for s in low:
-            if len(s) >= 3:
-              m2 = m2 | p[c_brand_p].astype(str).str.lower().str.contains(
-                  re.escape(s), na=False
-              )
-          masks.append(m2)
-        if masks:
-          mask = masks[0]
-          for m in masks[1:]:
-            mask = mask | m
-          p = p[mask]
+      # 2) Group STD SKU → KPI_OBJ_CATLOG (không OR BRAND ngay)
+      if f_grp and c_grp_p:
+        mask = _match_group_series(p[c_grp_p], f_grp)
+        if not mask.any() and c_brand_p is not None:
+          # fallback BRAND chỉ khi KPI không khớp
+          mask = _match_group_series(p[c_brand_p], f_grp)
+        p = p[mask]
 
-      # Tên SP ← STANDARD_SKU_DESC_2 (fuzzy — tên RPT khác mô tả file)
+      # 3) Tên SP → STANDARD_SKU_DESC_2
       if f_sp and c_sp_p:
-        mask = p[c_sp_p].apply(lambda v: _fuzzy_match(v, f_sp, min_ratio=0.5))
-        # thử match theo mã SKU nếu tên lọc bắt đầu bằng mã
-        if not mask.any() and c_sku_code:
+        mask = p[c_sp_p].apply(lambda v: _fuzzy_product(v, f_sp))
+        if not mask.any() and c_sku_code is not None:
           codes = set()
           for s in f_sp:
             m = re.match(r'^(\d{3,5})\b', str(s).strip())
             if m:
               codes.add(m.group(1))
-            # cũng tìm mã trong STANDARD_SKU_DESC_2 prefix
           if codes:
             mask = p[c_sku_code].astype(str).str.strip().isin(codes)
             if not mask.any():
               mask = p[c_sp_p].astype(str).str.strip().str.match(
-                  r'^(' + '|'.join(codes) + r')\b'
+                  r'^(' + '|'.join(re.escape(c) for c in codes) + r')\b'
               )
         p = p[mask]
 
       if filter_nv:
         if isinstance(filter_nv, (list, tuple, set)):
-          p = p[p['_nv'].isin([str(x).strip() for x in filter_nv])]
+          p = p[p['_nv'].isin({_norm_nv(x) for x in filter_nv})]
         else:
-          p = p[p['_nv'] == str(filter_nv).strip()]
+          p = p[p['_nv'] == _norm_nv(filter_nv)]
 
       target_map = p.groupby('_nv')['_tg'].sum().to_dict()
 
   nvs = sorted(set(list(mcp_cnt.keys()) + list(mtd_map.keys()) + list(target_map.keys())))
   if filter_nv:
     if isinstance(filter_nv, (list, tuple, set)):
-      allow = {str(x).strip() for x in filter_nv}
+      allow = {_norm_nv(x) for x in filter_nv}
       nvs = [n for n in nvs if n in allow]
     else:
-      nvs = [n for n in nvs if n == str(filter_nv).strip()]
+      nvs = [n for n in nvs if n == _norm_nv(filter_nv)]
 
   rows = []
   for nv in nvs:
