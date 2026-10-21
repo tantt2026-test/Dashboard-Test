@@ -5602,9 +5602,11 @@ def build_combo_matrix(
 
 
 
-def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None):
-  """Chi tiết KH VIP MCH (VIP3/VIP5/VIPSI) chưa phát sinh Doanh Số MTD."""
-  cols = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
+def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None, df_cat=None, df_brand=None):
+  """Chi tiết KH VIP MCH (VIP3/VIP5/VIPSI) chưa phát sinh Doanh Số MTD.
+  Chỉ tiêu = Target MBS Cat (ưu tiên) hoặc MBS Brand theo Mã KH.
+  """
+  cols = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Chỉ Tiêu', 'Trạng Thái']
   empty = pd.DataFrame(columns=cols)
   if mcp_df is None or mcp_df.empty:
     return empty
@@ -5651,14 +5653,52 @@ def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None):
   )
   mcp = mcp.drop_duplicates(subset=['_ma'], keep='first')
 
+  # Map Chỉ tiêu từ MBS Cat / Brand (ưu tiên Cat)
+  target_map = {}
+
+  def _collect_target(df_src):
+    if df_src is None or df_src.empty:
+      return
+    c_ma_s = find_col(df_src, ['Outlet Code', 'Outlet_code', 'Mã CH', 'Mã KH'])
+    c_tg = find_col(
+        df_src,
+        [
+            'Doanh số nền tảng của OUTLET',
+            'Doanh so nen tang',
+            'Chỉ tiêu của CAT',
+            'Chỉ tiêu CAT',
+            'Chỉ tiêu của brand',
+            'Chỉ tiêu brand',
+            'Chỉ tiêu',
+            'Target',
+        ],
+    )
+    if not c_ma_s or not c_tg:
+      return
+    tmp = df_src[[c_ma_s, c_tg]].copy()
+    tmp['_ma'] = tmp[c_ma_s].astype(str).str.strip().map(
+        lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
+    )
+    tmp['_tg'] = pd.to_numeric(tmp[c_tg], errors='coerce').fillna(0)
+    # 1 outlet có thể nhiều dòng CAT/Brand → lấy max chỉ tiêu outlet
+    agg = tmp.groupby('_ma')['_tg'].max().to_dict()
+    for k, v in agg.items():
+      if k not in target_map or float(v) > float(target_map.get(k, 0)):
+        target_map[k] = float(v)
+
+  _collect_target(df_cat)
+  _collect_target(df_brand)
+
   rows = []
   for _, r in mcp.iterrows():
+    ma = r['_ma']
     rows.append({
         'Tên NVBH': str(r[c_nv]).strip() if c_nv else '',
-        'Mã KH': r['_ma'],
+        'Mã KH': ma,
         'Tên KH': str(r[c_ten]).strip() if c_ten else '',
         'VIP': str(r['_vip']).strip(),
         'Thứ VT': str(r[c_thu]).strip() if c_thu and pd.notna(r.get(c_thu)) else '',
+        'Chỉ Tiêu': float(target_map.get(ma, 0) or 0),
         'Trạng Thái': 'Chưa mua hàng',
     })
 
@@ -5668,6 +5708,7 @@ def build_vip_mch_chua_mua(mcp_df, filter_nv=None, f_thu_list=None):
   out = out.sort_values(['Tên NVBH', 'Mã KH'], ascending=True).reset_index(drop=True)
   out.insert(0, 'STT', range(1, len(out) + 1))
   return out[cols]
+
 
 
 def build_summary_report(
@@ -12735,7 +12776,7 @@ with tab_kpi:
 
     # ===== Chi tiết VIP MCH chưa mua hàng =====
     try:
-      df_vip_chua = build_vip_mch_chua_mua(mcp, filter_nv=filter_nv, f_thu_list=f_thu_sum)
+      df_vip_chua = build_vip_mch_chua_mua(mcp, filter_nv=filter_nv, f_thu_list=f_thu_sum, df_cat=df_cat, df_brand=df_brand)
     except Exception as e:
       df_vip_chua = pd.DataFrame()
       st.caption(f'(Lỗi tải VIP chưa mua: {e})')
@@ -12748,8 +12789,8 @@ with tab_kpi:
     if df_vip_chua is None or df_vip_chua.empty:
       st.info('Không có cửa hàng VIP MCH nào chưa mua hàng theo bộ lọc hiện tại.')
     else:
-      cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Trạng Thái']
-      # Format giống bảng KPI (custom-kpi-table)
+      cols_vip = ['STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'VIP', 'Thứ VT', 'Chỉ Tiêu', 'Trạng Thái']
+      # Format giống bảng KPI (custom-kpi-table) + dòng Tổng Cộng
       _html = [
           '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
           '<table class="custom-kpi-table">',
@@ -12758,6 +12799,7 @@ with tab_kpi:
       for _c in cols_vip:
         _html.append(f'<th>{_c}</th>')
       _html.append('</tr></thead><tbody>')
+      _sum_ct = 0.0
       for _i, (_, _row) in enumerate(df_vip_chua[cols_vip].iterrows()):
         _bg = '#e6f7ff' if _i % 2 == 0 else '#ffffff'
         _html.append(f'<tr style="background-color:{_bg} !important;">')
@@ -12765,21 +12807,53 @@ with tab_kpi:
           _v = _row.get(_c, '')
           if pd.isna(_v):
             _v = ''
-          _s = str(_v)
+          if _c == 'Chỉ Tiêu':
+            try:
+              _num = float(_v) if _v != '' else 0.0
+            except Exception:
+              _num = 0.0
+            _sum_ct += _num
+            _s = format_number_vn(_num)
+          else:
+            _s = str(_v)
           if _c == 'Trạng Thái':
             _html.append(
                 f'<td style="text-align:center;color:#c53030;font-weight:700;'
                 f'background-color:{_bg} !important;">{_s}</td>'
             )
-          elif _c == 'Tên NVBH' or _c == 'Tên KH':
+          elif _c in ('Tên NVBH', 'Tên KH'):
             _html.append(
                 f'<td style="text-align:left;background-color:{_bg} !important;">{_s}</td>'
+            )
+          elif _c == 'Chỉ Tiêu':
+            _html.append(
+                f'<td style="text-align:right;background-color:{_bg} !important;">{_s}</td>'
             )
           else:
             _html.append(
                 f'<td style="text-align:center;background-color:{_bg} !important;">{_s}</td>'
             )
         _html.append('</tr>')
+      # Dòng Tổng Cộng — format giống total KPI (nền xanh đậm, chữ trắng)
+      _tot_bg = '#1a365d'
+      _html.append(f'<tr style="background-color:{_tot_bg} !important;">')
+      for _c in cols_vip:
+        if _c == 'STT':
+          _s = ''
+        elif _c == 'Tên NVBH':
+          _s = 'TỔNG CỘNG'
+        elif _c == 'Chỉ Tiêu':
+          _s = format_number_vn(_sum_ct)
+        elif _c == 'Trạng Thái':
+          _s = f'{len(df_vip_chua)} CH'
+        else:
+          _s = ''
+        _html.append(
+            f'<td style="text-align:{"right" if _c == "Chỉ Tiêu" else "center"};'
+            f'background-color:{_tot_bg} !important;color:#ffffff !important;'
+            f'font-weight:800 !important;">{_s}</td>'
+        )
+      _html.append('</tr>')
       _html.append('</tbody></table></div>')
       st.markdown(''.join(_html), unsafe_allow_html=True)
       st.caption(f'Hiển thị: {len(df_vip_chua):,} cửa hàng VIP chưa mua hàng')
