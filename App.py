@@ -6637,6 +6637,41 @@ def build_summary_report(
     except Exception:
       pass
 
+    # Khi lọc Thứ/Chu kỳ: scale CT theo tỷ lệ CH MCP (trừ LPPC moc)
+    # TH đã lấy từ data bán hàng lọc CH; CT tháng → nhân ratio
+    if effective_thu_list and mcp_ratio_map:
+      _ct_cols = [
+          ('CT DS', 'TH DS', '% MTD DS', False),
+          ('CT PC_BT', 'TH PC_BT', '% MTD PC_BT', False),
+          ('CT Xanh', 'TH Xanh', '% MTD Xanh', False),
+          ('CT Vàng', 'TH Vàng', '% MTD Vàng', False),
+          ('CT PC_ON', 'TH PC_ON', '% MTD PC_ON', False),
+      ]
+      for i, row in df_out.iterrows():
+        nv = str(row.get('Tên NV', '')).strip()
+        ratio = float(mcp_ratio_map.get(nv, 0.0) or 0.0)
+        if ratio <= 0 or ratio >= 0.999:
+          # ratio=1 → không đổi; ratio=0 → CT=0
+          if ratio <= 0:
+            for c_ct, c_th, c_pct, _ in _ct_cols:
+              df_out.at[i, c_ct] = 0
+              df_out.at[i, c_pct] = '0%'
+          continue
+        for c_ct, c_th, c_pct, as_f in _ct_cols:
+          try:
+            ct0 = float(row.get(c_ct, 0) or 0)
+            th0 = float(row.get(c_th, 0) or 0)
+            ct1 = ct0 * ratio
+            if as_f:
+              df_out.at[i, c_ct] = round(ct1, 2)
+            else:
+              df_out.at[i, c_ct] = int(round(ct1))
+            df_out.at[i, c_pct] = (
+                f'{round(th0 / ct1 * 100, 1)}%' if ct1 else '0%'
+            )
+          except Exception:
+            pass
+
     tot_v_tgt = int(df_out['VIP MCH'].sum())
     tot_v_act = int(df_out['Đã Mua (VIP)'].sum())
     tot_v_pct = round(tot_v_act / tot_v_tgt * 100, 1) if tot_v_tgt else 0
