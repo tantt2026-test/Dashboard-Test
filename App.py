@@ -14189,57 +14189,110 @@ with tab_kpi:
           'SỐ SUẤT: 10 thùng = 1 suất, max 2; dưới 10 thùng → 0 (RỚT).'
       )
       st.markdown(
-          '<p class="filter-label">🔍 Bộ lọc Kế hoạch tác chiến</p>',
+          '<p class="filter-label">🔍 Bộ lọc Chi tiết KH theo Nhân Viên (chọn nhiều)</p>',
           unsafe_allow_html=True,
       )
-      t1, t2, t3, t4, t5, t6 = st.columns(6)
       nvs = sorted([
           x for x in df_tea['Tên NVBH'].dropna().unique().tolist() if str(x).strip()
+      ]) if not df_tea.empty else []
+      mas = sorted([
+          str(x).replace('.0', '') for x in df_tea['Mã KH'].dropna().unique().tolist()
+          if str(x).strip() and str(x).lower() != 'nan'
+      ]) if not df_tea.empty and 'Mã KH' in df_tea.columns else []
+      tens = sorted([
+          str(x) for x in df_tea['Tên KH'].dropna().unique().tolist()
+          if str(x).strip() and str(x).lower() != 'nan'
+      ]) if not df_tea.empty and 'Tên KH' in df_tea.columns else []
+      l1s = sorted([
+          str(x) for x in df_tea['L1'].dropna().unique().tolist()
+          if str(x).strip() and str(x).lower() != 'nan'
       ]) if not df_tea.empty else []
       thus = sorted([
           str(x) for x in df_tea['Thứ VT'].dropna().unique().tolist()
           if str(x).strip() and str(x).lower() != 'nan'
       ]) if not df_tea.empty else []
-      l1s = sorted([
-          str(x) for x in df_tea['L1'].dropna().unique().tolist()
-          if str(x).strip() and str(x).lower() != 'nan'
-      ]) if not df_tea.empty else []
-      with t1:
-        st.markdown('<p class="filter-label">Tên Nhân Viên</p>', unsafe_allow_html=True)
-        f_nv_t = st.multiselect('', nvs, default=[], key='tea_nv', label_visibility='collapsed')
-      with t2:
+      # MTD TEA unique (số) — hiển thị dạng chuỗi để multiselect ổn định
+      mtd_tea_opts = []
+      if not df_tea.empty and 'MTD TEA [Thùng]' in df_tea.columns:
+        _vals = pd.to_numeric(df_tea['MTD TEA [Thùng]'], errors='coerce').dropna().unique().tolist()
+        mtd_tea_opts = sorted([str(v) if isinstance(v, str) else (str(int(v)) if float(v) == int(v) else str(v))
+                               for v in _vals], key=lambda x: float(x) if x.replace('.','',1).isdigit() else 0)
+      elif not df_tea.empty:
+        # fallback tìm cột gần đúng
+        for c in df_tea.columns:
+          if 'MTD' in str(c).upper() and 'TEA' in str(c).upper():
+            _vals = pd.to_numeric(df_tea[c], errors='coerce').dropna().unique().tolist()
+            mtd_tea_opts = sorted([str(int(v)) if float(v) == int(v) else str(v) for v in _vals],
+                                  key=lambda x: float(x) if x.replace('.','',1).isdigit() else 0)
+            break
+      dk_opts = []
+      if not df_tea.empty and 'ĐK D&L' in df_tea.columns:
+        _dk = df_tea['ĐK D&L'].fillna('').astype(str).str.strip()
+        _dk = _dk.replace({'': 'Chưa ĐK', 'nan': 'Chưa ĐK', 'None': 'Chưa ĐK'})
+        # chuẩn hoá tick
+        _dk = _dk.apply(lambda x: '✓' if x in ('✓', '✔', '1', 'True', 'true') else (x if x else 'Chưa ĐK'))
+        dk_opts = sorted(_dk.unique().tolist(), key=lambda x: (0 if x == '✓' else 1, x))
+
+      r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+      with r1c1:
+        st.markdown('<p class="filter-label">Tên NV</p>', unsafe_allow_html=True)
+        f_nv_t = st.multiselect('', nvs, default=[], key='tea_nv', label_visibility='collapsed', placeholder='Tất cả NV')
+      with r1c2:
         st.markdown('<p class="filter-label">Mã KH</p>', unsafe_allow_html=True)
-        f_ma_t = st.text_input('', key='tea_ma', label_visibility='collapsed', placeholder='Nhập Mã KH...')
-      with t3:
+        f_ma_t = st.multiselect('', mas, default=[], key='tea_ma', label_visibility='collapsed', placeholder='Tất cả Mã KH')
+      with r1c3:
         st.markdown('<p class="filter-label">Tên KH</p>', unsafe_allow_html=True)
-        f_ten_t = st.text_input('', key='tea_ten', label_visibility='collapsed', placeholder='Nhập Tên KH...')
-      with t4:
+        f_ten_t = st.multiselect('', tens, default=[], key='tea_ten', label_visibility='collapsed', placeholder='Tất cả Tên KH')
+      with r1c4:
         st.markdown('<p class="filter-label">L1</p>', unsafe_allow_html=True)
-        f_l1_t = st.multiselect('', l1s, default=[], key='tea_l1', label_visibility='collapsed')
-      with t5:
+        f_l1_t = st.multiselect('', l1s, default=[], key='tea_l1', label_visibility='collapsed', placeholder='Tất cả L1')
+
+      r2c1, r2c2, r2c3 = st.columns(3)
+      with r2c1:
         st.markdown('<p class="filter-label">Thứ VT</p>', unsafe_allow_html=True)
-        f_thu_t = st.multiselect('', thus, default=[], key='tea_thu', label_visibility='collapsed')
-      with t6:
-        st.markdown('<p class="filter-label">Check ĐK</p>', unsafe_allow_html=True)
-        f_dk_t = st.selectbox(
-            '', ['Tất cả', 'Đã ĐK (✓)', 'Chưa ĐK'], key='tea_dk', label_visibility='collapsed'
-        )
+        f_thu_t = st.multiselect('', thus, default=[], key='tea_thu', label_visibility='collapsed', placeholder='Tất cả Thứ VT')
+      with r2c2:
+        st.markdown('<p class="filter-label">MTD TEA</p>', unsafe_allow_html=True)
+        f_mtd_tea = st.multiselect('', mtd_tea_opts, default=[], key='tea_mtd_tea', label_visibility='collapsed', placeholder='Tất cả MTD TEA')
+      with r2c3:
+        st.markdown('<p class="filter-label">ĐK D&L</p>', unsafe_allow_html=True)
+        f_dk_t = st.multiselect('', dk_opts, default=[], key='tea_dk', label_visibility='collapsed', placeholder='Tất cả ĐK D&L')
+
       view = df_tea.copy()
       if not view.empty:
         if f_nv_t:
           view = view[view['Tên NVBH'].isin(f_nv_t)]
         if f_ma_t:
-          view = view[view['Mã KH'].astype(str).str.contains(f_ma_t.strip(), case=False, na=False)]
+          view = view[view['Mã KH'].astype(str).str.replace(r'\.0$', '', regex=True).isin([str(x) for x in f_ma_t])]
         if f_ten_t:
-          view = view[view['Tên KH'].astype(str).str.contains(f_ten_t.strip(), case=False, na=False)]
+          view = view[view['Tên KH'].astype(str).isin([str(x) for x in f_ten_t])]
         if f_l1_t:
           view = view[view['L1'].astype(str).isin([str(x) for x in f_l1_t])]
         if f_thu_t:
           view = view[view['Thứ VT'].astype(str).isin([str(x) for x in f_thu_t])]
-        if f_dk_t == 'Đã ĐK (✓)':
-          view = view[view['ĐK D&L'].astype(str).str.strip().isin(['✓', '✔'])]
-        elif f_dk_t == 'Chưa ĐK':
-          view = view[~view['ĐK D&L'].astype(str).str.strip().isin(['✓', '✔'])]
+        if f_mtd_tea:
+          col_mtd = 'MTD TEA [Thùng]' if 'MTD TEA [Thùng]' in view.columns else None
+          if col_mtd is None:
+            for c in view.columns:
+              if 'MTD' in str(c).upper() and 'TEA' in str(c).upper():
+                col_mtd = c
+                break
+          if col_mtd:
+            selected_nums = set()
+            for x in f_mtd_tea:
+              try:
+                selected_nums.add(float(x))
+              except Exception:
+                pass
+            _ser = pd.to_numeric(view[col_mtd], errors='coerce')
+            view = view[_ser.isin(list(selected_nums))]
+        if f_dk_t:
+          _dk_col = view['ĐK D&L'].fillna('').astype(str).str.strip()
+          _dk_norm = _dk_col.apply(
+              lambda x: '✓' if x in ('✓', '✔', '1', 'True', 'true')
+              else ('Chưa ĐK' if x in ('', 'nan', 'None') else x)
+          )
+          view = view[_dk_norm.isin([str(x) for x in f_dk_t])]
         view = view.drop(columns=['STT'], errors='ignore').reset_index(drop=True)
         view.insert(0, 'STT', range(1, len(view) + 1))
       # Bảng tổng hợp NV (trên) + chi tiết KH (dưới)
