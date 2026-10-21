@@ -14511,7 +14511,23 @@ with tab_kpi:
                   y_plot.append(v)
                   text_labels2.append(f'{thct}')
                   hover2.append(h)
+              # % hoàn thành trên đỉnh mỗi cột
+              pct_top = []
+              for v, lp in zip(values, is_lppc):
+                if lp:
+                  try:
+                    moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
+                  except Exception:
+                    moc = 4.3
+                  if v < 30:
+                    pct_top.append(f'{round(v / moc * 100, 1) if moc else 0}%')
+                  else:
+                    pct_top.append(f'{float(v):.1f}%')
+                else:
+                  pct_top.append(f'{float(v):.1f}%')
+
               fig = go.Figure()
+              # Cột chính: TH/CT bên trong
               fig.add_trace(go.Bar(
                   x=labels,
                   y=y_plot,
@@ -14522,6 +14538,20 @@ with tab_kpi:
                   marker_color=colors,
                   hovertext=hover2,
                   hoverinfo='text',
+                  name='TH/CT',
+                  showlegend=False,
+              ))
+              # % trên đỉnh (trace trong suốt)
+              fig.add_trace(go.Bar(
+                  x=labels,
+                  y=y_plot,
+                  text=pct_top,
+                  textposition='outside',
+                  textfont=dict(size=12, color='#1a365d', family='Arial Black'),
+                  marker_color='rgba(0,0,0,0)',
+                  hoverinfo='skip',
+                  name='% HT',
+                  showlegend=False,
               ))
               if tg > 0:
                 fig.add_hline(
@@ -14540,9 +14570,10 @@ with tab_kpi:
                   ),
                   yaxis=dict(
                       title='% hoàn thành',
-                      range=[0, max(120, (max(y_plot) + 15) if y_plot else 120)],
+                      range=[0, max(130, (max(y_plot) + 25) if y_plot else 130)],
                       ticksuffix='%', gridcolor='#e2e8f0',
                   ),
+                  barmode='overlay',
                   xaxis=dict(tickangle=-20, tickfont=dict(size=11)),
                   margin=dict(l=40, r=20, t=50, b=70),
                   height=380,
