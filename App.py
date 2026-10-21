@@ -14188,6 +14188,11 @@ with tab_kpi:
           'Nguồn: RAW DATA (RR) + RPT (MTD tháng BC) + MCP (VIP/Thứ VT) + file ĐK Tích Lũy (nếu có). | '
           'SỐ SUẤT: 10 thùng = 1 suất, max 2; dưới 10 thùng → 0 (RỚT).'
       )
+      # Bảng tổng hợp NV (trên) — full data (đã theo filter_nv global nếu có)
+      df_sum = build_tea_battle_summary(df_tea)
+      st.markdown(render_tea_battle_summary_html(df_sum), unsafe_allow_html=True)
+
+      # Bộ lọc nằm ngay trên bảng Chi tiết KH theo Nhân Viên
       st.markdown(
           '<p class="filter-label">🔍 Bộ lọc Chi tiết KH theo Nhân Viên (chọn nhiều)</p>',
           unsafe_allow_html=True,
@@ -14211,25 +14216,26 @@ with tab_kpi:
           str(x) for x in df_tea['Thứ VT'].dropna().unique().tolist()
           if str(x).strip() and str(x).lower() != 'nan'
       ]) if not df_tea.empty else []
-      # MTD TEA unique (số) — hiển thị dạng chuỗi để multiselect ổn định
       mtd_tea_opts = []
       if not df_tea.empty and 'MTD TEA [Thùng]' in df_tea.columns:
         _vals = pd.to_numeric(df_tea['MTD TEA [Thùng]'], errors='coerce').dropna().unique().tolist()
-        mtd_tea_opts = sorted([str(v) if isinstance(v, str) else (str(int(v)) if float(v) == int(v) else str(v))
-                               for v in _vals], key=lambda x: float(x) if x.replace('.','',1).isdigit() else 0)
+        mtd_tea_opts = sorted(
+            [str(v) if isinstance(v, str) else (str(int(v)) if float(v) == int(v) else str(v)) for v in _vals],
+            key=lambda x: float(x) if x.replace('.', '', 1).isdigit() else 0,
+        )
       elif not df_tea.empty:
-        # fallback tìm cột gần đúng
         for c in df_tea.columns:
           if 'MTD' in str(c).upper() and 'TEA' in str(c).upper():
             _vals = pd.to_numeric(df_tea[c], errors='coerce').dropna().unique().tolist()
-            mtd_tea_opts = sorted([str(int(v)) if float(v) == int(v) else str(v) for v in _vals],
-                                  key=lambda x: float(x) if x.replace('.','',1).isdigit() else 0)
+            mtd_tea_opts = sorted(
+                [str(int(v)) if float(v) == int(v) else str(v) for v in _vals],
+                key=lambda x: float(x) if x.replace('.', '', 1).isdigit() else 0,
+            )
             break
       dk_opts = []
       if not df_tea.empty and 'ĐK D&L' in df_tea.columns:
         _dk = df_tea['ĐK D&L'].fillna('').astype(str).str.strip()
         _dk = _dk.replace({'': 'Chưa ĐK', 'nan': 'Chưa ĐK', 'None': 'Chưa ĐK'})
-        # chuẩn hoá tick
         _dk = _dk.apply(lambda x: '✓' if x in ('✓', '✔', '1', 'True', 'true') else (x if x else 'Chưa ĐK'))
         dk_opts = sorted(_dk.unique().tolist(), key=lambda x: (0 if x == '✓' else 1, x))
 
@@ -14295,9 +14301,8 @@ with tab_kpi:
           view = view[_dk_norm.isin([str(x) for x in f_dk_t])]
         view = view.drop(columns=['STT'], errors='ignore').reset_index(drop=True)
         view.insert(0, 'STT', range(1, len(view) + 1))
-      # Bảng tổng hợp NV (trên) + chi tiết KH (dưới)
-      df_sum = build_tea_battle_summary(view)
-      st.markdown(render_tea_battle_summary_html(df_sum), unsafe_allow_html=True)
+
+      # Bảng chi tiết KH theo Nhân Viên (dưới bộ lọc)
       st.markdown(render_tea_battle_html(view), unsafe_allow_html=True)
       st.caption(f'Hiển thị: {len(view):,} / {len(df_tea):,} cửa hàng')
       st.download_button(
