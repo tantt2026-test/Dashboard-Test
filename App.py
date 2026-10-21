@@ -14384,31 +14384,76 @@ with tab_kpi:
           import plotly.graph_objects as go
           tot = df_perf.iloc[-1] if df_perf is not None and not df_perf.empty else None
           if tot is not None:
+            # (label, %col, TH_col, CT_col) — text cột = TH/CT
             chart_items = [
-                ('% PC/VT OFF', '% PC/VT OFF'),
-                ('% PC/Plan ON', '% PC/Plan ON'),
-                ('LPPC OFF', 'LPPC OFF'),
-                ('% TH SO', '% TH SO'),
-                ('% TH Xanh', '% TH Xanh'),
-                ('% TH Vàng', '% TH Vàng'),
-                ('% TH Combo OFF', '% TH Combo OFF'),
-                ('% TH Combo ON', '% TH Combo ON'),
-                ('% TH TB', '% TH TB'),
+                ('PC/VT OFF', '% PC/VT OFF', 'PC OFF', 'Đã VT OFF'),
+                ('PC/Plan ON', '% PC/Plan ON', 'PC ON', 'Plan VT ON'),
+                ('LPPC OFF', 'LPPC OFF', 'LPPC OFF', None),  # CT = mốc lương
+                ('SellOut', '% TH SO', 'TH SO', 'CT Ngày SO'),
+                ('ASO Xanh', '% TH Xanh', 'TH Xanh', 'CT Xanh'),
+                ('ASO Vàng', '% TH Vàng', 'TH Vàng', 'CT Vàng'),
+                ('Combo OFF', '% TH Combo OFF', 'TH Combo OFF', 'CT Combo OFF'),
+                ('Combo ON', '% TH Combo ON', 'TH Combo ON', 'CT Combo ON'),
+                ('TB', '% TH TB', 'Chụp hình bởi ĐDKD', 'Số CH TB PER'),
             ]
-            labels, values, hover, is_lppc = [], [], [], []
-            for lab, col in chart_items:
-              if col not in tot.index and col not in df_perf.columns:
-                continue
-              raw = tot.get(col, 0)
+
+            def _num(x):
               try:
-                s = str(raw).replace('%', '').replace(',', '.').strip()
+                s = str(x).replace('%', '').replace(',', '').replace('.', '').strip()
+                # nếu là số dạng 1.234.567 hoặc 12.5
+                s2 = str(x).replace('%', '').replace(',', '.').strip()
+                if s2 and s2.lower() not in ('nan', 'none', ''):
+                  return float(s2)
+              except Exception:
+                pass
+              try:
+                return float(x)
+              except Exception:
+                return 0.0
+
+            labels, values, hover, is_lppc, text_thct = [], [], [], [], []
+            for lab, col_pct, col_th, col_ct in chart_items:
+              # % value
+              raw_pct = tot.get(col_pct, 0) if col_pct else 0
+              try:
+                s = str(raw_pct).replace('%', '').replace(',', '.').strip()
                 v = float(s) if s and s.lower() not in ('nan', 'none', '') else 0.0
               except Exception:
                 v = 0.0
+
+              th_v = _num(tot.get(col_th, 0)) if col_th else 0.0
+              if col_ct is None and lab == 'LPPC OFF':
+                try:
+                  ct_v = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
+                except Exception:
+                  ct_v = 4.3
+                th_v = _num(tot.get('LPPC OFF', 0))
+              else:
+                ct_v = _num(tot.get(col_ct, 0)) if col_ct else 0.0
+
+              # format TH/CT
+              if lab == 'LPPC OFF':
+                th_s = f'{th_v:.2f}'.rstrip('0').rstrip('.')
+                ct_s = f'{ct_v:.1f}'.rstrip('0').rstrip('.')
+              elif lab == 'SellOut':
+                # số lớn → rút gọn
+                def _fmt_n(n):
+                  n = float(n or 0)
+                  if abs(n) >= 1_000_000:
+                    return f'{n/1_000_000:.1f}tr'
+                  if abs(n) >= 1_000:
+                    return f'{n/1_000:.0f}k'
+                  return f'{int(round(n))}'
+                th_s, ct_s = _fmt_n(th_v), _fmt_n(ct_v)
+              else:
+                th_s = str(int(round(th_v)))
+                ct_s = str(int(round(ct_v)))
+
               labels.append(lab)
               values.append(v)
-              is_lppc.append(col == 'LPPC OFF')
-              hover.append(f'{lab}: {raw}')
+              is_lppc.append(lab == 'LPPC OFF')
+              text_thct.append(f'{th_s}/{ct_s}')
+              hover.append(f'{lab}: {th_s}/{ct_s} ({v}%)')
 
             if labels:
               try:
@@ -14447,25 +14492,33 @@ with tab_kpi:
               y_plot = []
               text_labels2 = []
               hover2 = []
-              for v, lp, lab, h in zip(values, is_lppc, labels, hover):
+              for v, lp, lab, h, thct in zip(values, is_lppc, labels, hover, text_thct):
                 if lp:
                   try:
                     moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
                   except Exception:
                     moc = 4.3
-                  y_plot.append(round(v / moc * 100, 1) if moc else 0)
-                  text_labels2.append(f'{v:.2f} ({y_plot[-1]}%)')
-                  hover2.append(f'{lab}: {v:.2f} (mốc {moc}) → {y_plot[-1]}%')
+                  # v đã là giá trị LPPC tuyệt đối trong values? 
+                  # sau block mới: values vẫn là % (th/moc*100) nếu raw là LPPC số
+                  # → scale lại nếu values là số LPPC thô
+                  if v < 30:  # khả năng là giá trị LPPC thô
+                    y_plot.append(round(v / moc * 100, 1) if moc else 0)
+                  else:
+                    y_plot.append(v)
+                  text_labels2.append(f'{thct}')
+                  hover2.append(h)
                 else:
                   y_plot.append(v)
-                  text_labels2.append(f'{v:.1f}%')
+                  text_labels2.append(f'{thct}')
                   hover2.append(h)
               fig = go.Figure()
               fig.add_trace(go.Bar(
                   x=labels,
                   y=y_plot,
                   text=text_labels2,
-                  textposition='outside',
+                  textposition='inside',
+                  textfont=dict(size=12, color='white', family='Arial Black'),
+                  insidetextanchor='middle',
                   marker_color=colors,
                   hovertext=hover2,
                   hoverinfo='text',
