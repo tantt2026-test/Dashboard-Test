@@ -2,6 +2,7 @@ import datetime as dt
 from datetime import date, timedelta
 import os
 import re
+import difflib
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -1666,22 +1667,90 @@ def build_mcp_nv_summary(
           mask = _match_group_series(p[c_brand_p], f_grp)
         p = p[mask]
 
-      # 3) Tên SP → STANDARD_SKU_DESC_2
+      # 3) Tên SP → STANDARD_SKU_DESC_2 (best-match từng tên lọc)
       if f_sp and c_sp_p:
-        mask = p[c_sp_p].apply(lambda v: _fuzzy_product(v, f_sp))
-        if not mask.any() and c_sku_code is not None:
-          codes = set()
-          for s in f_sp:
-            m = re.match(r'^(\d{3,5})\b', str(s).strip())
-            if m:
-              codes.add(m.group(1))
-          if codes:
-            mask = p[c_sku_code].astype(str).str.strip().isin(codes)
-            if not mask.any():
-              mask = p[c_sp_p].astype(str).str.strip().str.match(
-                  r'^(' + '|'.join(re.escape(c) for c in codes) + r')\b'
-              )
-        p = p[mask]
+        def _core_name(s):
+          s = str(s).lower().strip()
+          s = re.sub(r'^\d{3,5}\s*[-–:]\s*', '', s)
+          s = re.sub(r'\d+([.,]\d+)?', ' ', s)
+          s = re.sub(
+              r'\b(bl|chai|hop|hộp|goi|gói|lon|thung|thùng|loc|lốc|ml|gr|kg|x)\b',
+              ' ', s,
+          )
+          s = re.sub(
+              r'[^a-z0-9àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ\s]',
+              ' ', s,
+          )
+          return re.sub(r'\s+', ' ', s).strip()
+
+        def _score_sp(filter_name, perf_desc):
+          a = _core_name(filter_name)
+          b = _core_name(perf_desc)
+          if not a or not b:
+            return 0.0
+          if a == b:
+            return 1.0
+          if a in b or b in a:
+            return 0.95
+          ta, tb = set(a.split()), set(b.split())
+          if not ta or not tb:
+            return 0.0
+          inter = ta & tb
+          cover_f = len(inter) / len(ta)
+          cover_p = len(inter) / len(tb)
+          variants = {'amazon', 'compact', 'lemona', 'vivant'}
+          if (tb & variants) - ta:
+            return 0.0
+          # token set gần giống (bỏ qua thứ tự)
+          if ta == tb:
+            return 0.98
+          if cover_f >= 0.85 and len(inter) >= 3:
+            return 0.9 + 0.08 * cover_f
+          seq = difflib.SequenceMatcher(None, a, b).ratio()
+          return max(seq * cover_f, cover_f * 0.85)
+
+        perf_descs = (
+            p[c_sp_p].dropna().astype(str).map(lambda x: x.strip()).unique().tolist()
+        )
+        matched = set()
+        for fv in f_sp:
+          scored = []
+          for desc in perf_descs:
+            sc = _score_sp(fv, desc)
+            if sc >= 0.65:
+              scored.append((sc, desc))
+          if not scored:
+            continue
+          scored.sort(reverse=True)
+          best_sc = scored[0][0]
+          for sc, desc in scored:
+            # lấy best + các desc gần best
+            if sc >= best_sc - 0.05 or sc >= 0.85:
+              matched.add(desc)
+
+        if matched:
+          p = p[p[c_sp_p].astype(str).str.strip().isin(matched)]
+        else:
+          mask = p[c_sp_p].apply(lambda v: _fuzzy_product(v, f_sp))
+          if (not isinstance(mask, pd.Series) or not mask.any()) and c_sku_code is not None:
+            codes = set()
+            for s in f_sp:
+              m = re.match(r'^(\d{3,5})\b', str(s).strip())
+              if m:
+                codes.add(m.group(1))
+            # cũng lấy code từ STANDARD_SKU_DESC_2 nếu core name khớp mạnh
+            if not codes:
+              for desc in perf_descs:
+                if _score_sp(f_sp[0], desc) >= 0.65:
+                  m = re.match(r'^(\d{3,5})\b', str(desc).strip())
+                  if m:
+                    codes.add(m.group(1))
+            if codes:
+              mask = p[c_sku_code].astype(str).str.strip().isin(codes)
+          if isinstance(mask, pd.Series) and mask.any():
+            p = p[mask]
+          else:
+            p = p.iloc[0:0]
 
       if filter_nv:
         if isinstance(filter_nv, (list, tuple, set)):
@@ -9376,7 +9445,15 @@ def load_perf_sku_data():
       if 'month' in joined and ('sm name' in joined or 'target' in joined or 'sub div' in joined):
         header_row = i
         break
-    cols = [str(c).strip() if pd.notna(c) else f'Col_{i}' for i, c in enumerate(raw.iloc[header_row].tolist())]
+    cols = []
+    for _i, _c in enumerate(raw.iloc[header_row].tolist()):
+      if pd.isna(_c):
+        cols.append(f'Col_{_i}')
+      else:
+        _name = str(_c).strip()
+        if len(_name) >= 2 and _name[0] in chr(34)+chr(39) and _name[-1] == _name[0]:
+          _name = _name[1:-1].strip()
+        cols.append(_name)
     df = raw.iloc[header_row + 1:].copy()
     df.columns = cols
     return df
