@@ -12758,8 +12758,8 @@ def _pct_color(pct, timegone=None):
   return '#e53e3e'
 
 
-def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3):
-  """Bảng 1: Metric card hoàn thành KPI theo Mục Tiêu Ngày."""
+def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None):
+  """Bảng 1: Metric card KPI theo ngày — 2 hàng × 5 card, responsive mobile."""
   if df_perf is None or df_perf.empty:
     return ''
   tot = df_perf.iloc[-1]
@@ -12774,82 +12774,38 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3):
     except Exception:
       return default
 
-  th_so = g('TH SO')
-  ct_so = g('CT Ngày SO')
+  th_so, ct_so = g('TH SO'), g('CT Ngày SO')
   pct_so = (th_so / ct_so * 100) if ct_so else 0
-
   pc_off = g('PC OFF')
   plan_off = g('Đã VT OFF') or g('Plan VT OFF')
   pct_pc_off = (pc_off / plan_off * 100) if plan_off else 0
-
   pc_on = g('PC ON')
   plan_on = g('Plan VT ON') or g('Đã VT ON')
   pct_pc_on = (pc_on / plan_on * 100) if plan_on else 0
-
   lppc = g('LPPC OFF')
   th_x, ct_x = g('TH Xanh'), g('CT Xanh') or 5
   th_v, ct_v = g('TH Vàng'), g('CT Vàng') or 3
   th_co, ct_co = g('TH Combo OFF'), g('CT Combo OFF') or 5
   th_cn, ct_cn = g('TH Combo ON'), g('CT Combo ON') or 3
 
-  aso_all_th = th_x + th_v
-  aso_all_ct = ct_x + ct_v
+  # ASO ALL OFF/ON (truyền từ ngoài; fallback 0)
+  ao = aso_off or {'th': 0, 'ct': 0}
+  an = aso_on or {'th': 0, 'ct': 0}
+  ao_th, ao_ct = int(ao.get('th', 0) or 0), int(ao.get('ct', 0) or 0)
+  an_th, an_ct = int(an.get('th', 0) or 0), int(an.get('ct', 0) or 0)
 
+  # 10 cards — màu tương phản
   cards = [
-    {
-      'title': 'DOANH SỐ NGÀY',
-      'main': _fmt_tr(th_so),
-      'sub': f'BQ cần {_fmt_tr(ct_so)}/ngày · đạt {pct_so:.0f}%',
-      'border': '#dd6b20' if pct_so < 90 else '#38a169',
-    },
-    {
-      'title': 'PC BT / PC OFF',
-      'main': f'{int(pc_off)}/{int(plan_off)} tuyến',
-      'sub': f'Tỷ lệ chốt đơn {pct_pc_off:.0f}%',
-      'border': '#dd6b20' if pct_pc_off < 70 else '#38a169',
-    },
-    {
-      'title': 'PC ON',
-      'main': f'{int(pc_on)}/{int(plan_on)} tuyến',
-      'sub': f'Tỷ lệ chốt đơn {pct_pc_on:.0f}%',
-      'border': '#e53e3e' if pct_pc_on < 50 else '#dd6b20',
-    },
-    {
-      'title': 'LPPC OFF',
-      'main': f'{lppc:.2f}'.replace('.', ','),
-      'sub': f'Target {lppc_moc} · {"vượt" if lppc >= lppc_moc else "chưa đạt"}',
-      'border': '#38a169' if lppc >= lppc_moc else '#e53e3e',
-    },
-    {
-      'title': 'ASO TRẬN XANH',
-      'main': f'{int(th_x)}/{int(ct_x)}',
-      'sub': f'Đạt {th_x/ct_x*100:.0f}%' if ct_x else '0%',
-      'border': '#38a169' if th_x >= ct_x else '#dd6b20',
-    },
-    {
-      'title': 'ASO TRẬN VÀNG',
-      'main': f'{int(th_v)}/{int(ct_v)}',
-      'sub': f'Đạt {th_v/ct_v*100:.0f}%' if ct_v else '0%',
-      'border': '#38a169' if th_v >= ct_v else '#dd6b20',
-    },
-    {
-      'title': 'ASO ALL (Xanh+Vàng)',
-      'main': f'{int(aso_all_th)}/{int(aso_all_ct)}',
-      'sub': f'Đạt {aso_all_th/aso_all_ct*100:.0f}%' if aso_all_ct else '0%',
-      'border': '#dd6b20',
-    },
-    {
-      'title': 'COMBO OFF',
-      'main': f'{int(th_co)}/{int(ct_co)} suất',
-      'sub': f'Đạt {th_co/ct_co*100:.0f}%' if ct_co else '0%',
-      'border': '#dd6b20' if th_co < ct_co else '#38a169',
-    },
-    {
-      'title': 'COMBO ON',
-      'main': f'{int(th_cn)}/{int(ct_cn)} suất',
-      'sub': f'Đạt {th_cn/ct_cn*100:.0f}%' if ct_cn else '0%',
-      'border': '#e53e3e' if th_cn < ct_cn else '#38a169',
-    },
+    ('DOANH SỐ NGÀY', _fmt_tr(th_so), f'BQ cần {_fmt_tr(ct_so)}/ngày · đạt {pct_so:.0f}%', '#e53e3e'),
+    ('PC BT / PC OFF', f'{int(pc_off)}/{int(plan_off)} tuyến', f'Tỷ lệ chốt đơn {pct_pc_off:.0f}%', '#3182ce'),
+    ('PC ON', f'{int(pc_on)}/{int(plan_on)} tuyến', f'Tỷ lệ chốt đơn {pct_pc_on:.0f}%', '#dd6b20'),
+    ('LPPC OFF', f'{lppc:.2f}'.replace('.', ','), f'Target {lppc_moc} · {"vượt" if lppc >= lppc_moc else "chưa đạt"}', '#38a169'),
+    ('ASO ALL OFF', f'{ao_th}/{ao_ct}' if ao_ct else f'{ao_th}', f'Đạt {ao_th/ao_ct*100:.0f}%' if ao_ct else '—', '#805ad5'),
+    ('ASO ALL ON', f'{an_th}/{an_ct}' if an_ct else f'{an_th}', f'Đạt {an_th/an_ct*100:.0f}%' if an_ct else '—', '#d53f8c'),
+    ('ASO TRẬN XANH', f'{int(th_x)}/{int(ct_x)}', f'Đạt {th_x/ct_x*100:.0f}%' if ct_x else '0%', '#319795'),
+    ('ASO TRẬN VÀNG', f'{int(th_v)}/{int(ct_v)}', f'Đạt {th_v/ct_v*100:.0f}%' if ct_v else '0%', '#d69e2e'),
+    ('COMBO OFF', f'{int(th_co)}/{int(ct_co)} suất', f'Đạt {th_co/ct_co*100:.0f}%' if ct_co else '0%', '#2b6cb0'),
+    ('COMBO ON', f'{int(th_cn)}/{int(ct_cn)} suất', f'Đạt {th_cn/ct_cn*100:.0f}%' if ct_cn else '0%', '#c05621'),
   ]
 
   wd = report_date.strftime('%d/%m') if hasattr(report_date, 'strftime') else str(report_date)
@@ -12860,21 +12816,29 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3):
     thu = ''
 
   html = [
+    '<style>'
+    '.hs-day-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;}'
+    '@media(max-width:900px){.hs-day-grid{grid-template-columns:repeat(2,1fr)!important;}}'
+    '@media(max-width:480px){.hs-day-grid{grid-template-columns:1fr!important;}}'
+    '.hs-day-card{background:#fff;border-radius:12px;padding:12px 14px;'
+    'box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #cbd5e0;}'
+    '.hs-day-card .t{font-size:11px;font-weight:700;color:#718096;letter-spacing:.3px;}'
+    '.hs-day-card .m{font-size:20px;font-weight:800;color:#1a202c;margin:4px 0;}'
+    '.hs-day-card .s{font-size:12px;color:#4a5568;}'
+    '</style>',
     f'<div style="margin:18px 0 8px 0;">'
     f'<div style="font-size:16px;font-weight:800;color:#1a365d;margin-bottom:10px;">'
     f'Kết quả ngày {wd} '
     f'<span style="background:#ebf8ff;color:#2b6cb0;font-size:12px;padding:2px 8px;'
     f'border-radius:12px;margin-left:6px;">{thu}</span></div>'
-    f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;">'
+    f'<div class="hs-day-grid">'
   ]
-  for c in cards:
+  for title, main, sub, color in cards:
     html.append(
-      f'<div style="background:#fff;border-radius:12px;padding:12px 14px;'
-      f'border-top:3px solid {c["border"]};box-shadow:0 1px 4px rgba(0,0,0,.08);">'
-      f'<div style="font-size:11px;font-weight:700;color:#718096;letter-spacing:.3px;">{c["title"]}</div>'
-      f'<div style="font-size:22px;font-weight:800;color:#1a202c;margin:4px 0;">{c["main"]}</div>'
-      f'<div style="font-size:12px;color:#4a5568;">{c["sub"]}</div>'
-      f'</div>'
+      f'<div class="hs-day-card" style="border-top-color:{color};">'
+      f'<div class="t" style="color:{color};">{title}</div>'
+      f'<div class="m">{main}</div>'
+      f'<div class="s">{sub}</div></div>'
     )
   html.append('</div></div>')
   return ''.join(html)
@@ -12883,7 +12847,7 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3):
 def render_hs_monthly_kpi_table(
     rows, timegone, combo_off=None, combo_on=None, mbs_cat=None, mbs_brand=None, report_date=None
 ):
-  """Bảng 2: Hoàn thành KPI theo tiến độ tháng + card Combo/MBS."""
+  """Bảng 2: Lũy kế tháng — format giống Trưng Bày + card Combo/MBS có màu."""
   try:
     tg = float(timegone or 0)
   except Exception:
@@ -12895,21 +12859,21 @@ def render_hs_monthly_kpi_table(
     except Exception:
       pass
 
+  # Palette tương phản cho từng hàng KPI
+  _BAR = ['#e53e3e', '#3182ce', '#38a169', '#805ad5', '#dd6b20', '#d53f8c', '#319795', '#d69e2e', '#2b6cb0', '#c05621']
+
   html = [
     f'<div style="margin:20px 0 8px 0;">'
     f'<div style="font-size:16px;font-weight:800;color:#1a365d;margin-bottom:10px;">{label}</div>'
-    f'<div style="overflow-x:auto;border-radius:12px;border:1px solid #e2e8f0;background:#fff;">'
-    f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
-    f'<thead><tr style="background:#edf2f7;color:#4a5568;text-align:left;">'
-    f'<th style="padding:10px 12px;">KPI</th>'
-    f'<th style="padding:10px 12px;text-align:right;">THỰC ĐẠT</th>'
-    f'<th style="padding:10px 12px;text-align:right;">TARGET THÁNG</th>'
-    f'<th style="padding:10px 12px;text-align:right;">% ĐẠT</th>'
-    f'<th style="padding:10px 12px;min-width:160px;">TIẾN ĐỘ (vạch = {tg:.1f}%)</th>'
+    f'<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">'
+    f'<table class="custom-kpi-table" style="min-width:640px;">'
+    f'<thead><tr>'
+    f'<th>KPI</th><th>THỰC ĐẠT</th><th>TARGET THÁNG</th><th>% ĐẠT</th>'
+    f'<th style="min-width:160px;">TIẾN ĐỘ (vạch = {tg:.1f}%)</th>'
     f'</tr></thead><tbody>'
   ]
 
-  for r in rows:
+  for i, r in enumerate(rows):
     name = r.get('name', '')
     th = r.get('th', 0)
     ct = r.get('ct', 0)
@@ -12923,51 +12887,76 @@ def render_hs_monthly_kpi_table(
     else:
       th_s, ct_s = f'{int(round(float(th)))}', f'{int(round(float(ct)))}'
     color = _pct_color(pct, tg)
+    bar_color = _BAR[i % len(_BAR)]
     bar_w = max(0, min(100, float(pct)))
     tg_pos = max(0, min(100, tg))
+    bg = '#f0f7fc' if i % 2 == 0 else '#ffffff'
     html.append(
-      f'<tr style="border-top:1px solid #edf2f7;">'
-      f'<td style="padding:10px 12px;font-weight:600;color:#2d3748;">{name}</td>'
-      f'<td style="padding:10px 12px;text-align:right;font-weight:700;">{th_s}</td>'
-      f'<td style="padding:10px 12px;text-align:right;color:#4a5568;">{ct_s}</td>'
-      f'<td style="padding:10px 12px;text-align:right;font-weight:800;color:{color};">{pct:.1f}%</td>'
-      f'<td style="padding:10px 12px;">'
-      f'<div style="position:relative;height:10px;background:#edf2f7;border-radius:6px;overflow:visible;">'
-      f'<div style="height:100%;width:{bar_w}%;background:{color};border-radius:6px;"></div>'
-      f'<div style="position:absolute;top:-3px;left:{tg_pos}%;width:2px;height:16px;background:#2b6cb0;"></div>'
+      f'<tr style="background:{bg};">'
+      f'<td style="text-align:left;font-weight:600;padding-left:10px;">{name}</td>'
+      f'<td style="text-align:center;font-weight:700;">{th_s}</td>'
+      f'<td style="text-align:center;">{ct_s}</td>'
+      f'<td style="text-align:center;font-weight:800;color:{color};">{pct:.1f}%</td>'
+      f'<td style="padding:8px 12px;">'
+      f'<div style="position:relative;height:12px;background:#e2e8f0;border-radius:6px;">'
+      f'<div style="height:100%;width:{bar_w}%;background:{bar_color};border-radius:6px;"></div>'
+      f'<div style="position:absolute;top:-2px;left:{tg_pos}%;width:2px;height:16px;background:#1a365d;"></div>'
       f'</div></td></tr>'
     )
+
+  # total row style dark
   html.append('</tbody></table></div>')
 
-  html.append('<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">')
+  # Combo + MBS colored cards
   co = combo_off or {}
   cn = combo_on or {}
   html.append(
-    f'<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">'
-    f'<div style="font-size:12px;font-weight:800;color:#4a5568;margin-bottom:6px;">ĐH COMBO</div>'
-    f'<div style="font-size:13px;color:#2d3748;line-height:1.55;">'
-    f'Combo OFF: <b>{co.get("th",0)}</b> / {co.get("ct",0)} CH ({co.get("pct",0):.1f}%)<br/>'
-    f'Combo ON: <b>{cn.get("th",0)}</b> / {cn.get("ct",0)} CH ({cn.get("pct",0):.1f}%)'
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">'
+    '<style>@media(max-width:700px){div[data-hs-mbs]{grid-template-columns:1fr!important;}}</style>'
+  )
+  # force responsive via class
+  html[-1] = (
+    '<div data-hs-mbs="1" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">'
+    '<style>@media(max-width:700px){[data-hs-mbs]{grid-template-columns:1fr!important;}}</style>'
+  )
+
+  html.append(
+    f'<div style="background:linear-gradient(135deg,#ebf8ff,#fff);border:1px solid #90cdf4;'
+    f'border-left:4px solid #3182ce;border-radius:12px;padding:14px;">'
+    f'<div style="font-size:12px;font-weight:800;color:#2b6cb0;margin-bottom:6px;">ĐH COMBO</div>'
+    f'<div style="font-size:13px;color:#2d3748;line-height:1.6;">'
+    f'<span style="color:#3182ce;font-weight:700;">OFF:</span> '
+    f'<b>{co.get("th",0)}</b> / {co.get("ct",0)} CH '
+    f'(<span style="color:{_pct_color(co.get("pct",0), tg)};font-weight:700;">{co.get("pct",0):.1f}%</span>)<br/>'
+    f'<span style="color:#dd6b20;font-weight:700;">ON:</span> '
+    f'<b>{cn.get("th",0)}</b> / {cn.get("ct",0)} CH '
+    f'(<span style="color:{_pct_color(cn.get("pct",0), tg)};font-weight:700;">{cn.get("pct",0):.1f}%</span>)'
     f'</div></div>'
   )
 
-  def _mbs_line(title, info):
+  def _mbs_block(title, info, accent):
     if not info:
-      return f'<div style="margin-bottom:8px;"><b>{title}</b>: không có data</div>'
-    parts = [f'{k}: {v}' for k, v in info.get('groups', {}).items()]
-    dat = info.get('dat', 0)
-    total = info.get('total', 0)
+      return (
+        f'<div style="margin-bottom:8px;"><b style="color:{accent};">{title}</b>: không có data</div>'
+      )
+    parts = [f'<span style="background:#edf2f7;padding:1px 6px;border-radius:4px;margin:2px;display:inline-block;">{k}: {v}</span>'
+             for k, v in info.get('groups', {}).items()]
+    dat, total = info.get('dat', 0), info.get('total', 0)
+    pct = (dat / total * 100) if total else 0
     return (
-      f'<div style="margin-bottom:8px;"><b>{title}</b> · {dat}/{total} đạt NV</div>'
-      f'<div style="font-size:12px;color:#4a5568;margin-bottom:6px;">{" · ".join(parts) if parts else ""}</div>'
+      f'<div style="margin-bottom:8px;"><b style="color:{accent};">{title}</b> · '
+      f'<b>{dat}/{total}</b> đạt NV '
+      f'(<span style="color:{_pct_color(pct, tg)};font-weight:700;">{pct:.1f}%</span>)</div>'
+      f'<div style="font-size:12px;color:#4a5568;">{"".join(parts)}</div>'
     )
 
   html.append(
-    f'<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">'
-    f'<div style="font-size:12px;font-weight:800;color:#4a5568;margin-bottom:6px;">MBS CAT &amp; BRAND</div>'
+    f'<div style="background:linear-gradient(135deg,#faf5ff,#fff);border:1px solid #d6bcfa;'
+    f'border-left:4px solid #805ad5;border-radius:12px;padding:14px;">'
+    f'<div style="font-size:12px;font-weight:800;color:#6b46c1;margin-bottom:6px;">MBS CAT &amp; BRAND</div>'
     f'<div style="font-size:13px;color:#2d3748;line-height:1.5;">'
-    f'{_mbs_line("MBS Cat", mbs_cat)}'
-    f'{_mbs_line("MBS Brand", mbs_brand)}'
+    f'{_mbs_block("MBS Cat", mbs_cat, "#805ad5")}'
+    f'{_mbs_block("MBS Brand", mbs_brand, "#d53f8c")}'
     f'</div></div>'
   )
   html.append('</div></div>')
@@ -14768,8 +14757,38 @@ with tab_kpi:
             _moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
           except Exception:
             _moc = 4.3
+          # ASO ALL OFF/ON trong ngày (logic Báo Cáo ASO ALL)
+          _aso_off, _aso_on = {'th': 0, 'ct': 0}, {'th': 0, 'ct': 0}
+          try:
+            _rd0 = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+            _day = df[df['date'] == _rd0].copy() if df is not None and not df.empty and 'date' in df.columns else pd.DataFrame()
+            if nv_selected(filter_nv) and not _day.empty:
+              _day = filter_df_by_nv(_day, 'Tên NVBH', filter_nv)
+            if not _day.empty and 'Mã CH' in _day.columns:
+              _l1 = _day['L1'].astype(str) if 'L1' in _day.columns else pd.Series('', index=_day.index)
+              _off = _day[_l1.str.contains('Off', case=False, na=False)]
+              _on = _day[_l1.str.contains('On', case=False, na=False)]
+              _aso_off['th'] = int(_off['Mã CH'].nunique()) if not _off.empty else 0
+              _aso_on['th'] = int(_on['Mã CH'].nunique()) if not _on.empty else 0
+            # Target MCP OFF/ON (tổng CH theo kênh)
+            if mcp is not None and not mcp.empty:
+              c_ch = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH'])
+              c_l1 = find_col(mcp, ['L1', 'Loại hình', 'Kênh'])
+              c_nv = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
+              _m = mcp
+              if nv_selected(filter_nv) and c_nv:
+                _m = filter_df_by_nv(mcp, c_nv, filter_nv)
+              if c_ch and c_l1 and not _m.empty:
+                _ml1 = _m[c_l1].astype(str)
+                _aso_off['ct'] = int(_m.loc[_ml1.str.contains('Off', case=False, na=False), c_ch].nunique())
+                _aso_on['ct'] = int(_m.loc[_ml1.str.contains('On', case=False, na=False), c_ch].nunique())
+          except Exception:
+            pass
           st.markdown(
-              render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=_moc),
+              render_hs_daily_metric_cards(
+                  df_perf, report_date, lppc_moc=_moc,
+                  aso_off=_aso_off, aso_on=_aso_on,
+              ),
               unsafe_allow_html=True,
           )
         except Exception as _e_daily:
