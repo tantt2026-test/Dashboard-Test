@@ -2763,11 +2763,11 @@ def build_report(
           'beer|bia lush|white lion|red ruby', na=False)
     off = off[~is_ex]
     order_moq = count_moq_lines_per_order(off)
-    ok = order_moq[order_moq['n_moq_lines'] >= 4]
+    ok = order_moq[order_moq['n_moq_lines'] >= 1]
     ok_day = pick_best_pc_per_outlet_day(ok)
     mtd = ok_day.groupby('Mã NVBH').size()
     ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
-    key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)'
+    key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥1 line MOQ (L1 OFF)'
 
   elif report_type == 'PC_ON':
     cfg = get_month_cfg()
@@ -2867,7 +2867,7 @@ def build_report(
       mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
 
   elif report_type == 'LPPC':
-    # Trừ Meat & Beer; line đạt MOQ; PC = đơn ≥4 line MOQ; LPPC = Total line / Tổng PC
+    # Trừ Meat & Beer; line đạt MOQ; PC = đơn ≥1 line MOQ; LPPC = Total line / Tổng PC
     d = df_mtd.copy()
     if 'Tên SP lower' not in d.columns:
       d['Tên SP lower'] = d['Tên sản phẩm'].astype(str).str.lower()
@@ -2886,7 +2886,7 @@ def build_report(
     )
     d = d[~is_ex]
     order_moq = count_moq_lines_per_order(d)
-    ok = order_moq[order_moq['n_moq_lines'] >= 4]
+    ok = order_moq[order_moq['n_moq_lines'] >= 1]
     ok_day = pick_best_pc_per_outlet_day(ok)
     total_lines = ok_day.groupby('Mã NVBH')['n_moq_lines'].sum()
     total_pc = ok_day.groupby('Mã NVBH').size()
@@ -2898,7 +2898,7 @@ def build_report(
       tl = today.groupby('Mã NVBH')['n_moq_lines'].sum()
       tp = today.groupby('Mã NVBH').size()
       ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
-    key, title = 'LPPC', 'LPPC - Bình quân line/PC (trừ Meat & Beer)'
+    key, title = 'LPPC', 'LPPC - Bình quân line/PC ≥1 MOQ (trừ Meat & Beer)'
 
   elif report_type == 'LPPC_MEAT':
     d = df_mtd.copy()
@@ -8079,17 +8079,42 @@ def build_performance_report(
     pct_off = round(len(pc_off) / len(da_off) * 100, 1) if da_off else 0.0
     pct_on = round(len(pc_on) / len(da_on) * 100, 1) if da_on else 0.0
 
-    # LPPC từ RPT: Tổng line ĐH OFF / Tổng số ĐH OFF trong ngày
+    # LPPC OFF giống KPI: trừ Meat/Beer, line đạt MOQ, PC ≥1 line MOQ, max 1 PC/CH/ngày
     d_off = (
         d_nv[d_nv['_ma'].map(lambda m: not _is_on(m))]
         if not d_nv.empty
         else pd.DataFrame()
     )
-    n_dh_off = (
-        int(d_off['Mã đơn hàng'].nunique()) if not d_off.empty else 0
-    )
-    n_line_off = len(d_off)
-    lppc_off = round(n_line_off / n_dh_off, 2) if n_dh_off else 0.0
+    lppc_off = 0.0
+    n_dh_off = 0
+    n_line_off = 0
+    try:
+      if not d_off.empty:
+        _d = d_off.copy()
+        if 'Tên SP lower' not in _d.columns and 'Tên sản phẩm' in _d.columns:
+          _d['Tên SP lower'] = _d['Tên sản phẩm'].astype(str).str.lower()
+        _sub = _d['Sub Division'].astype(str) if 'Sub Division' in _d.columns else pd.Series('', index=_d.index)
+        _name = _d['Tên SP lower'] if 'Tên SP lower' in _d.columns else pd.Series('', index=_d.index)
+        _ex = _sub.str.contains(
+            'Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False
+        ) | _name.str.contains(
+            'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|'
+            'cao bồi|cao boi|hotdog|thịt viên|chân gà',
+            na=False,
+        )
+        _d = _d[~_ex]
+        if not _d.empty:
+          order_moq = count_moq_lines_per_order(_d)
+          ok = order_moq[order_moq['n_moq_lines'] >= 1]
+          ok_day = pick_best_pc_per_outlet_day(ok)
+          # chỉ ngày BC
+          if 'date' in ok_day.columns:
+            ok_day = ok_day[ok_day['date'] == rd]
+          n_dh_off = int(len(ok_day))
+          n_line_off = int(ok_day['n_moq_lines'].sum()) if n_dh_off else 0
+          lppc_off = round(n_line_off / n_dh_off, 2) if n_dh_off else 0.0
+    except Exception:
+      lppc_off = 0.0
     # PC < 3line OFF: số ĐH kênh OFF có tổng line (SKU unique) < 3
     pc_lt3_off = 0
     if not d_off.empty and 'Mã đơn hàng' in d_off.columns:
@@ -8182,13 +8207,31 @@ def build_performance_report(
     pc_on_mid = pc_on_mid & (plan_on | da_on)
     pct_off_mid = round(len(pc_off_mid) / len(da_off) * 100, 1) if da_off else 0.0
     pct_on_mid = round(len(pc_on_mid) / len(da_on) * 100, 1) if da_on else 0.0
-    n_dh_off_mid = (
-        int(d_mid_off['Mã đơn hàng'].nunique())
-        if (not d_mid_off.empty and 'Mã đơn hàng' in d_mid_off.columns) else 0
-    )
-    lppc_off_mid = (
-        round(len(d_mid_off) / n_dh_off_mid, 2) if n_dh_off_mid else 0.0
-    )
+    # LPPC mid-day giống KPI (≥1 MOQ, trừ Meat/Beer)
+    lppc_off_mid = 0.0
+    try:
+      if not d_mid_off.empty:
+        _dm = d_mid_off.copy()
+        if 'Tên SP lower' not in _dm.columns and 'Tên sản phẩm' in _dm.columns:
+          _dm['Tên SP lower'] = _dm['Tên sản phẩm'].astype(str).str.lower()
+        _sub = _dm['Sub Division'].astype(str) if 'Sub Division' in _dm.columns else pd.Series('', index=_dm.index)
+        _name = _dm['Tên SP lower'] if 'Tên SP lower' in _dm.columns else pd.Series('', index=_dm.index)
+        _ex = _sub.str.contains(
+            'Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False
+        ) | _name.str.contains(
+            'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|'
+            'cao bồi|cao boi|hotdog|thịt viên|chân gà', na=False,
+        )
+        _dm = _dm[~_ex]
+        if not _dm.empty:
+          _om = count_moq_lines_per_order(_dm)
+          _ok = _om[_om['n_moq_lines'] >= 1]
+          _okd = pick_best_pc_per_outlet_day(_ok)
+          _n = int(len(_okd))
+          _ln = int(_okd['n_moq_lines'].sum()) if _n else 0
+          lppc_off_mid = round(_ln / _n, 2) if _n else 0.0
+    except Exception:
+      lppc_off_mid = 0.0
     ko_off_mid = max(len(da_off) - len(pc_off_mid), 0) if da_off else 0
     ko_on_mid = max(len(da_on) - len(pc_on_mid), 0) if da_on else 0
     pct_x_mid = round(aso_x_mid / ct_x * 100, 1) if ct_x else 0.0
