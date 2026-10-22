@@ -8209,6 +8209,7 @@ def build_performance_report(
     pct_on_mid = round(len(pc_on_mid) / len(da_on) * 100, 1) if da_on else 0.0
     # LPPC mid-day giống KPI (≥1 MOQ, trừ Meat/Beer)
     lppc_off_mid = 0.0
+    n_dh_off_mid = 0
     try:
       if not d_mid_off.empty:
         _dm = d_mid_off.copy()
@@ -8227,11 +8228,12 @@ def build_performance_report(
           _om = count_moq_lines_per_order(_dm)
           _ok = _om[_om['n_moq_lines'] >= 1]
           _okd = pick_best_pc_per_outlet_day(_ok)
-          _n = int(len(_okd))
-          _ln = int(_okd['n_moq_lines'].sum()) if _n else 0
-          lppc_off_mid = round(_ln / _n, 2) if _n else 0.0
+          n_dh_off_mid = int(len(_okd))
+          _ln = int(_okd['n_moq_lines'].sum()) if n_dh_off_mid else 0
+          lppc_off_mid = round(_ln / n_dh_off_mid, 2) if n_dh_off_mid else 0.0
     except Exception:
       lppc_off_mid = 0.0
+      n_dh_off_mid = 0
     ko_off_mid = max(len(da_off) - len(pc_off_mid), 0) if da_off else 0
     ko_on_mid = max(len(da_on) - len(pc_on_mid), 0) if da_on else 0
     pct_x_mid = round(aso_x_mid / ct_x * 100, 1) if ct_x else 0.0
