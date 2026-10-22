@@ -12788,17 +12788,19 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   th_co, ct_co = g('TH Combo OFF'), g('CT Combo OFF') or 5
   th_cn, ct_cn = g('TH Combo ON'), g('CT Combo ON') or 3
 
-  # ASO ALL OFF/ON (truyền từ ngoài; fallback 0)
-  ao = aso_off or {'th': 0, 'ct': 0}
-  an = aso_on or {'th': 0, 'ct': 0}
-  ao_th, ao_ct = int(ao.get('th', 0) or 0), int(ao.get('ct', 0) or 0)
-  an_th, an_ct = int(an.get('th', 0) or 0), int(an.get('ct', 0) or 0)
+  # ASO ALL OFF/ON — TH ngày; CT ngày = MCP tháng / số ngày làm việc
+  ao = aso_off or {'th': 0, 'ct': 0, 'ct_day': 0}
+  an = aso_on or {'th': 0, 'ct': 0, 'ct_day': 0}
+  ao_th = int(ao.get('th', 0) or 0)
+  an_th = int(an.get('th', 0) or 0)
+  ao_ct = int(ao.get('ct_day', 0) or ao.get('ct', 0) or 0)
+  an_ct = int(an.get('ct_day', 0) or an.get('ct', 0) or 0)
 
   # 10 cards — màu tương phản
   cards = [
     ('DOANH SỐ NGÀY', _fmt_tr(th_so), f'BQ cần {_fmt_tr(ct_so)}/ngày · đạt {pct_so:.0f}%', '#e53e3e'),
-    ('PC BT / PC OFF', f'{int(pc_off)}/{int(plan_off)} tuyến', f'Tỷ lệ chốt đơn {pct_pc_off:.0f}%', '#3182ce'),
-    ('PC ON', f'{int(pc_on)}/{int(plan_on)} tuyến', f'Tỷ lệ chốt đơn {pct_pc_on:.0f}%', '#dd6b20'),
+    ('PC BT / PC OFF', f'{int(pc_off)}/{int(plan_off)} CALLS', f'Tỷ lệ chốt đơn {pct_pc_off:.0f}%', '#3182ce'),
+    ('PC ON', f'{int(pc_on)}/{int(plan_on)} CALLS', f'Tỷ lệ chốt đơn {pct_pc_on:.0f}%', '#dd6b20'),
     ('LPPC OFF', f'{lppc:.2f}'.replace('.', ','), f'Target {lppc_moc} · {"vượt" if lppc >= lppc_moc else "chưa đạt"}', '#38a169'),
     ('ASO ALL OFF', f'{ao_th}/{ao_ct}' if ao_ct else f'{ao_th}', f'Đạt {ao_th/ao_ct*100:.0f}%' if ao_ct else '—', '#805ad5'),
     ('ASO ALL ON', f'{an_th}/{an_ct}' if an_ct else f'{an_th}', f'Đạt {an_th/an_ct*100:.0f}%' if an_ct else '—', '#d53f8c'),
@@ -12869,7 +12871,7 @@ def render_hs_monthly_kpi_table(
     f'<table class="custom-kpi-table" style="min-width:640px;">'
     f'<thead><tr>'
     f'<th>KPI</th><th>THỰC ĐẠT</th><th>TARGET THÁNG</th><th>% ĐẠT</th>'
-    f'<th style="min-width:160px;">TIẾN ĐỘ (vạch = {tg:.1f}%)</th>'
+    f'<th style="min-width:160px;">TIẾN ĐỘ {tg:.1f}%</th>'
     f'</tr></thead><tbody>'
   ]
 
@@ -12895,7 +12897,7 @@ def render_hs_monthly_kpi_table(
       f'<tr style="background:{bg};">'
       f'<td style="text-align:left;font-weight:600;padding-left:10px;">{name}</td>'
       f'<td style="text-align:center;font-weight:700;">{th_s}</td>'
-      f'<td style="text-align:center;">{ct_s}</td>'
+      f'<td style="text-align:center;font-weight:800;">{ct_s}</td>'
       f'<td style="text-align:center;font-weight:800;color:{color};">{pct:.1f}%</td>'
       f'<td style="padding:8px 12px;">'
       f'<div style="position:relative;height:12px;background:#e2e8f0;border-radius:6px;">'
@@ -14757,10 +14759,12 @@ with tab_kpi:
             _moc = float(get_month_cfg().get('lppc_moc', 4.3) or 4.3)
           except Exception:
             _moc = 4.3
-          # ASO ALL OFF/ON trong ngày (logic Báo Cáo ASO ALL)
-          _aso_off, _aso_on = {'th': 0, 'ct': 0}, {'th': 0, 'ct': 0}
+          # ASO ALL OFF/ON: TH = CH có đơn trong ngày; CT ngày = MCP kênh / số ngày LV
+          _aso_off, _aso_on = {'th': 0, 'ct': 0, 'ct_day': 0}, {'th': 0, 'ct': 0, 'ct_day': 0}
           try:
             _rd0 = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+            _wd0, _, _, _ = get_timegone_stats(_rd0)
+            _wd0 = max(int(_wd0 or 1), 1)
             _day = df[df['date'] == _rd0].copy() if df is not None and not df.empty and 'date' in df.columns else pd.DataFrame()
             if nv_selected(filter_nv) and not _day.empty:
               _day = filter_df_by_nv(_day, 'Tên NVBH', filter_nv)
@@ -14770,7 +14774,6 @@ with tab_kpi:
               _on = _day[_l1.str.contains('On', case=False, na=False)]
               _aso_off['th'] = int(_off['Mã CH'].nunique()) if not _off.empty else 0
               _aso_on['th'] = int(_on['Mã CH'].nunique()) if not _on.empty else 0
-            # Target MCP OFF/ON (tổng CH theo kênh)
             if mcp is not None and not mcp.empty:
               c_ch = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH'])
               c_l1 = find_col(mcp, ['L1', 'Loại hình', 'Kênh'])
@@ -14780,8 +14783,12 @@ with tab_kpi:
                 _m = filter_df_by_nv(mcp, c_nv, filter_nv)
               if c_ch and c_l1 and not _m.empty:
                 _ml1 = _m[c_l1].astype(str)
-                _aso_off['ct'] = int(_m.loc[_ml1.str.contains('Off', case=False, na=False), c_ch].nunique())
-                _aso_on['ct'] = int(_m.loc[_ml1.str.contains('On', case=False, na=False), c_ch].nunique())
+                _ct_off = int(_m.loc[_ml1.str.contains('Off', case=False, na=False), c_ch].nunique())
+                _ct_on = int(_m.loc[_ml1.str.contains('On', case=False, na=False), c_ch].nunique())
+                _aso_off['ct'] = _ct_off
+                _aso_on['ct'] = _ct_on
+                _aso_off['ct_day'] = max(1, int(round(_ct_off / _wd0)))
+                _aso_on['ct_day'] = max(1, int(round(_ct_on / _wd0)))
           except Exception:
             pass
           st.markdown(
