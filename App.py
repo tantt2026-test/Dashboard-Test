@@ -12994,13 +12994,13 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     (
       'ASO ALL OFF',
       f'{ao_th}/{ao_mtd}/{ao_ct}',
-      f'TH ngày/MTD/CT · Đạt {ao_mtd/ao_ct*100:.0f}% MTD' if ao_ct else f'TH ngày/MTD/CT',
+      f'TH ngày/MTD/CT · Đạt {ao_mtd/ao_ct*100:.0f}%' if ao_ct else 'TH ngày/MTD/CT',
       '#805ad5',
     ),
     (
       'ASO ALL ON',
       f'{an_th}/{an_mtd}/{an_ct}',
-      f'TH ngày/MTD/CT · Đạt {an_mtd/an_ct*100:.0f}% MTD' if an_ct else f'TH ngày/MTD/CT',
+      f'TH ngày/MTD/CT · Đạt {an_mtd/an_ct*100:.0f}%' if an_ct else 'TH ngày/MTD/CT',
       '#d53f8c',
     ),
     ('ASO TRẬN XANH', f'{int(th_x)}/{int(ct_x)}', f'Đạt {th_x/ct_x*100:.0f}%' if ct_x else '0%', '#319795'),
@@ -14959,45 +14959,17 @@ with tab_kpi:
           except Exception:
             _moc = 4.3
           # ASO ALL OFF/ON ngày:
-          # TH = logic Báo Cáo ASO ALL (CH first-buy trong tháng đúng ngày BC)
-          # CT = số CH có lịch VT ngày đó theo kênh (MCP Thứ VT / Plan VT)
+          # TH = CH first-buy đúng ngày BC (logic ASO ALL)
+          # CT = CH có lịch VT ngày đang chọn (theo kênh)
+          # MTD = trong các CH thuộc lịch VT ngày đó, bao nhiêu CH đã có đơn từ đầu tháng → ngày BC
           _aso_off, _aso_on = {'th': 0, 'mtd': 0, 'ct': 0, 'ct_day': 0}, {'th': 0, 'mtd': 0, 'ct': 0, 'ct_day': 0}
           try:
             _rd0 = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
-            # --- TH ngày + MTD (logic ASO ALL) ---
-            # TH = CH first-buy đúng ngày BC
-            # MTD = CH đã active (có đơn) từ đầu tháng → ngày BC theo kênh
-            if df is not None and not df.empty and 'date' in df.columns and 'Mã CH' in df.columns:
-              _mstart = date(_rd0.year, _rd0.month, 1)
-              _mtd = df[(df['date'] >= _mstart) & (df['date'] <= _rd0)].copy()
-              if nv_selected(filter_nv) and not _mtd.empty and 'Tên NVBH' in _mtd.columns:
-                _mtd = filter_df_by_nv(_mtd, 'Tên NVBH', filter_nv)
-              if not _mtd.empty:
-                _l1 = _mtd['L1'].astype(str) if 'L1' in _mtd.columns else pd.Series('', index=_mtd.index)
-                for _ch_key, _mask in (
-                    ('off', _l1.str.contains('Off', case=False, na=False)),
-                    ('on', _l1.str.contains('On', case=False, na=False)),
-                ):
-                  _sub = _mtd[_mask]
-                  if _sub.empty:
-                    continue
-                  _first = _sub.groupby('Mã CH')['date'].min()
-                  _th = int((_first == _rd0).sum())
-                  _mtd_n = int(_sub['Mã CH'].nunique())
-                  if _ch_key == 'off':
-                    _aso_off['th'] = _th
-                    _aso_off['mtd'] = _mtd_n
-                  else:
-                    _aso_on['th'] = _th
-                    _aso_on['mtd'] = _mtd_n
-            # --- CT ngày: CH có lịch VT đúng ngày (Thứ / chu kỳ MCP) ---
+            _mstart = date(_rd0.year, _rd0.month, 1)
+
             def _thu_codes_for_date(d0):
-              # weekday: Mon=0 ... Sun=6 → code 2..7 (Mon=2)
-              wd = d0.weekday()  # 0=Mon
-              code = str(wd + 2) if wd <= 5 else '7'  # Sat=7? wait: Mon=2,Tue=3,...,Sat=7
-              # Python: Mon=0 → 2, Tue=1 → 3, ..., Sat=5 → 7, Sun=6 → ?
-              # Map: 2=Mon,3=Tue,4=Wed,5=Thu,6=Fri,7=Sat (no Sunday usually)
-              code = str(wd + 2) if wd < 6 else 'CN'
+              wd = d0.weekday()  # Mon=0
+              code = str(wd + 2) if wd < 6 else 'CN'  # Mon=2 ... Sat=7
               cycles = {code}
               if code in ('2', '5'):
                 cycles.add('25')
@@ -15008,23 +14980,28 @@ with tab_kpi:
               return cycles
 
             _codes = _thu_codes_for_date(_rd0)
-            # ưu tiên Plan VT từ dòng TOTAL df_perf (lịch VT đã tính)
-            try:
-              _tot = df_perf.iloc[-1]
-              _plan_off = float(_tot.get('Plan VT OFF', 0) or _tot.get('Đã VT OFF', 0) or 0)
-              _plan_on = float(_tot.get('Plan VT ON', 0) or 0)
-              # Plan VT = CT lịch; nếu = 0 thì fallback MCP
-              if _plan_off > 0:
-                _aso_off['ct_day'] = int(round(_plan_off))
-              if _plan_on > 0:
-                _aso_on['ct_day'] = int(round(_plan_on))
-            except Exception:
-              pass
-            if (_aso_off['ct_day'] == 0 or _aso_on['ct_day'] == 0) and mcp is not None and not mcp.empty:
+
+            def _nma(x):
+              if pd.isna(x):
+                return ''
+              s = str(x).strip()
+              if s.endswith('.0'):
+                s = s[:-2]
+              try:
+                return str(int(float(s)))
+              except Exception:
+                return s
+
+            # --- CT + tập CH lịch VT ngày (OFF/ON) từ MCP ---
+            _route_off, _route_on = set(), set()
+            if mcp is not None and not mcp.empty:
               c_ch = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH'])
               c_l1 = find_col(mcp, ['L1', 'Loại hình', 'Kênh'])
               c_nv = find_col(mcp, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
-              c_thu = find_col(mcp, ['Thứ', 'Thu', 'Visit day', 'Ngày VT', 'F', 'Frequency', 'Tần suất'])
+              c_thu = find_col(mcp, [
+                  'Thứ', 'Thu', 'Visit day', 'Ngày VT', 'F', 'Frequency',
+                  'Tần suất', 'Chu kỳ', 'Visit Day',
+              ])
               _m = mcp
               if nv_selected(filter_nv) and c_nv:
                 _m = filter_df_by_nv(mcp, c_nv, filter_nv)
@@ -15032,23 +15009,74 @@ with tab_kpi:
                 if c_thu:
                   _thu = _m[c_thu].astype(str).str.strip()
                   _on_day = _thu.isin(_codes) | _thu.apply(
-                      lambda x: any(c in str(x) for c in _codes)
+                      lambda x: any(c in str(x) for c in _codes if c != 'CN')
                   )
                   _mday = _m[_on_day]
                 else:
                   _mday = _m
                 if c_l1 and not _mday.empty:
                   _ml1 = _mday[c_l1].astype(str)
-                  if _aso_off['ct_day'] == 0:
-                    _aso_off['ct_day'] = int(_mday.loc[_ml1.str.contains('Off', case=False, na=False), c_ch].nunique())
-                  if _aso_on['ct_day'] == 0:
-                    _aso_on['ct_day'] = int(_mday.loc[_ml1.str.contains('On', case=False, na=False), c_ch].nunique())
-                elif _aso_off['ct_day'] == 0:
-                  _aso_off['ct_day'] = int(_mday[c_ch].nunique())
+                  _route_off = set(
+                      _mday.loc[_ml1.str.contains('Off', case=False, na=False), c_ch].map(_nma)
+                  )
+                  _route_on = set(
+                      _mday.loc[_ml1.str.contains('On', case=False, na=False), c_ch].map(_nma)
+                  )
+                else:
+                  _route_off = set(_mday[c_ch].map(_nma))
+                _route_off.discard('')
+                _route_on.discard('')
+
+            # fallback CT từ Plan VT dòng TOTAL nếu MCP không ra
+            if not _route_off or not _route_on:
+              try:
+                _tot = df_perf.iloc[-1]
+                if not _route_off:
+                  _aso_off['ct_day'] = int(round(float(_tot.get('Plan VT OFF', 0) or 0)))
+                if not _route_on:
+                  _aso_on['ct_day'] = int(round(float(_tot.get('Plan VT ON', 0) or 0)))
+              except Exception:
+                pass
+            if _route_off:
+              _aso_off['ct_day'] = len(_route_off)
+            if _route_on:
+              _aso_on['ct_day'] = len(_route_on)
             _aso_off['ct'] = _aso_off['ct_day']
             _aso_on['ct'] = _aso_on['ct_day']
+
+            # --- TH + MTD từ RPT ---
+            if df is not None and not df.empty and 'date' in df.columns and 'Mã CH' in df.columns:
+              _mtd = df[(df['date'] >= _mstart) & (df['date'] <= _rd0)].copy()
+              if nv_selected(filter_nv) and not _mtd.empty and 'Tên NVBH' in _mtd.columns:
+                _mtd = filter_df_by_nv(_mtd, 'Tên NVBH', filter_nv)
+              if not _mtd.empty:
+                _mtd['_ma'] = _mtd['Mã CH'].map(_nma)
+                _l1 = _mtd['L1'].astype(str) if 'L1' in _mtd.columns else pd.Series('', index=_mtd.index)
+                for _key, _mask, _route in (
+                    ('off', _l1.str.contains('Off', case=False, na=False), _route_off),
+                    ('on', _l1.str.contains('On', case=False, na=False), _route_on),
+                ):
+                  _sub = _mtd[_mask]
+                  if _sub.empty:
+                    continue
+                  # TH ngày: first-buy đúng ngày BC
+                  _first = _sub.groupby('_ma')['date'].min()
+                  _th = int((_first == _rd0).sum())
+                  # MTD: CH thuộc lịch VT ngày đang chọn đã có đơn trong tháng
+                  if _route:
+                    _mtd_n = int(_sub[_sub['_ma'].isin(_route)]['_ma'].nunique())
+                  else:
+                    # fallback: toàn bộ CH kênh (hiếm khi MCP thiếu lịch)
+                    _mtd_n = int(_sub['_ma'].nunique())
+                  if _key == 'off':
+                    _aso_off['th'] = _th
+                    _aso_off['mtd'] = _mtd_n
+                  else:
+                    _aso_on['th'] = _th
+                    _aso_on['mtd'] = _mtd_n
           except Exception:
             pass
+
           st.markdown(
               render_hs_daily_metric_cards(
                   df_perf, report_date, lppc_moc=_moc,
