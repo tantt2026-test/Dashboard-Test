@@ -7219,36 +7219,56 @@ def render_summary_html_table(df, selected_metrics):
 
 
 
-def render_html_table(df):
-  """Bảng KPI format Trưng Bày: sticky STT + Tên NVBH, cuộn ngang."""
+def render_html_table(df, freeze_cols=None):
+  """Bảng KPI format Trưng Bày: sticky cột đầu + cuộn ngang.
+  freeze_cols: list cột cố định (mặc định STT + Tên NVBH;
+               MBS Cat/Brand: STT, Tên nhóm, Outlet Code, Tên CH).
+  """
   df = df.drop(columns=['Mã NVBH'], errors='ignore').copy()
   cols = list(df.columns)
 
-  name_col = 'Tên NVBH' if 'Tên NVBH' in cols else ('Tên NV' if 'Tên NV' in cols else None)
-  max_name = 12
-  if name_col:
-    for n in df[name_col].astype(str):
-      max_name = max(max_name, len(n))
-  name_w = max(150, min(260, max_name * 9 + 24))
-  stt_w = 48
+  # Auto detect freeze columns cho MBS detail
+  if freeze_cols is None:
+    mbs_keys = ['Tên nhóm', 'Outlet Code', 'Tên CH']
+    if all(c in cols for c in mbs_keys):
+      freeze_cols = [c for c in ['STT', 'Tên nhóm', 'Outlet Code', 'Tên CH'] if c in cols]
+    else:
+      freeze_cols = [c for c in ['STT', 'Tên NVBH', 'Tên NV'] if c in cols]
 
+  # unique preserve order
+  seen = set()
+  freeze_cols = [c for c in freeze_cols if c in cols and not (c in seen or seen.add(c))]
+
+  def _col_width(c):
+    cl = str(c).lower()
+    if c == 'STT':
+      return 48
+    if 'nhóm' in cl or 'nhom' in cl:
+      return 200
+    if 'outlet' in cl or 'mã' in cl or 'ma kh' in cl:
+      return 100
+    if c in ('Tên CH', 'Tên KH') or 'tên ch' in cl:
+      return 150
+    if 'nvbh' in cl or 'tên nv' in cl:
+      max_name = 12
+      for n in df[c].astype(str):
+        max_name = max(max_name, len(n))
+      return max(150, min(260, max_name * 9 + 24))
+    return 120
+
+  widths = {}
+  left = 0
+  for c in freeze_cols:
+    w = _col_width(c)
+    widths[c] = (left, w)
+    left += w
+
+  sh = 'box-shadow:3px 0 5px -2px rgba(0,0,0,.22);'
   th_base = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
       'border:1px solid #2b6cb0 !important;padding:6px 8px;font-size:11px;'
       'white-space:nowrap;'
-  )
-  # box-shadow để nội dung cuộn không lộ qua cột sticky
-  sh_stt = 'box-shadow:2px 0 0 0 #2b6cb0;'
-  sh_ten = 'box-shadow:4px 0 6px -2px rgba(0,0,0,.25);'
-
-  sticky_stt_h = (
-      f'{th_base}position:sticky;left:0;z-index:8;'
-      f'min-width:{stt_w}px;max-width:{stt_w}px;{sh_stt}'
-  )
-  sticky_ten_h = (
-      f'{th_base}position:sticky;left:{stt_w}px;z-index:8;'
-      f'min-width:{name_w}px;max-width:{name_w}px;text-align:left !important;{sh_ten}'
   )
 
   html = [
@@ -7258,10 +7278,12 @@ def render_html_table(df):
       '<thead><tr>',
   ]
   for col in cols:
-    if col == 'STT':
-      html.append(f'<th style="{sticky_stt_h}">STT</th>')
-    elif col in ('Tên NVBH', 'Tên NV'):
-      html.append(f'<th style="{sticky_ten_h}">{col}</th>')
+    if col in widths:
+      L, w = widths[col]
+      html.append(
+          f'<th style="{th_base}position:sticky;left:{L}px;z-index:8;'
+          f'min-width:{w}px;max-width:{w}px;{sh}">{col}</th>'
+      )
     else:
       html.append(f'<th style="{th_base}">{col}</th>')
   html.append('</tr></thead><tbody>')
@@ -7272,10 +7294,11 @@ def render_html_table(df):
         or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
         or 'TOTAL' in str(row.get('Tên NV', '')).upper()
         or 'TỔNG' in str(row.get('Tên NV', '')).upper()
+        or 'TOTAL' in str(row.get('Tên nhóm', '')).upper()
+        or 'TỔNG' in str(row.get('Tên nhóm', '')).upper()
     )
     if is_total:
-      row_bg = '#1a365d'
-      row_fg = '#ffffff'
+      row_bg, row_fg = '#1a365d', '#ffffff'
     else:
       row_bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
       row_fg = '#1a202c'
@@ -7291,26 +7314,17 @@ def render_html_table(df):
         else:
           val = round(float(val), 2)
 
-      is_sticky_stt = col == 'STT'
-      is_sticky_ten = col in ('Tên NVBH', 'Tên NV')
-      is_sticky = is_sticky_stt or is_sticky_ten
-
-      if is_sticky_stt:
+      is_sticky = col in widths
+      if is_sticky:
+        L, w = widths[col]
         sticky = (
-            f'position:sticky;left:0;z-index:{"7" if is_total else "5"};'
-            f'min-width:{stt_w}px;max-width:{stt_w}px;'
-            f'background-color:{row_bg} !important;color:{row_fg} !important;{sh_stt}'
-        )
-      elif is_sticky_ten:
-        sticky = (
-            f'position:sticky;left:{stt_w}px;z-index:{"7" if is_total else "5"};'
-            f'min-width:{name_w}px;max-width:{name_w}px;'
-            f'background-color:{row_bg} !important;color:{row_fg} !important;{sh_ten}'
+            f'position:sticky;left:{L}px;z-index:{"7" if is_total else "5"};'
+            f'min-width:{w}px;max-width:{w}px;'
+            f'background-color:{row_bg} !important;color:{row_fg} !important;{sh}'
         )
       else:
         sticky = f'background-color:{row_bg} !important;color:{row_fg} !important;'
 
-      # --- Cột % : tô màu rule (kể cả dòng total) ---
       is_pct_col = (
           col in [
               '% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON',
@@ -7354,9 +7368,8 @@ def render_html_table(df):
               f'white-space:nowrap;border-color:#2b6cb0 !important;">{val}</td>'
           )
       elif is_sticky:
-        # STT / Tên NVBH — luôn nền đặc, không bị cuộn đè
-        align = 'center' if is_sticky_stt else 'left'
-        fw = '900' if is_total else ('600' if is_sticky_ten else '500')
+        align = 'center' if col == 'STT' else 'left'
+        fw = '900' if is_total else '600'
         html.append(
             f'<td style="{sticky}text-align:{align} !important;font-weight:{fw} !important;'
             f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
@@ -7373,11 +7386,14 @@ def render_html_table(df):
                 'Phát sinh Ngày (OFF)', 'MTD (OFF)',
                 'Phát sinh Ngày (ON)', 'MTD (ON)',
                 'Chỉ Tiêu KPI', 'Target (OFF)', 'Target (ON)',
+                'Thứ VT', 'Member type', 'Đạt nhiệm vụ',
             ]
             else 'right'
         )
-        if col in ['Chỉ Tiêu Doanh Số', 'Doanh Số MTD', 'Thực Hiện Ngày']:
+        if col in ['Chỉ Tiêu Doanh Số', 'Doanh Số MTD', 'Thực Hiện Ngày', 'Actual', 'Target']:
           align = 'right'
+        if col in ['Tên NVBH', 'Tên NV', 'Tên CH', 'Tên KH']:
+          align = 'left'
         html.append(
             f'<td style="{sticky}text-align:{align};white-space:nowrap;">{val}</td>'
         )
