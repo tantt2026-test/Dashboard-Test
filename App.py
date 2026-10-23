@@ -5675,153 +5675,122 @@ def build_visit_report(
 def render_visit_html_table(df):
   df = df.drop(columns=['Mã NVBH'], errors='ignore')
 
+  max_name = 12
+  for n in df.get('Tên NVBH', pd.Series(dtype=str)).astype(str):
+    max_name = max(max_name, len(n))
+  name_w = max(150, min(260, max_name * 9 + 24))
+  stt_w = 48
+  sh_stt = 'box-shadow:2px 0 0 0 #2b6cb0;'
+  sh_ten = 'box-shadow:4px 0 6px -2px rgba(0,0,0,.25);'
+  th_base = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 8px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  sticky_stt_h = (
+      f'{th_base}position:sticky;left:0;z-index:8;'
+      f'min-width:{stt_w}px;max-width:{stt_w}px;vertical-align:middle;{sh_stt}'
+  )
+  sticky_ten_h = (
+      f'{th_base}position:sticky;left:{stt_w}px;z-index:8;'
+      f'min-width:{name_w}px;max-width:{name_w}px;vertical-align:middle;'
+      f'text-align:left !important;{sh_ten}'
+  )
+
   html = [
-      '<div style="overflow-x: auto; -webkit-overflow-scrolling: touch;"><table'
-      ' class="custom-kpi-table">'
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;">',
+      '<thead>',
+      '<tr>',
+      f'<th rowspan="2" style="{sticky_stt_h}">STT</th>',
+      f'<th rowspan="2" style="{sticky_ten_h}">Tên NVBH</th>',
+  ]
+  for lab in ['Lịch VT', 'VIP 3', 'VIP 5', 'VIPSI', 'Lẻ', 'Kênh ON']:
+    html.append(
+        f'<th colspan="3" style="{th_base}">{lab}</th>'
+    )
+  html.append('</tr><tr>')
+  for _ in range(6):
+    for sh in ['Tổng KH', 'Đã Mua', '% Active']:
+      html.append(f'<th style="{th_base}">{sh}</th>')
+  html.append('</tr></thead><tbody>')
+
+  cols_order = [
+      'STT', 'Tên NVBH',
+      'Tổng KH', 'Đã Mua', '% Active',
+      'VIP3_Tổng', 'VIP3_Mua', 'VIP3_Pct',
+      'VIP5_Tổng', 'VIP5_Mua', 'VIP5_Pct',
+      'VIPSI_Tổng', 'VIPSI_Mua', 'VIPSI_Pct',
+      'Lẻ_Tổng', 'Lẻ_Mua', 'Lẻ_Pct',
+      'ON_Tổng', 'ON_Mua', 'ON_Pct',
   ]
 
-  html.append('<thead>')
-  html.append('<tr>')
-  html.append(
-      '<th rowspan="2" style="vertical-align: middle; text-align:'
-      ' center;">STT</th>'
-  )
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_total = (
+        'TOTAL' in str(row.get('Tên NVBH', '')).upper()
+        or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    )
+    if is_total:
+      row_bg, row_fg = '#1a365d', '#ffffff'
+    else:
+      row_bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+      row_fg = '#1a202c'
 
-  html.append(
-      '<th rowspan="2" style="vertical-align: middle; text-align:'
-      ' center;">Tên NVBH</th>'
-  )
-  html.append(
-      '<th colspan="3"'
-      ' style="background-color: #1a365d; color: #ffffff; text-align:'
-      ' center;">Lịch VT</th>'
-  )
-  html.append(
-      '<th colspan="3"'
-      ' style="background-color: #1a365d; color: #ffffff; text-align:'
-      ' center;">VIP 3</th>'
-  )
-  html.append(
-      '<th colspan="3"'
-      ' style="background-color: #1a365d; color: #ffffff; text-align:'
-      ' center;">VIP 5</th>'
-  )
-  html.append(
-      '<th colspan="3"'
-      ' style="background-color: #1a365d; color: #ffffff; text-align:'
-      ' center;">VIPSI</th>'
-  )
-  html.append(
-      '<th colspan="3"'
-      ' style="background-color: #1a365d; color: #ffffff; text-align:'
-      ' center;">Lẻ</th>'
-  )
-  html.append(
-      '<th colspan="3"'
-      ' style="background-color: #1a365d; color: #ffffff; text-align:'
-      ' center;">Kênh ON</th>'
-  )
-  html.append('</tr>')
-
-  html.append('<tr>')
-  sub_headers = [
-      'Tổng KH',
-      'Đã Mua',
-      '% Active',
-      'Tổng KH',
-      'Đã Mua',
-      '% Active',
-      'Tổng KH',
-      'Đã Mua',
-      '% Active',
-      'Tổng KH',
-      'Đã Mua',
-      '% Active',
-      'Tổng KH',
-      'Đã Mua',
-      '% Active',
-      'Tổng KH',
-      'Đã Mua',
-      '% Active',
-  ]
-  for sh in sub_headers:
-    html.append(f'<th style="text-align: center;">{sh}</th>')
-  html.append('</tr>')
-  html.append('</thead>')
-
-  html.append('<tbody>')
-  for _, row in df.iterrows():
-    is_total = (str(row.get('Tên NVBH', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper())
     html.append('<tr>')
-
-    cols_order = [
-        'STT',
-        'Tên NVBH',
-        'Tổng KH',
-        'Đã Mua',
-        '% Active',
-        'VIP3_Tổng',
-        'VIP3_Mua',
-        'VIP3_Pct',
-        'VIP5_Tổng',
-        'VIP5_Mua',
-        'VIP5_Pct',
-        'VIPSI_Tổng',
-        'VIPSI_Mua',
-        'VIPSI_Pct',
-        'Lẻ_Tổng',
-        'Lẻ_Mua',
-        'Lẻ_Pct',
-        'ON_Tổng',
-        'ON_Mua',
-        'ON_Pct',
-    ]
-
     for col in cols_order:
-      val = row[col]
+      val = row[col] if col in row.index else ''
       if pd.isna(val):
         val = ''
-
       is_pct = '%' in str(val) or 'Pct' in col or col == '% Active'
-      style_bg = color_pct_bg(val) if is_pct else ''
+      is_stt = col == 'STT'
+      is_ten = col == 'Tên NVBH'
 
-      if is_total:
-        align = (
-            'left'
-            if col == 'Tên NVBH'
-            else ('center' if col in ['STT'] or is_pct else 'right')
+      if is_stt:
+        sticky = (
+            f'position:sticky;left:0;z-index:{"7" if is_total else "5"};'
+            f'min-width:{stt_w}px;max-width:{stt_w}px;'
+            f'background-color:{row_bg} !important;color:{row_fg} !important;{sh_stt}'
         )
-        if is_pct:
-          cls = color_pct_class(val)
-          html.append(
-              f'<td align="center" data-colored="1" class="{cls}" '
-              f'style="{style_bg} text-align:center !important;font-weight:900 !important;">{val}</td>'
-          )
-        else:
-          html.append(
-              f'<td style="background-color:#1a365d !important; color:#ffffff !important;'
-              f' font-weight: 900 !important; text-align: {align}; white-space:'
-              f' nowrap;">{val}</td>'
-          )
+      elif is_ten:
+        sticky = (
+            f'position:sticky;left:{stt_w}px;z-index:{"7" if is_total else "5"};'
+            f'min-width:{name_w}px;max-width:{name_w}px;'
+            f'background-color:{row_bg} !important;color:{row_fg} !important;{sh_ten}'
+        )
       else:
-        align = (
-            'left'
-            if col == 'Tên NVBH'
-            else ('center' if col in ['STT'] or is_pct else 'right')
+        sticky = f'background-color:{row_bg} !important;color:{row_fg} !important;'
+
+      if is_pct and not is_stt and not is_ten:
+        style_bg = color_pct_bg(val)
+        cls = color_pct_class(val)
+        html.append(
+            f'<td align="center" data-colored="1" class="{cls}" '
+            f'style="{style_bg} text-align:center !important;font-weight:700 !important;'
+            f'white-space:nowrap;">{val}</td>'
         )
-        if is_pct:
-          cls = color_pct_class(val)
-          html.append(
-              f'<td align="center" data-colored="1" class="{cls}" '
-              f'style="{style_bg} text-align:center !important;">{val}</td>'
-          )
-        else:
-          html.append(
-              f'<td style="text-align: {align}; white-space: nowrap;">{val}</td>'
-          )
+      elif is_stt or is_ten:
+        align = 'center' if is_stt else 'left'
+        fw = '900' if is_total else ('600' if is_ten else '500')
+        html.append(
+            f'<td style="{sticky}text-align:{align} !important;font-weight:{fw} !important;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+            f'border:1px solid {"#2b6cb0" if is_total else "#bce2f5"} !important;">{val}</td>'
+        )
+      elif is_total:
+        align = 'center' if col in ['STT'] else 'right'
+        html.append(
+            f'<td style="{sticky}background-color:#1a365d !important;color:#ffffff !important;'
+            f'font-weight:900 !important;text-align:{align};white-space:nowrap;">{val}</td>'
+        )
+      else:
+        align = 'center' if col in ['STT'] else 'right'
+        html.append(
+            f'<td style="{sticky}text-align:{align};white-space:nowrap;">{val}</td>'
+        )
     html.append('</tr>')
-  html.append('</tbody>')
-  html.append('</table></div>')
+  html.append('</tbody></table></div>')
   return ''.join(html)
 
 
@@ -9840,6 +9809,15 @@ def render_tea_battle_html(df):
   for c in cols:
     if c not in df.columns:
       df[c] = ''
+
+  max_name = 12
+  for n in df['Tên NVBH'].astype(str):
+    max_name = max(max_name, len(n))
+  name_w = max(150, min(260, max_name * 9 + 24))
+  stt_w = 48
+  sh_stt = 'box-shadow:2px 0 0 0 #2b6cb0;'
+  sh_ten = 'box-shadow:4px 0 6px -2px rgba(0,0,0,.25);'
+
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
@@ -9848,17 +9826,29 @@ def render_tea_battle_html(df):
   )
   td = (
       'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
-      'text-align:center !important;white-space:nowrap;'
+      'white-space:nowrap;'
   )
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;">',
       '<h4 style="color:#1a365d;font-weight:800;margin:8px 0 6px 0;">'
       '📋 CHI TIẾT TỪNG KH THEO NHÂN VIÊN</h4>',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:1100px;font-family:Arial,sans-serif;"><thead><tr>',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;"><thead><tr>',
   ]
   for c in cols:
-    html.append(f'<th style="{th}">{c}</th>')
+    if c == 'STT':
+      html.append(
+          f'<th style="{th}position:sticky;left:0;z-index:8;'
+          f'min-width:{stt_w}px;max-width:{stt_w}px;{sh_stt}">STT</th>'
+      )
+    elif c == 'Tên NVBH':
+      html.append(
+          f'<th style="{th}position:sticky;left:{stt_w}px;z-index:8;'
+          f'min-width:{name_w}px;max-width:{name_w}px;text-align:left !important;{sh_ten}">'
+          f'Tên NVBH</th>'
+      )
+    else:
+      html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
   for pos, (_, row) in enumerate(df.iterrows()):
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
@@ -9868,9 +9858,20 @@ def render_tea_battle_html(df):
       if pd.isna(val):
         val = ''
       al = 'left' if c in ('Tên NVBH', 'Tên KH', 'L1') else 'center'
-      base = (
-          f'{td}background-color:{bg} !important;text-align:{al} !important;'
-      )
+      if c == 'STT':
+        base = (
+            f'{td}position:sticky;left:0;z-index:5;min-width:{stt_w}px;max-width:{stt_w}px;'
+            f'background-color:{bg} !important;text-align:center !important;{sh_stt}'
+        )
+      elif c == 'Tên NVBH':
+        base = (
+            f'{td}position:sticky;left:{stt_w}px;z-index:5;min-width:{name_w}px;max-width:{name_w}px;'
+            f'background-color:{bg} !important;text-align:left !important;font-weight:600;{sh_ten}'
+        )
+      else:
+        base = (
+            f'{td}background-color:{bg} !important;text-align:{al} !important;'
+        )
       if c == 'SỐ SUẤT':
         try:
           s = int(float(str(val).replace('(RỚT)', '').strip() or 0))
@@ -9886,7 +9887,6 @@ def render_tea_battle_html(df):
           )
         continue
       if c == 'ĐK D&L' and str(val).strip() in ('✓', '✔'):
-        # Giữ nền zebra của bảng, chỉ đổi chữ xanh đậm
         html.append(
             f'<td style="{base}color:#228b22 !important;font-weight:900 !important;">{val}</td>'
         )
@@ -9898,8 +9898,6 @@ def render_tea_battle_html(df):
 
 
 
-
-# ====================== 17. PERFORMANCE BY CAT ======================
 def _resolve_perf_sku_path():
   names = [
       'TARGETACTUAL BY STD SKU -BY SM.xlsx',
@@ -16817,33 +16815,85 @@ def build_mbs_data_summary(df_source, kind='CAT'):
 
 
 def render_mbs_data_table(df_show, selected_cols):
-  """Bảng Data MBS CAT/BRAND: cuộn ngang + dọc, tối đa ~15 dòng."""
+  """Bảng Data MBS CAT/BRAND: sticky STT | Tên nhóm | Outlet Code | Tên CH."""
   if df_show is None or df_show.empty or not selected_cols:
     return
 
+  def _is_freeze(col):
+    cl = str(col).lower().strip()
+    if cl in ('stt',):
+      return 'stt'
+    if any(x in cl for x in ['tên nhóm', 'ten nhom', 'nhóm', 'nhom', 'group']):
+      if 'outlet' not in cl and 'kh' not in cl and 'ch' not in cl:
+        return 'nhom'
+    if any(x in cl for x in ['outlet code', 'mã kh', 'ma kh', 'outlet', 'customer code', 'ship to']):
+      return 'outlet'
+    if any(x in cl for x in ['tên ch', 'ten ch', 'tên kh', 'ten kh', 'outlet name', 'customer name', 'tên cửa']):
+      return 'ten_ch'
+    return None
+
+  freeze_cols = []
+  other_cols = []
+  for c in selected_cols:
+    k = _is_freeze(c)
+    if k and c not in freeze_cols:
+      freeze_cols.append(c)
+    elif not k:
+      other_cols.append(c)
+  # giữ thứ tự freeze theo priority
+  order_map = {'stt': 0, 'nhom': 1, 'outlet': 2, 'ten_ch': 3}
+  freeze_cols = sorted(freeze_cols, key=lambda c: order_map.get(_is_freeze(c), 9))
+  ordered = freeze_cols + other_cols
+
+  # widths
+  widths = {}
+  left = 0
+  for c in freeze_cols:
+    k = _is_freeze(c)
+    w = 48 if k == 'stt' else (110 if k == 'nhom' else (100 if k == 'outlet' else 160))
+    widths[c] = (left, w)
+    left += w
+
   html = [
       '<div class="mbs-data-scroll">',
-      '<table class="mbs-data-table">',
+      '<table class="mbs-data-table" style="border-collapse:separate;border-spacing:0;">',
       '<thead><tr>',
   ]
-  for col in selected_cols:
-    html.append(f'<th>{col}</th>')
+  for col in ordered:
+    if col in widths:
+      L, w = widths[col]
+      html.append(
+          f'<th style="position:sticky;left:{L}px;z-index:6;min-width:{w}px;max-width:{w}px;'
+          f'top:0;">{col}</th>'
+      )
+    else:
+      html.append(f'<th style="position:sticky;top:0;z-index:3;">{col}</th>')
   html.append('</tr></thead><tbody>')
 
-  for _, row in df_show[selected_cols].iterrows():
+  for pos, (_, row) in enumerate(df_show.iterrows()):
+    bg = '#f7fbff' if pos % 2 == 0 else '#ffffff'
     html.append('<tr>')
-    for col in selected_cols:
+    for col in ordered:
       val = row.get(col, '')
       if pd.isna(val):
         val = ''
       sval = str(val)
       col_lower = str(col).lower()
 
+      sticky = ''
+      if col in widths:
+        L, w = widths[col]
+        sticky = (
+            f'position:sticky;left:{L}px;z-index:5;min-width:{w}px;max-width:{w}px;'
+            f'background-color:{bg} !important;'
+            f'box-shadow:2px 0 4px -1px rgba(0,0,0,.15);'
+        )
+
       if '%' in str(col):
         cls = color_pct_class(sval)
         style = color_pct_bg(sval)
         html.append(
-            f'<td data-colored="1" class="{cls}" style="{style}'
+            f'<td data-colored="1" class="{cls}" style="{style}{sticky}'
             'text-align:center !important;white-space:nowrap;">'
             f'{sval}</td>'
         )
@@ -16861,20 +16911,25 @@ def render_mbs_data_table(df_show, selected_cols):
         else:
           style = ''
         html.append(
-            f'<td data-colored="1" style="{style}text-align:center !important;white-space:nowrap;">'
+            f'<td data-colored="1" style="{style}{sticky}text-align:center !important;white-space:nowrap;">'
             f'{sval}</td>'
         )
       else:
-        align = 'left' if any(x in col_lower for x in ['name', 'tên', 'sm name']) else 'center'
+        align = 'left' if any(x in col_lower for x in ['name', 'tên', 'sm name', 'nhóm', 'nhom']) else 'center'
         if 'doanh số' in col_lower or 'doanhso' in col_lower.replace(' ', '') or 'điểm thưởng' in col_lower:
           align = 'right'
+        if col in widths:
+          align = 'center' if _is_freeze(col) == 'stt' else 'left'
         html.append(
-            f'<td style="text-align:{align} !important;white-space:nowrap;">{sval}</td>'
+            f'<td style="{sticky}background-color:{bg} !important;text-align:{align} !important;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{sval}</td>'
         )
     html.append('</tr>')
 
   html.append('</tbody></table></div>')
   st.markdown(''.join(html), unsafe_allow_html=True)
+
+
 
 
 
