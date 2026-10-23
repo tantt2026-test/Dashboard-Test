@@ -16815,59 +16815,86 @@ def build_mbs_data_summary(df_source, kind='CAT'):
 
 
 def render_mbs_data_table(df_show, selected_cols):
-  """Bảng Data MBS CAT/BRAND: sticky STT | Tên nhóm | Outlet Code | Tên CH."""
+  """Bảng Data MBS CAT/BRAND: luôn sticky STT | Tên nhóm | Outlet Code | Tên CH."""
   if df_show is None or df_show.empty or not selected_cols:
     return
 
-  def _is_freeze(col):
+  def _freeze_key(col):
     cl = str(col).lower().strip()
-    if cl in ('stt',):
-      return 'stt'
-    if any(x in cl for x in ['tên nhóm', 'ten nhom', 'nhóm', 'nhom', 'group']):
-      if 'outlet' not in cl and 'kh' not in cl and 'ch' not in cl:
-        return 'nhom'
-    if any(x in cl for x in ['outlet code', 'mã kh', 'ma kh', 'outlet', 'customer code', 'ship to']):
-      return 'outlet'
-    if any(x in cl for x in ['tên ch', 'ten ch', 'tên kh', 'ten kh', 'outlet name', 'customer name', 'tên cửa']):
-      return 'ten_ch'
+    cl_nospace = cl.replace(' ', '').replace('_', '')
+    # STT
+    if cl in ('stt', 'no', '#') or cl_nospace == 'stt':
+      return 0, 48
+    # Tên nhóm
+    if (
+        'tênnhóm' in cl_nospace or 'tennhom' in cl_nospace
+        or cl in ('tên nhóm', 'ten nhom', 'nhóm', 'nhom', 'group name')
+        or (cl_nospace in ('nhóm', 'nhom', 'group'))
+    ):
+      return 1, 120
+    # Outlet Code
+    if (
+        'outletcode' in cl_nospace or 'outlet_code' in cl.replace(' ', '_')
+        or 'mãkh' in cl_nospace or 'makh' in cl_nospace or 'mãch' in cl_nospace
+        or cl in ('outlet code', 'outlet', 'mã kh', 'ma kh', 'mã ch', 'ma ch', 'customer code')
+    ):
+      return 2, 110
+    # Tên CH
+    if (
+        'tênch' in cl_nospace or 'tench' in cl_nospace
+        or 'tênkh' in cl_nospace or 'tenkh' in cl_nospace
+        or 'outletname' in cl_nospace or 'customername' in cl_nospace
+        or cl in ('tên ch', 'ten ch', 'tên kh', 'ten kh', 'outlet name', 'tên cửa hàng')
+    ):
+      return 3, 170
     return None
 
-  freeze_cols = []
-  other_cols = []
+  freeze = []  # (order, width, col)
+  other = []
+  seen_key = set()
   for c in selected_cols:
-    k = _is_freeze(c)
-    if k and c not in freeze_cols:
-      freeze_cols.append(c)
-    elif not k:
-      other_cols.append(c)
-  # giữ thứ tự freeze theo priority
-  order_map = {'stt': 0, 'nhom': 1, 'outlet': 2, 'ten_ch': 3}
-  freeze_cols = sorted(freeze_cols, key=lambda c: order_map.get(_is_freeze(c), 9))
-  ordered = freeze_cols + other_cols
+    fk = _freeze_key(c)
+    if fk is not None:
+      key, w = fk
+      if key in seen_key:
+        other.append(c)
+        continue
+      seen_key.add(key)
+      freeze.append((key, w, c))
+    else:
+      other.append(c)
+  freeze.sort(key=lambda x: x[0])
+  ordered = [c for _, _, c in freeze] + other
 
-  # widths
-  widths = {}
+  # left offsets
   left = 0
-  for c in freeze_cols:
-    k = _is_freeze(c)
-    w = 48 if k == 'stt' else (110 if k == 'nhom' else (100 if k == 'outlet' else 160))
+  widths = {}  # col -> (left, width)
+  for key, w, c in freeze:
     widths[c] = (left, w)
     left += w
 
+  sh = 'box-shadow:3px 0 5px -2px rgba(0,0,0,.2);'
+
   html = [
       '<div class="mbs-data-scroll">',
-      '<table class="mbs-data-table" style="border-collapse:separate;border-spacing:0;">',
+      '<table class="mbs-data-table" style="border-collapse:separate !important;'
+      'border-spacing:0 !important;width:max-content !important;min-width:100%;">',
       '<thead><tr>',
   ]
   for col in ordered:
     if col in widths:
       L, w = widths[col]
       html.append(
-          f'<th style="position:sticky;left:{L}px;z-index:6;min-width:{w}px;max-width:{w}px;'
-          f'top:0;">{col}</th>'
+          f'<th class="mbs-sticky-col" style="position:sticky !important;left:{L}px !important;'
+          f'top:0 !important;z-index:12 !important;min-width:{w}px !important;'
+          f'max-width:{w}px !important;background:#034ea2 !important;color:#fff !important;'
+          f'{sh}">{col}</th>'
       )
     else:
-      html.append(f'<th style="position:sticky;top:0;z-index:3;">{col}</th>')
+      html.append(
+          f'<th style="position:sticky !important;top:0 !important;z-index:4 !important;'
+          f'background:#034ea2 !important;color:#fff !important;">{col}</th>'
+      )
   html.append('</tr></thead><tbody>')
 
   for pos, (_, row) in enumerate(df_show.iterrows()):
@@ -16880,13 +16907,13 @@ def render_mbs_data_table(df_show, selected_cols):
       sval = str(val)
       col_lower = str(col).lower()
 
-      sticky = ''
+      sticky = f'background-color:{bg} !important;'
       if col in widths:
         L, w = widths[col]
         sticky = (
-            f'position:sticky;left:{L}px;z-index:5;min-width:{w}px;max-width:{w}px;'
-            f'background-color:{bg} !important;'
-            f'box-shadow:2px 0 4px -1px rgba(0,0,0,.15);'
+            f'position:sticky !important;left:{L}px !important;z-index:8 !important;'
+            f'min-width:{w}px !important;max-width:{w}px !important;'
+            f'background-color:{bg} !important;{sh}'
         )
 
       if '%' in str(col):
@@ -16894,8 +16921,7 @@ def render_mbs_data_table(df_show, selected_cols):
         style = color_pct_bg(sval)
         html.append(
             f'<td data-colored="1" class="{cls}" style="{style}{sticky}'
-            'text-align:center !important;white-space:nowrap;">'
-            f'{sval}</td>'
+            f'text-align:center !important;white-space:nowrap;">{sval}</td>'
         )
       elif any(x in col_lower for x in [
           'phân loại cat', 'phan loai cat', 'loại cat',
@@ -16911,23 +16937,28 @@ def render_mbs_data_table(df_show, selected_cols):
         else:
           style = ''
         html.append(
-            f'<td data-colored="1" style="{style}{sticky}text-align:center !important;white-space:nowrap;">'
-            f'{sval}</td>'
+            f'<td data-colored="1" style="{style}{sticky}text-align:center !important;'
+            f'white-space:nowrap;">{sval}</td>'
         )
       else:
-        align = 'left' if any(x in col_lower for x in ['name', 'tên', 'sm name', 'nhóm', 'nhom']) else 'center'
+        align = 'left' if any(
+            x in col_lower for x in ['name', 'tên', 'sm name', 'nhóm', 'nhom', 'ch']
+        ) else 'center'
         if 'doanh số' in col_lower or 'doanhso' in col_lower.replace(' ', '') or 'điểm thưởng' in col_lower:
           align = 'right'
         if col in widths:
-          align = 'center' if _is_freeze(col) == 'stt' else 'left'
+          key = next((k for k, w, c in freeze if c == col), None)
+          align = 'center' if key == 0 else 'left'
         html.append(
-            f'<td style="{sticky}background-color:{bg} !important;text-align:{align} !important;'
-            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{sval}</td>'
+            f'<td style="{sticky}text-align:{align} !important;white-space:nowrap;'
+            f'overflow:hidden;text-overflow:ellipsis;">{sval}</td>'
         )
     html.append('</tr>')
 
   html.append('</tbody></table></div>')
   st.markdown(''.join(html), unsafe_allow_html=True)
+
+
 
 
 
@@ -16962,7 +16993,15 @@ st.markdown(
     .mbs-data-table thead th {
       position: sticky;
       top: 0;
-      z-index: 2;
+      z-index: 4;
+    }
+    .mbs-data-table th.mbs-sticky-col {
+      position: sticky !important;
+      z-index: 12 !important;
+      background: #034ea2 !important;
+    }
+    .mbs-data-table td {
+      background-clip: padding-box;
     }
     .mbs-summary-table th,
     .mbs-data-table th {
