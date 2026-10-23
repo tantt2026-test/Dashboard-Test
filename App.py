@@ -425,35 +425,48 @@ def get_data_dir():
 
 DATA_DIR = 'data'
 
-def _resolve_rpt_path():
-  """Tìm file data bán hàng trong thư mục tháng hiện tại."""
+def _is_sales_filename(fn):
+  """True nếu tên file là data chi tiết đơn hàng / RPT (có thể nhiều file/tháng)."""
+  if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+    return False
+  low = fn.lower().replace(' ', '').replace('_', '').replace('-', '')
+  # DanhSachChiTietDonHang.xlsx / (1).xlsx / -2.xlsx / RPT_061...
+  return (
+      'chitietdonhang' in low
+      or 'danhsachchitiet' in low
+      or 'rpt061' in low
+      or 'lineitem' in low
+  )
+
+
+def _resolve_rpt_paths():
+  """Trả về TẤT CẢ file data bán hàng trong thư mục tháng (gộp 2–3 file ≤15 ngày).
+
+  Ví dụ tên file hợp lệ:
+    DanhSachChiTietDonHang.xlsx
+    DanhSachChiTietDonHang (1).xlsx
+    DanhSachChiTietDonHang-2.xlsx
+    RPT_061.xlsx
+  """
   ddir = get_data_dir()
-  preferred = [
-      'DanhSachChiTietDonHang.xlsx',
-      'DanhSachChiTietDonHang.xls',
-      'RPT_061.xlsx',
-      'RPT_061.xls',
-  ]
-  for name in preferred:
-    p = os.path.join(ddir, name)
-    if os.path.isfile(p):
-      return p
+  found = []
   if os.path.isdir(ddir):
     try:
-      for fn in os.listdir(ddir):
-        low = fn.lower().replace(' ', '').replace('_', '')
-        if not fn.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-          continue
-        if (
-            'chitietdonhang' in low
-            or 'danhsachchitiet' in low
-            or 'rpt061' in low
-            or 'lineitem' in low
-        ):
-          return os.path.join(ddir, fn)
+      for fn in sorted(os.listdir(ddir)):
+        if _is_sales_filename(fn):
+          found.append(os.path.join(ddir, fn))
     except Exception:
       pass
-  return os.path.join(ddir, 'DanhSachChiTietDonHang.xlsx')
+  if found:
+    return found
+  # fallback path (có thể chưa tồn tại — caller sẽ báo lỗi)
+  return [os.path.join(ddir, 'DanhSachChiTietDonHang.xlsx')]
+
+
+def _resolve_rpt_path():
+  """Giữ API cũ: trả về file đầu tiên (hoặc path mặc định)."""
+  paths = _resolve_rpt_paths()
+  return paths[0] if paths else os.path.join(get_data_dir(), 'DanhSachChiTietDonHang.xlsx')
 
 def _get_mcp_path():
   return os.path.join(get_data_dir(), 'Data_MCP.xlsx')
@@ -571,14 +584,34 @@ def load_main_data(_month_key='Thang10'):
     _refresh_paths()
   except Exception:
     pass
-  rpt_path = _resolve_rpt_path()
-  if not os.path.exists(rpt_path) or not os.path.exists(_get_mcp_path()):
+  rpt_paths = [p for p in _resolve_rpt_paths() if os.path.isfile(p)]
+  if not rpt_paths or not os.path.exists(_get_mcp_path()):
     st.error(
-        f"Thiếu file **DanhSachChiTietDonHang.xlsx** (hoặc RPT_061.xlsx) "
+        f"Thiếu file **DanhSachChiTietDonHang*.xlsx** (có thể 1–3 file) "
         f"hoặc **Data_MCP.xlsx** trong thư mục `{DATA_DIR}`"
     )
     st.stop()
-  df = _read_sales_excel(rpt_path)
+  # Gộp tất cả file bán hàng (mỗi file tối đa ~15 ngày)
+  _parts = []
+  for _p in rpt_paths:
+    try:
+      _parts.append(_read_sales_excel(_p))
+    except Exception as _e:
+      st.warning(f'Không đọc được `{os.path.basename(_p)}`: {_e}')
+  if not _parts:
+    st.error('Không đọc được dữ liệu bán hàng từ các file DanhSachChiTietDonHang*.xlsx')
+    st.stop()
+  df = pd.concat(_parts, ignore_index=True) if len(_parts) > 1 else _parts[0]
+  # Dedup dòng trùng nếu 2 file overlap ngày
+  try:
+    _dedup_cols = [c for c in [
+        'Mã đơn hàng', 'Mã CH', 'Mã sản phẩm', 'Tên sản phẩm',
+        'Ngày tạo đơn hàng', 'Tổng tiền', 'Giá trị sau CK',
+    ] if c in df.columns]
+    if _dedup_cols:
+      df = df.drop_duplicates(subset=_dedup_cols, keep='first')
+  except Exception:
+    pass
   mcp = pd.read_excel(MCP_PATH)
 
   rename = {}
