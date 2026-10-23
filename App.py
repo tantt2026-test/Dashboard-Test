@@ -13078,13 +13078,22 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   pct_v = (th_v / ct_v * 100) if ct_v else 0
   pct_co = (th_co / ct_co * 100) if ct_co else 0
   pct_cn = (th_cn / ct_cn * 100) if ct_cn else 0
-  pct_ao = (ao_th / ao_ct * 100) if ao_ct else 0  # %TH ngày
-  pct_an = (an_th / an_ct * 100) if an_ct else 0
+  # ASO ALL: % = MTD/CT
+  pct_ao = (ao_mtd / ao_ct * 100) if ao_ct else 0
+  pct_an = (an_mtd / an_ct * 100) if an_ct else 0
+
+  def _fmt_trieu(n):
+    """Chỉ số triệu, không gắn chữ 'tr' (đơn vị nằm ở tiêu đề)."""
+    try:
+      n = float(n or 0) / 1_000_000.0
+      return f'{n:,.1f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+    except Exception:
+      return '0'
 
   cards = [
     (
-      'DOANH SỐ NGÀY',
-      f'{_fmt_tr(th_so)}/{_fmt_tr(ct_so)}/{pct_so:.0f}%',
+      'DOANH SỐ NGÀY (Triệu đồng)',
+      f'{_fmt_trieu(th_so)}/{_fmt_trieu(ct_so)}/{pct_so:.0f}%',
       'TH/CT/%TH',
       '#e53e3e',
     ),
@@ -13109,13 +13118,13 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     (
       'ASO ALL OFF',
       f'{ao_th}/{ao_mtd}/{ao_ct}/{pct_ao:.0f}%',
-      'TH ngày/MTD/CT/%TH',
+      'TH ngày/MTD/CT/%MTD',
       '#805ad5',
     ),
     (
       'ASO ALL ON',
       f'{an_th}/{an_mtd}/{an_ct}/{pct_an:.0f}%',
-      'TH ngày/MTD/CT/%TH',
+      'TH ngày/MTD/CT/%MTD',
       '#d53f8c',
     ),
     (
