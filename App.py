@@ -7251,40 +7251,89 @@ def render_summary_html_table(df, selected_metrics):
 
 
 def render_html_table(df):
-  df = df.drop(columns=['Mã NVBH'], errors='ignore')
-  html = [
-      '<div style="overflow-x: auto; -webkit-overflow-scrolling:'
-      ' touch;"><table class="custom-kpi-table">'
-  ]
-  html.append('<thead><tr>')
-  for col in df.columns:
-    html.append(f'<th>{col}</th>')
-  html.append('</tr></thead>')
+  """Bảng KPI format Trưng Bày: sticky STT + Tên NVBH, cuộn ngang."""
+  df = df.drop(columns=['Mã NVBH'], errors='ignore').copy()
+  cols = list(df.columns)
 
-  html.append('<tbody>')
-  for _, row in df.iterrows():
+  # Ước lượng độ rộng cột tên
+  name_col = 'Tên NVBH' if 'Tên NVBH' in cols else ('Tên NV' if 'Tên NV' in cols else None)
+  max_name = 12
+  if name_col:
+    for n in df[name_col].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
+  stt_w = 44
+
+  th_base = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 8px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  sticky_stt_h = f'{th_base}position:sticky;left:0;z-index:6;min-width:{stt_w}px;max-width:{stt_w}px;'
+  sticky_ten_h = (
+      f'{th_base}position:sticky;left:{stt_w}px;z-index:6;'
+      f'min-width:{name_w}px;text-align:left !important;'
+  )
+
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;">',
+      '<thead><tr>',
+  ]
+  for col in cols:
+    if col == 'STT':
+      html.append(f'<th style="{sticky_stt_h}">STT</th>')
+    elif col in ('Tên NVBH', 'Tên NV'):
+      html.append(f'<th style="{sticky_ten_h}">{col}</th>')
+    else:
+      html.append(f'<th style="{th_base}">{col}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
     is_total = (
-        (str(row.get('Tên NVBH', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NVBH', '')).upper() or 'TỔNG' in str(row.get('Tên NVBH', '')).upper())
-        or (str(row.get('Tên NV', '')).strip() == 'TỔNG CỘNG' or 'TOTAL' in str(row.get('Tên NV', '')).upper() or 'TỔNG' in str(row.get('Tên NV', '')).upper())
+        'TOTAL' in str(row.get('Tên NVBH', '')).upper()
+        or 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+        or 'TOTAL' in str(row.get('Tên NV', '')).upper()
+        or 'TỔNG' in str(row.get('Tên NV', '')).upper()
     )
+    row_bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    if is_total:
+      row_bg = '#1a365d'
+
     html.append('<tr>')
-    for col in df.columns:
+    for col in cols:
       val = row[col]
       if pd.isna(val):
         val = ''
-      # Bỏ .0 với số nguyên (vd MCP ON: 78.0 → 78)
       elif isinstance(val, (float, np.floating)):
         if float(val).is_integer():
           val = int(val)
         else:
           val = round(float(val), 2)
 
+      # Sticky base styles
+      if col == 'STT':
+        sticky = (
+            f'position:sticky;left:0;z-index:{"5" if is_total else "4"};'
+            f'min-width:{stt_w}px;max-width:{stt_w}px;background-color:{row_bg} !important;'
+        )
+      elif col in ('Tên NVBH', 'Tên NV'):
+        sticky = (
+            f'position:sticky;left:{stt_w}px;z-index:{"5" if is_total else "4"};'
+            f'min-width:{name_w}px;background-color:{row_bg} !important;'
+        )
+      else:
+        sticky = f'background-color:{row_bg} !important;'
+
       salary_cls, salary_style = salary_metric_style(_CURRENT_SALARY_KPI, col, val)
       if salary_cls or salary_style:
         align_salary = 'center' if ('%' in str(col) or col in ['MTD', 'Thực Hiện Ngày']) else 'right'
         html.append(
             f'<td align="{align_salary}" data-colored="1" class="{salary_cls}" '
-            f'style="{salary_style} text-align:{align_salary} !important;">{val}</td>'
+            f'style="{salary_style}{sticky} text-align:{align_salary} !important;'
+            f'white-space:nowrap;">{val}</td>'
         )
       elif col in [
           '% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON',
@@ -7293,70 +7342,61 @@ def render_html_table(df):
       ] or (isinstance(col, str) and col.strip().startswith('%')):
         style_bg = color_pct_bg(val)
         cls = color_pct_class(val)
+        # % giữ màu rule; sticky bg không ghi đè nếu không sticky col
+        extra = sticky if col in ('STT', 'Tên NVBH', 'Tên NV') else ''
         html.append(
             f'<td align="center" data-colored="1" class="{cls}" '
-            f'style="{style_bg} text-align:center !important;font-weight:700 !important;">'
-            f'{val}</td>'
+            f'style="{style_bg}{extra} text-align:center !important;font-weight:700 !important;'
+            f'white-space:nowrap;">{val}</td>'
         )
       elif is_total:
-        # Format giống dòng Tổng Cộng Báo Cáo Hiệu Suất: xanh đậm + chữ trắng
         align = (
-            'left'
-            if col in ['Tên NVBH', 'Tên NV']
+            'left' if col in ['Tên NVBH', 'Tên NV']
             else ('center' if col in ['STT'] or '%' in str(col) else 'right')
         )
-        # Cột % vẫn tô màu theo rule KPI
         if '%' in str(col) or (isinstance(val, str) and '%' in str(val)):
           style_bg = color_pct_bg(val)
           cls = color_pct_class(val)
           html.append(
               f'<td align="center" data-colored="1" class="{cls}" '
-              f'style="{style_bg} font-weight:900 !important;'
-              f'text-align:center !important;">{val}</td>'
+              f'style="{style_bg}{sticky} font-weight:900 !important;'
+              f'text-align:center !important;white-space:nowrap;">{val}</td>'
           )
         else:
           html.append(
               f'<td data-colored="1" class="row-total-cell" '
-              f'style="background-color:#1a365d !important;color:#ffffff !important;'
+              f'style="{sticky}background-color:#1a365d !important;color:#ffffff !important;'
               f'font-weight:900 !important;text-align:{align} !important;'
               f'white-space:nowrap;border-color:#2b6cb0 !important;">{val}</td>'
           )
       elif col in ['Tên NVBH', 'Tên NV']:
         html.append(
-            f'<td style="color: #1a365d; text-align: left; white-space:'
-            f' nowrap;">{val}</td>'
+            f'<td style="{sticky}color:#1a365d;text-align:left;font-weight:600;'
+            f'white-space:nowrap;">{val}</td>'
         )
       else:
         align = (
             'center'
             if col in [
-                'STT',
-                                'Lịch Viếng Thăm Hôm Nay',
-                'Nhóm KH VIP3',
-                'Nhóm KH VIP5',
-                'Nhóm KH VIPSI',
-                'Nhóm KH CH Lẻ',
-                'Nhóm KH Kênh ON',
-                'Thực Hiện Ngày',
-                'MTD',
-                'Phát sinh Ngày (OFF)',
-                'MTD (OFF)',
-                'Phát sinh Ngày (ON)',
-                'MTD (ON)',
-                'Chỉ Tiêu KPI',
-                'Target (OFF)',
-                'Target (ON)',
+                'STT', 'Lịch Viếng Thăm Hôm Nay',
+                'Nhóm KH VIP3', 'Nhóm KH VIP5', 'Nhóm KH VIPSI',
+                'Nhóm KH CH Lẻ', 'Nhóm KH Kênh ON',
+                'Thực Hiện Ngày', 'MTD',
+                'Phát sinh Ngày (OFF)', 'MTD (OFF)',
+                'Phát sinh Ngày (ON)', 'MTD (ON)',
+                'Chỉ Tiêu KPI', 'Target (OFF)', 'Target (ON)',
             ]
             else 'right'
         )
         if col in ['Chỉ Tiêu Doanh Số', 'Doanh Số MTD', 'Thực Hiện Ngày']:
           align = 'right'
+        if col == 'STT':
+          align = 'center'
         html.append(
-            f'<td style="text-align: {align}; white-space: nowrap;">{val}</td>'
+            f'<td style="{sticky}text-align:{align};white-space:nowrap;">{val}</td>'
         )
     html.append('</tr>')
-  html.append('</tbody>')
-  html.append('</table></div>')
+  html.append('</tbody></table></div>')
   return ''.join(html)
 
 
