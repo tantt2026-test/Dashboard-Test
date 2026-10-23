@@ -7255,14 +7255,13 @@ def render_html_table(df):
   df = df.drop(columns=['Mã NVBH'], errors='ignore').copy()
   cols = list(df.columns)
 
-  # Ước lượng độ rộng cột tên
   name_col = 'Tên NVBH' if 'Tên NVBH' in cols else ('Tên NV' if 'Tên NV' in cols else None)
   max_name = 12
   if name_col:
     for n in df[name_col].astype(str):
       max_name = max(max_name, len(n))
-  name_w = max(140, min(280, max_name * 9 + 24))
-  stt_w = 44
+  name_w = max(150, min(260, max_name * 9 + 24))
+  stt_w = 48
 
   th_base = (
       'background-color:#1a365d !important;color:#ffffff !important;'
@@ -7270,10 +7269,17 @@ def render_html_table(df):
       'border:1px solid #2b6cb0 !important;padding:6px 8px;font-size:11px;'
       'white-space:nowrap;'
   )
-  sticky_stt_h = f'{th_base}position:sticky;left:0;z-index:6;min-width:{stt_w}px;max-width:{stt_w}px;'
+  # box-shadow để nội dung cuộn không lộ qua cột sticky
+  sh_stt = 'box-shadow:2px 0 0 0 #2b6cb0;'
+  sh_ten = 'box-shadow:4px 0 6px -2px rgba(0,0,0,.25);'
+
+  sticky_stt_h = (
+      f'{th_base}position:sticky;left:0;z-index:8;'
+      f'min-width:{stt_w}px;max-width:{stt_w}px;{sh_stt}'
+  )
   sticky_ten_h = (
-      f'{th_base}position:sticky;left:{stt_w}px;z-index:6;'
-      f'min-width:{name_w}px;text-align:left !important;'
+      f'{th_base}position:sticky;left:{stt_w}px;z-index:8;'
+      f'min-width:{name_w}px;max-width:{name_w}px;text-align:left !important;{sh_ten}'
   )
 
   html = [
@@ -7298,9 +7304,12 @@ def render_html_table(df):
         or 'TOTAL' in str(row.get('Tên NV', '')).upper()
         or 'TỔNG' in str(row.get('Tên NV', '')).upper()
     )
-    row_bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     if is_total:
       row_bg = '#1a365d'
+      row_fg = '#ffffff'
+    else:
+      row_bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+      row_fg = '#1a202c'
 
     html.append('<tr>')
     for col in cols:
@@ -7313,66 +7322,76 @@ def render_html_table(df):
         else:
           val = round(float(val), 2)
 
-      # Sticky base styles
-      if col == 'STT':
+      is_sticky_stt = col == 'STT'
+      is_sticky_ten = col in ('Tên NVBH', 'Tên NV')
+      is_sticky = is_sticky_stt or is_sticky_ten
+
+      if is_sticky_stt:
         sticky = (
-            f'position:sticky;left:0;z-index:{"5" if is_total else "4"};'
-            f'min-width:{stt_w}px;max-width:{stt_w}px;background-color:{row_bg} !important;'
+            f'position:sticky;left:0;z-index:{"7" if is_total else "5"};'
+            f'min-width:{stt_w}px;max-width:{stt_w}px;'
+            f'background-color:{row_bg} !important;color:{row_fg} !important;{sh_stt}'
         )
-      elif col in ('Tên NVBH', 'Tên NV'):
+      elif is_sticky_ten:
         sticky = (
-            f'position:sticky;left:{stt_w}px;z-index:{"5" if is_total else "4"};'
-            f'min-width:{name_w}px;background-color:{row_bg} !important;'
+            f'position:sticky;left:{stt_w}px;z-index:{"7" if is_total else "5"};'
+            f'min-width:{name_w}px;max-width:{name_w}px;'
+            f'background-color:{row_bg} !important;color:{row_fg} !important;{sh_ten}'
         )
       else:
-        sticky = f'background-color:{row_bg} !important;'
+        sticky = f'background-color:{row_bg} !important;color:{row_fg} !important;'
+
+      # --- Cột % : tô màu rule (kể cả dòng total) ---
+      is_pct_col = (
+          col in [
+              '% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON',
+              '% Hoàn Thành', '% TH', '% PC/VT OFF', '% PC/Plan ON', '% TH SO',
+              '% TH Xanh', '% TH Vàng', '% Active',
+          ]
+          or (isinstance(col, str) and col.strip().startswith('%'))
+      )
 
       salary_cls, salary_style = salary_metric_style(_CURRENT_SALARY_KPI, col, val)
-      if salary_cls or salary_style:
+      if (salary_cls or salary_style) and not is_sticky:
         align_salary = 'center' if ('%' in str(col) or col in ['MTD', 'Thực Hiện Ngày']) else 'right'
         html.append(
             f'<td align="{align_salary}" data-colored="1" class="{salary_cls}" '
             f'style="{salary_style}{sticky} text-align:{align_salary} !important;'
             f'white-space:nowrap;">{val}</td>'
         )
-      elif col in [
-          '% MTD', '% MTD (OFF)', '% MTD (ON)', '% MTD OFF', '% MTD ON',
-          '% Hoàn Thành', '% TH', '% PC/VT OFF', '% PC/Plan ON', '% TH SO',
-          '% TH Xanh', '% TH Vàng', '% Active',
-      ] or (isinstance(col, str) and col.strip().startswith('%')):
+      elif is_pct_col and not is_sticky:
         style_bg = color_pct_bg(val)
         cls = color_pct_class(val)
-        # % giữ màu rule; sticky bg không ghi đè nếu không sticky col
-        extra = sticky if col in ('STT', 'Tên NVBH', 'Tên NV') else ''
         html.append(
             f'<td align="center" data-colored="1" class="{cls}" '
-            f'style="{style_bg}{extra} text-align:center !important;font-weight:700 !important;'
+            f'style="{style_bg} text-align:center !important;font-weight:700 !important;'
             f'white-space:nowrap;">{val}</td>'
         )
-      elif is_total:
-        align = (
-            'left' if col in ['Tên NVBH', 'Tên NV']
-            else ('center' if col in ['STT'] or '%' in str(col) else 'right')
-        )
-        if '%' in str(col) or (isinstance(val, str) and '%' in str(val)):
+      elif is_total and not is_sticky:
+        align = 'center' if ('%' in str(col) or col == 'STT') else 'right'
+        if is_pct_col or (isinstance(val, str) and '%' in str(val)):
           style_bg = color_pct_bg(val)
           cls = color_pct_class(val)
           html.append(
               f'<td align="center" data-colored="1" class="{cls}" '
-              f'style="{style_bg}{sticky} font-weight:900 !important;'
+              f'style="{style_bg} font-weight:900 !important;'
               f'text-align:center !important;white-space:nowrap;">{val}</td>'
           )
         else:
           html.append(
               f'<td data-colored="1" class="row-total-cell" '
-              f'style="{sticky}background-color:#1a365d !important;color:#ffffff !important;'
+              f'style="background-color:#1a365d !important;color:#ffffff !important;'
               f'font-weight:900 !important;text-align:{align} !important;'
               f'white-space:nowrap;border-color:#2b6cb0 !important;">{val}</td>'
           )
-      elif col in ['Tên NVBH', 'Tên NV']:
+      elif is_sticky:
+        # STT / Tên NVBH — luôn nền đặc, không bị cuộn đè
+        align = 'center' if is_sticky_stt else 'left'
+        fw = '900' if is_total else ('600' if is_sticky_ten else '500')
         html.append(
-            f'<td style="{sticky}color:#1a365d;text-align:left;font-weight:600;'
-            f'white-space:nowrap;">{val}</td>'
+            f'<td style="{sticky}text-align:{align} !important;font-weight:{fw} !important;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+            f'border:1px solid {"#2b6cb0" if is_total else "#bce2f5"} !important;">{val}</td>'
         )
       else:
         align = (
@@ -7390,8 +7409,6 @@ def render_html_table(df):
         )
         if col in ['Chỉ Tiêu Doanh Số', 'Doanh Số MTD', 'Thực Hiện Ngày']:
           align = 'right'
-        if col == 'STT':
-          align = 'center'
         html.append(
             f'<td style="{sticky}text-align:{align};white-space:nowrap;">{val}</td>'
         )
