@@ -6097,10 +6097,13 @@ def tag_all_orders_with_combo_flag(df_day, mcp_df=None):
 def build_combo_matrix(
     df, report_date, df_off_master, df_on_master, filter_nv=None, mcp_df=None
 ):
+  """Matrix Combo OFF/ON: CH (Target/Ngày/MTD/%) + Số Suất (Ngày/MTD)."""
   empty_cols = [
       'STT', 'Tên NVBH',
       'Target (OFF)', 'Phát sinh Ngày (OFF)', 'MTD (OFF)', '% MTD (OFF)',
+      'Suất Ngày (OFF)', 'Suất MTD (OFF)',
       'Target (ON)', 'Phát sinh Ngày (ON)', 'MTD (ON)', '% MTD (ON)',
+      'Suất Ngày (ON)', 'Suất MTD (ON)',
   ]
   if df is None:
     df = pd.DataFrame()
@@ -6113,7 +6116,6 @@ def build_combo_matrix(
     if not df_mtd.empty and 'Tên NVBH' in df_mtd.columns:
       df_mtd = filter_df_by_nv(df_mtd, 'Tên NVBH', filter_nv)
 
-  # Full NV: master combo + RPT + roster (NV không bán vẫn hiện = 0)
   _nv_set = set()
   if not df.empty and 'Tên NVBH' in df.columns:
     _nv_set.update(df['Tên NVBH'].dropna().astype(str).str.strip().tolist())
@@ -6129,59 +6131,85 @@ def build_combo_matrix(
   _nv_set.update([n for n in roster.values() if n])
   nv_list = sorted([x for x in _nv_set if x and x.lower() not in ('nan', 'none', '')])
 
-  off_target_map = {}
-  on_target_map = {}
+  off_target_map, on_target_map = {}, {}
   if (
       not df_off_master.empty
       and 'Tên NV' in df_off_master.columns
       and 'outlet_code' in df_off_master.columns
   ):
-    off_target_map = (
-        df_off_master.groupby('Tên NV')['outlet_code'].nunique().to_dict()
-    )
+    off_target_map = df_off_master.groupby('Tên NV')['outlet_code'].nunique().to_dict()
   if (
       not df_on_master.empty
       and 'Tên NV' in df_on_master.columns
       and 'outlet_code' in df_on_master.columns
   ):
-    on_target_map = (
-        df_on_master.groupby('Tên NV')['outlet_code'].nunique().to_dict()
-    )
+    on_target_map = df_on_master.groupby('Tên NV')['outlet_code'].nunique().to_dict()
 
-  # ===== Logic Combo T10: CTKM + map kênh qua MCP =====
   combo_df = tag_combo_orders_t10(df_mtd, mcp_df=mcp_df)
 
   def _maps_from_combo(combo_sub, report_date):
+    """CH MTD/Ngày + Suất (unique ĐH) MTD/Ngày."""
     empty = {}
     if combo_sub is None or combo_sub.empty or 'Tên NVBH' not in combo_sub.columns:
-      return empty, empty
-    if 'Mã CH' not in combo_sub.columns:
-      return empty, empty
-    mtd = combo_sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-    first = (
-        combo_sub.groupby(['Tên NVBH', 'Mã CH'])['date'].min().reset_index()
-    )
-    first.columns = ['Tên NVBH', 'Mã CH', 'first_date']
-    ngay = (
-        first[first['first_date'] == report_date]
-        .groupby('Tên NVBH')['Mã CH']
-        .nunique()
-        .to_dict()
-    )
-    return mtd, ngay
+      return empty, empty, empty, empty
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
+    dsub = combo_sub.copy()
+    if 'date' in dsub.columns:
+      dsub['_d'] = pd.to_datetime(dsub['date'], errors='coerce').dt.date
+    else:
+      dsub['_d'] = rd
 
-  if combo_df.empty:
-    off_mtd, off_ngay, on_mtd, on_ngay = {}, {}, {}, {}
+    if 'Mã CH' in dsub.columns:
+      mtd_ch = dsub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+      day = dsub[dsub['_d'] == rd]
+      ngay_ch = day.groupby('Tên NVBH')['Mã CH'].nunique().to_dict() if not day.empty else {}
+    else:
+      mtd_ch, ngay_ch = {}, {}
+
+    ma_dh_col = None
+    for c in ['Mã đơn hàng', 'Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH', 'Doc No']:
+      if c in dsub.columns:
+        ma_dh_col = c
+        break
+    if ma_dh_col:
+      mtd_suat = dsub.groupby('Tên NVBH')[ma_dh_col].nunique().to_dict()
+      day = dsub[dsub['_d'] == rd]
+      ngay_suat = day.groupby('Tên NVBH')[ma_dh_col].nunique().to_dict() if not day.empty else {}
+    else:
+      # fallback: 1 suất / CH / ngày
+      if 'Mã CH' in dsub.columns:
+        mtd_suat = dsub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+        day = dsub[dsub['_d'] == rd]
+        ngay_suat = (
+            day.groupby('Tên NVBH')['Mã CH'].nunique().to_dict() if not day.empty else {}
+        )
+      else:
+        mtd_suat, ngay_suat = {}, {}
+    return mtd_ch, ngay_ch, mtd_suat, ngay_suat
+
+  def _ch_mask(s, want):
+    s = s.astype(str).str.upper()
+    if want == 'ON':
+      return s.str.contains('ON', na=False) & ~s.str.contains('OFF', na=False)
+    return s.str.contains('OFF', na=False) | (~s.str.contains('ON', na=False))
+
+  if combo_df is None or combo_df.empty:
+    off_mtd = off_ngay = on_mtd = on_ngay = {}
+    off_suat_mtd = off_suat_ngay = on_suat_mtd = on_suat_ngay = {}
   else:
-    off_mtd, off_ngay = _maps_from_combo(
-        combo_df[combo_df['channel'] == 'OFF'], report_date
+    if 'channel' not in combo_df.columns:
+      combo_df = combo_df.copy()
+      combo_df['channel'] = 'OFF'
+    ch = combo_df['channel']
+    off_mtd, off_ngay, off_suat_mtd, off_suat_ngay = _maps_from_combo(
+        combo_df[_ch_mask(ch, 'OFF')], report_date
     )
-    on_mtd, on_ngay = _maps_from_combo(
-        combo_df[combo_df['channel'] == 'ON'], report_date
+    on_mtd, on_ngay, on_suat_mtd, on_suat_ngay = _maps_from_combo(
+        combo_df[_ch_mask(ch, 'ON')], report_date
     )
 
   rows = []
-  for idx, nv in enumerate(nv_list, 1):
+  for nv in nv_list:
     if nv_selected(filter_nv) and nv not in (
         filter_nv if isinstance(filter_nv, list) else [filter_nv]
     ):
@@ -6190,11 +6218,15 @@ def build_combo_matrix(
     m_off = int(off_mtd.get(nv, 0))
     n_off = int(off_ngay.get(nv, 0))
     pct_off = round(m_off / tgt_off * 100, 1) if tgt_off else 0
+    s_off_n = int(off_suat_ngay.get(nv, 0))
+    s_off_m = int(off_suat_mtd.get(nv, 0))
 
     tgt_on = int(on_target_map.get(nv, 0))
     m_on = int(on_mtd.get(nv, 0))
     n_on = int(on_ngay.get(nv, 0))
     pct_on = round(m_on / tgt_on * 100, 1) if tgt_on else 0
+    s_on_n = int(on_suat_ngay.get(nv, 0))
+    s_on_m = int(on_suat_mtd.get(nv, 0))
 
     rows.append({
         'Tên NVBH': nv,
@@ -6202,11 +6234,15 @@ def build_combo_matrix(
         'Phát sinh Ngày (OFF)': n_off,
         'MTD (OFF)': m_off,
         '% MTD (OFF)': f'{pct_off}%',
+        'Suất Ngày (OFF)': s_off_n,
+        'Suất MTD (OFF)': s_off_m,
         '_pct_off_val': (m_off / tgt_off if tgt_off else 0),
         'Target (ON)': tgt_on,
         'Phát sinh Ngày (ON)': n_on,
         'MTD (ON)': m_on,
         '% MTD (ON)': f'{pct_on}%',
+        'Suất Ngày (ON)': s_on_n,
+        'Suất MTD (ON)': s_on_m,
     })
 
   df_out = pd.DataFrame(rows)
@@ -6221,55 +6257,48 @@ def build_combo_matrix(
   tot_tgt_off = (
       int(sum(off_target_map.values()))
       if not nv_selected(filter_nv)
-      else int(
-          sum(
-              off_target_map.get(v, 0)
-              for v in (
-                  filter_nv if isinstance(filter_nv, list) else [filter_nv]
-              )
-          )
-      )
+      else int(sum(off_target_map.get(v, 0) for v in (
+          filter_nv if isinstance(filter_nv, list) else [filter_nv]
+      )))
   )
   tot_tgt_on = (
       int(sum(on_target_map.values()))
       if not nv_selected(filter_nv)
-      else int(
-          sum(
-              on_target_map.get(v, 0)
-              for v in (
-                  filter_nv if isinstance(filter_nv, list) else [filter_nv]
-              )
-          )
-      )
+      else int(sum(on_target_map.get(v, 0) for v in (
+          filter_nv if isinstance(filter_nv, list) else [filter_nv]
+      )))
   )
 
   tot_m_off = int(df_out['MTD (OFF)'].sum()) if not df_out.empty else 0
-  tot_n_off = (
-      int(df_out['Phát sinh Ngày (OFF)'].sum()) if not df_out.empty else 0
-  )
+  tot_n_off = int(df_out['Phát sinh Ngày (OFF)'].sum()) if not df_out.empty else 0
   tot_pct_off = round(tot_m_off / tot_tgt_off * 100, 1) if tot_tgt_off else 0
+  tot_s_off_n = int(df_out['Suất Ngày (OFF)'].sum()) if not df_out.empty else 0
+  tot_s_off_m = int(df_out['Suất MTD (OFF)'].sum()) if not df_out.empty else 0
 
   tot_m_on = int(df_out['MTD (ON)'].sum()) if not df_out.empty else 0
-  tot_n_on = (
-      int(df_out['Phát sinh Ngày (ON)'].sum()) if not df_out.empty else 0
-  )
+  tot_n_on = int(df_out['Phát sinh Ngày (ON)'].sum()) if not df_out.empty else 0
   tot_pct_on = round(tot_m_on / tot_tgt_on * 100, 1) if tot_tgt_on else 0
+  tot_s_on_n = int(df_out['Suất Ngày (ON)'].sum()) if not df_out.empty else 0
+  tot_s_on_m = int(df_out['Suất MTD (ON)'].sum()) if not df_out.empty else 0
 
   total_row = pd.DataFrame([{
       'STT': '-',
       'Tên NVBH': (
           'SS Trương Thanh Tân Total'
-          if not nv_selected(filter_nv)
-          else nv_label(filter_nv)
+          if not nv_selected(filter_nv) else nv_label(filter_nv)
       ),
       'Target (OFF)': tot_tgt_off,
       'Phát sinh Ngày (OFF)': tot_n_off,
       'MTD (OFF)': tot_m_off,
       '% MTD (OFF)': f'{tot_pct_off}%',
+      'Suất Ngày (OFF)': tot_s_off_n,
+      'Suất MTD (OFF)': tot_s_off_m,
       'Target (ON)': tot_tgt_on,
       'Phát sinh Ngày (ON)': tot_n_on,
       'MTD (ON)': tot_m_on,
       '% MTD (ON)': f'{tot_pct_on}%',
+      'Suất Ngày (ON)': tot_s_on_n,
+      'Suất MTD (ON)': tot_s_on_m,
   }])
   return pd.concat([df_out, total_row], ignore_index=True), tot_tgt_off, tot_tgt_on
 
