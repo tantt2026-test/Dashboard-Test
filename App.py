@@ -13427,8 +13427,61 @@ def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter
   except Exception:
     rows.append({'name': 'Doanh số', 'th': 0, 'ct': 0, 'pct': 0, 'fmt': 'money'})
 
+  # PC BT / Call Plan OFF — ngay dưới Doanh số
+  # TH = PC ≥1 line MOQ | CT = tổng CH OFF trên MCP (Call Plan tháng)
+  try:
+    df_pc, _, _ = build_report(df, report_date, targets, 'PC_BT', filter_nv, mcp_df=mcp_df)
+    th_pc = 0.0
+    if df_pc is not None and not df_pc.empty:
+      name_col = 'Tên NVBH' if 'Tên NVBH' in df_pc.columns else None
+      body = df_pc
+      if name_col:
+        body = df_pc[~df_pc[name_col].astype(str).str.upper().str.contains('TOTAL|TỔNG', na=False, regex=True)]
+      col_mtd = next((c for c in body.columns if str(c).lower() in ('mtd',) or str(c).lower() == 'thực hiện'), None)
+      if col_mtd is None:
+        for c in body.columns:
+          if 'mtd' in str(c).lower():
+            col_mtd = c
+            break
+      if col_mtd:
+        th_pc = float(pd.to_numeric(body[col_mtd], errors='coerce').fillna(0).sum())
+
+    # Call Plan OFF = tổng unique CH kênh OFF trên MCP (theo filter NV nếu có)
+    call_plan_off = 0
+    if mcp_df is not None and not mcp_df.empty:
+      m = mcp_df.copy()
+      c_ma = find_col(m, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Ma CH', 'Customer Code'])
+      c_l1 = find_col(m, ['L1', 'Kênh', 'Channel', 'Loại hình'])
+      c_sm = find_col(m, ['SM Code', 'Mã NVBH', 'SM code', 'SM Name', 'Tên NVBH'])
+      if filter_nv and c_sm:
+        if isinstance(filter_nv, (list, tuple, set)):
+          m = m[m[c_sm].astype(str).isin([str(x) for x in filter_nv])]
+        else:
+          m = m[m[c_sm].astype(str).str.contains(str(filter_nv), case=False, na=False)]
+      if c_l1 is not None:
+        is_off = ~m[c_l1].astype(str).str.contains('On|ON|on', case=False, na=False)
+        # ưu tiên nhận diện rõ OFF
+        is_off2 = m[c_l1].astype(str).str.contains('Off|OFF|off', case=False, na=False)
+        m = m[is_off2 | is_off]
+        # loại dòng rõ ràng là ON
+        m = m[~m[c_l1].astype(str).str.contains(r'\bOn\b|\bON\b', case=False, na=False, regex=True)]
+      if c_ma is not None and not m.empty:
+        call_plan_off = int(m[c_ma].astype(str).str.strip().nunique())
+      else:
+        call_plan_off = int(len(m))
+
+    pct_pc = (th_pc / call_plan_off * 100) if call_plan_off else 0
+    rows.append({
+        'name': 'PC BT / Call Plan OFF',
+        'th': th_pc,
+        'ct': call_plan_off,
+        'pct': pct_pc,
+        'fmt': 'num',
+    })
+  except Exception:
+    rows.append({'name': 'PC BT / Call Plan OFF', 'th': 0, 'ct': 0, 'pct': 0, 'fmt': 'num'})
+
   kpi_list = [
-    ('PC_BT', 'PC BT', 'num'),
     ('LPPC', 'LPPC OFF (trừ Meat, Beer)', 'float'),
     ('ASO_ALL', 'ASO ALL', 'num'),
     ('ASO_FOCUS', 'Trận Xanh · Tea365', 'num'),
