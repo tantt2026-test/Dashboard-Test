@@ -12913,11 +12913,11 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
 
 
 
+
 def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=None, mcp_df=None):
   """CH trong DS Combo OFF/ON có ĐH ngày đạt ngưỡng DS nhưng KHÔNG có KM Combo.
 
-  OFF: Giá trị ĐH ≥ 800.000đ và không có line KM Combo
-  ON : Giá trị ĐH ≥ 300.000đ và không có line KM Combo
+  OFF ≥ 800.000đ · ON ≥ 300.000đ · không có line KM Combo (Chinsu250 / WakeUP247 / CK20k).
   """
   empty = pd.DataFrame(columns=[
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
@@ -12929,7 +12929,7 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
     if df_master is None or (hasattr(df_master, 'empty') and df_master.empty):
       return empty
 
-    min_sales = 800000 if str(channel).upper() == 'OFF' else 300000
+    min_sales = 800000.0 if str(channel).upper() == 'OFF' else 300000.0
     rd = report_date.date() if hasattr(report_date, 'date') else report_date
     d = df_rpt[df_rpt['date'] == rd].copy()
     if d.empty:
@@ -12940,61 +12940,90 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
     if d.empty:
       return empty
 
-    c_ma_m = find_col(df_master, [
-        'Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH', 'Customer Code',
-        'Ship-to', 'Ship To', 'Ship-To', 'Mã cửa hàng', 'Outlet',
-    ])
+    def _nc(x):
+      s = str(x).strip()
+      if not s or s.lower() in ('nan', 'none', ''):
+        return ''
+      if s.endswith('.0'):
+        s = s[:-2]
+      try:
+        return str(int(float(s)))
+      except Exception:
+        return s
+
+    # Master CH — ưu tiên outlet_code (cùng build_combo_matrix)
+    c_ma_m = None
+    for cand in ['outlet_code', 'Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH',
+                 'Customer Code', 'Ship-to', 'Ship To', 'Ship-To']:
+      if cand in df_master.columns:
+        c_ma_m = cand
+        break
+    if c_ma_m is None:
+      c_ma_m = find_col(df_master, [
+          'outlet_code', 'Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH',
+          'Customer Code', 'Ship-to', 'Ship To',
+      ])
     if not c_ma_m:
+      # fuzzy column name
       for c in df_master.columns:
-        cl = str(c).lower()
-        if ('mã' in cl or 'ma' in cl or 'code' in cl) and (
-            'ch' in cl or 'kh' in cl or 'outlet' in cl or 'ship' in cl
-        ):
+        cl = str(c).lower().replace(' ', '').replace('_', '')
+        if 'outlet' in cl or cl in ('mach', 'makh', 'customercode', 'shipto'):
           c_ma_m = c
           break
     if not c_ma_m:
       return empty
-    master_set = set()
-    for x in df_master[c_ma_m].dropna().astype(str):
-      s = str(x).strip()
-      if s and s.lower() not in ('nan', 'none'):
-        master_set.add(s.replace('.0', ''))
+    master_set = {_nc(x) for x in df_master[c_ma_m].dropna().tolist()}
+    master_set.discard('')
     if not master_set:
       return empty
 
-    ma_col = find_col(d, ['Mã CH', 'Mã KH', 'Outlet_code', 'Outlet Code'])
+    ma_col = find_col(d, ['Mã CH', 'Mã KH', 'Outlet_code', 'Outlet Code', 'outlet_code'])
     if not ma_col:
       return empty
     d = d.copy()
-    d['_ma'] = d[ma_col].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    d['_ma'] = d[ma_col].map(_nc)
     d = d[d['_ma'].isin(master_set)].copy()
     if d.empty:
       return empty
 
-    # Tag combo để biết ĐH nào đã có KM Combo
+    # Đảm bảo có Mã đơn hàng
+    if 'Mã đơn hàng' not in d.columns:
+      for c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH', 'Doc No']:
+        if c in d.columns:
+          d['Mã đơn hàng'] = d[c].astype(str)
+          break
+    if 'Mã đơn hàng' not in d.columns:
+      return empty
+
+    # Tag combo
     tagged = tag_combo_orders_t10(d, mcp_df=mcp_df)
     if tagged is None or tagged.empty:
       tagged = d.copy()
       tagged['is_combo'] = False
-    if 'is_combo' not in tagged.columns:
+    else:
+      # merge is_combo back if needed
+      if 'is_combo' not in tagged.columns:
+        tagged['is_combo'] = False
+    if 'Mã đơn hàng' not in tagged.columns:
+      tagged = d.copy()
       tagged['is_combo'] = False
-    if 'Mã đơn hàng' not in tagged.columns:
-      for c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH']:
-        if c in tagged.columns:
-          tagged['Mã đơn hàng'] = tagged[c].astype(str)
-          break
-    if 'Mã đơn hàng' not in tagged.columns:
-      return empty
 
     val_col = find_col(tagged, [
-        'Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Tổng tiền', 'Giá trị sau CK',
+        'Thành tiền trước CK', 'Thành tiền trước chiết khấu',
+        'Tổng tiền', 'Giá trị sau CK', 'Thanh tien truoc CK',
     ])
-    tagged['_sales'] = pd.to_numeric(tagged[val_col], errors='coerce').fillna(0) if val_col else 0
+    if val_col:
+      tagged['_sales'] = pd.to_numeric(tagged[val_col], errors='coerce').fillna(0)
+    else:
+      tagged['_sales'] = 0
 
-    # Aggregate by order
-    order_sales = tagged.groupby('Mã đơn hàng')['_sales'].sum()
-    order_is_combo = tagged.groupby('Mã đơn hàng')['is_combo'].any()
-    order_ma = tagged.groupby('Mã đơn hàng')['_ma'].first()
+    # Keep _ma
+    if '_ma' not in tagged.columns:
+      tagged['_ma'] = tagged[ma_col].map(_nc) if ma_col in tagged.columns else ''
+
+    order_sales = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['_sales'].sum()
+    order_combo = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['is_combo'].any() if 'is_combo' in tagged.columns else pd.Series(dtype=bool)
+    order_ma = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['_ma'].first()
 
     ten_kh_col = find_col(tagged, ['Tên CH', 'Tên khách hàng', 'Tên Cửa hàng'])
     nv_col = find_col(tagged, ['Tên NVBH', 'Tên NV', 'SM name', 'Nhân viên'])
@@ -13004,21 +13033,24 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
     for ma_dh, sales in order_sales.items():
       if float(sales) < min_sales:
         continue
-      if bool(order_is_combo.get(ma_dh, False)):
-        continue  # đã có KM Combo → bỏ
+      is_c = False
+      try:
+        is_c = bool(order_combo.get(ma_dh, False))
+      except Exception:
+        is_c = False
+      if is_c:
+        continue
       g = tagged[tagged['Mã đơn hàng'].astype(str) == str(ma_dh)]
-      ma_kh = str(order_ma.get(ma_dh, ''))
-      ten_kh = ''
+      ma_kh = str(order_ma.get(ma_dh, '') or '')
+      ten_kh, nv, l1 = '', '', channel
       if ten_kh_col is not None and not g.empty:
         vv = g[ten_kh_col].dropna().astype(str).str.strip()
         if not vv.empty:
           ten_kh = vv.iloc[0]
-      nv = ''
       if nv_col is not None and not g.empty:
         vv = g[nv_col].dropna().astype(str).str.strip()
         if not vv.empty:
           nv = vv.iloc[0]
-      l1 = channel
       if l1_col is not None and not g.empty:
         vv = g[l1_col].dropna().astype(str).str.strip()
         if not vv.empty:
@@ -13032,7 +13064,7 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
           'Giá trị ĐH [Doanh Số]': f'{float(sales):,.0f}'.replace(',', '.'),
           'Ngày ĐH': rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd),
           'Loại Hình L1': l1,
-          'Ghi chú': f'ĐH ≥ {min_sales:,.0f}đ · Không có KM Combo {channel}'.replace(',', '.'),
+          'Ghi chú': f'ĐH ≥ {min_sales:,.0f}đ · Không KM Combo {channel}'.replace(',', '.'),
           '_sales': float(sales),
       })
     if not rows:
@@ -13040,8 +13072,14 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
     out = pd.DataFrame(rows).sort_values(['Tên NVBH', 'Mã KH']).reset_index(drop=True)
     out['STT'] = range(1, len(out) + 1)
     return out
-  except Exception:
+  except Exception as e:
+    try:
+      import streamlit as _st
+      _st.caption(f'(Combo miss {channel}: {e})')
+    except Exception:
+      pass
     return empty
+
 
 
 def build_combo_miss_summary(df_miss_off, df_miss_on):
@@ -13665,7 +13703,9 @@ def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter
         th_pc = float(pd.to_numeric(body[col_mtd], errors='coerce').fillna(0).sum())
 
     y, mth = report_date.year, report_date.month
-    n_days = calendar.monthrange(y, mth)[1]
+    # Chỉ cộng đến ngày xem báo cáo (MTD), không lấy full tháng
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
+    n_days = int(rd.day) if getattr(rd, 'month', mth) == mth and getattr(rd, 'year', y) == y else calendar.monthrange(y, mth)[1]
     ch_map = build_mcp_channel_map(mcp_df) if mcp_df is not None else {}
 
     def _thu_to_weekdays(thu_val):
