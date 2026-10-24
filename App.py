@@ -13081,6 +13081,10 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
     order_sales = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['_sales'].sum()
     order_combo = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['is_combo'].any()
     order_ma = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['_ma'].first()
+    if 'date' in tagged.columns:
+      order_date = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['date'].first()
+    else:
+      order_date = pd.Series(dtype=object)
 
     ten_kh_col = find_col(tagged, ['Tên CH', 'Tên khách hàng', 'Tên Cửa hàng'])
     nv_col = find_col(tagged, ['Tên NVBH', 'Tên NV', 'SM name', 'Nhân viên'])
@@ -13109,6 +13113,16 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
         vv = g[l1_col].dropna().astype(str).str.strip()
         if not vv.empty:
           l1 = vv.iloc[0]
+      # Ngày ĐH thực tế của đơn
+      od = order_date.get(ma_dh, rd) if len(order_date) else rd
+      try:
+        if hasattr(od, 'strftime'):
+          ngay_str = od.strftime('%d/%m/%Y')
+        else:
+          od2 = pd.to_datetime(od, errors='coerce')
+          ngay_str = od2.strftime('%d/%m/%Y') if pd.notna(od2) else str(od)
+      except Exception:
+        ngay_str = str(od)
       rows.append({
           'STT': 0,
           'Tên NVBH': nv,
@@ -13116,10 +13130,11 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
           'Tên KH': ten_kh,
           'Mã ĐH': str(ma_dh),
           'Giá trị ĐH [Doanh Số]': f'{float(sales):,.0f}'.replace(',', '.'),
-          'Ngày ĐH': rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd),
+          'Ngày ĐH': ngay_str,
           'Loại Hình L1': l1,
           'Ghi chú': f'Có trong DS Combo {channel} · Đạt ĐK chính (≥{min_sales:,.0f}đ) · Thiếu ĐK phụ/KM'.replace(',', '.'),
           '_sales': float(sales),
+          '_date': od if hasattr(od, 'year') else rd,
       })
     if not rows:
       return empty
@@ -17122,11 +17137,29 @@ with tab_kpi:
       )
     f4, f5, f6 = st.columns(3)
     with f4:
-      st.markdown('<p class="filter-label">📅 Ngày ĐH</p>', unsafe_allow_html=True)
-      miss_f_ngay = st.multiselect(
-          'miss_ngay', _opts('Ngày ĐH'), default=[],
-          key='combo_miss_ngay', label_visibility='collapsed',
-      )
+      st.markdown('<p class="filter-label">📅 Ngày ĐH (lịch tháng)</p>', unsafe_allow_html=True)
+      _rd = report_date.date() if hasattr(report_date, 'date') else report_date
+      _ms = date(_rd.year, _rd.month, 1)
+      try:
+        miss_f_ngay = st.date_input(
+            'miss_ngay',
+            value=(_ms, _rd),
+            min_value=_ms,
+            max_value=_rd,
+            format='DD/MM/YYYY',
+            key='combo_miss_ngay',
+            label_visibility='collapsed',
+        )
+      except Exception:
+        miss_f_ngay = st.date_input(
+            'miss_ngay',
+            value=_rd,
+            min_value=_ms,
+            max_value=_rd,
+            format='DD/MM/YYYY',
+            key='combo_miss_ngay',
+            label_visibility='collapsed',
+        )
     with f5:
       st.markdown('<p class="filter-label">🏷️ L1</p>', unsafe_allow_html=True)
       miss_f_l1 = st.multiselect(
@@ -17146,8 +17179,28 @@ with tab_kpi:
         out = out[out['Mã KH'].astype(str).str.strip().isin(miss_f_ma)]
       if miss_f_ten and 'Tên KH' in out.columns:
         out = out[out['Tên KH'].astype(str).str.strip().isin(miss_f_ten)]
-      if miss_f_ngay and 'Ngày ĐH' in out.columns:
-        out = out[out['Ngày ĐH'].astype(str).str.strip().isin(miss_f_ngay)]
+      # Ngày ĐH: lịch tháng (range hoặc 1 ngày)
+      if miss_f_ngay is not None and 'Ngày ĐH' in out.columns:
+        try:
+          if isinstance(miss_f_ngay, (list, tuple)) and len(miss_f_ngay) == 2:
+            d0, d1 = miss_f_ngay[0], miss_f_ngay[1]
+            if d0 is not None and d1 is not None:
+              def _in_range(s):
+                try:
+                  dt = pd.to_datetime(str(s), dayfirst=True, errors='coerce')
+                  if pd.isna(dt):
+                    return False
+                  dd = dt.date() if hasattr(dt, 'date') else dt
+                  return d0 <= dd <= d1
+                except Exception:
+                  return False
+              out = out[out['Ngày ĐH'].apply(_in_range)]
+          elif hasattr(miss_f_ngay, 'strftime'):
+            # single date
+            ds = miss_f_ngay.strftime('%d/%m/%Y')
+            out = out[out['Ngày ĐH'].astype(str).str.strip() == ds]
+        except Exception:
+          pass
       if miss_f_l1 and 'Loại Hình L1' in out.columns:
         out = out[out['Loại Hình L1'].astype(str).str.strip().isin(miss_f_l1)]
       if not out.empty and 'STT' in out.columns:
