@@ -17078,7 +17078,93 @@ with tab_kpi:
     df_miss_on = build_combo_miss_detail(
         df, report_date, df_combo_on, 'ON', filter_nv, mcp_df=mcp
     )
-    df_miss_sum = build_combo_miss_summary(df_miss_off, df_miss_on)
+
+    # ---- Bộ lọc chung cho 3 bảng miss ----
+    _miss_all = pd.concat(
+        [x for x in [df_miss_off, df_miss_on] if x is not None and not x.empty],
+        ignore_index=True,
+    ) if (
+        (df_miss_off is not None and not df_miss_off.empty)
+        or (df_miss_on is not None and not df_miss_on.empty)
+    ) else pd.DataFrame()
+
+    def _opts(col):
+      if _miss_all.empty or col not in _miss_all.columns:
+        return []
+      return sorted([
+          str(x) for x in _miss_all[col].dropna().astype(str).str.strip().unique()
+          if str(x).strip() and str(x).strip().lower() not in ('nan', 'none', '')
+      ])
+
+    st.markdown(
+        '<p style="font-weight:800;color:#034ea2;margin:12px 0 4px 0;font-size:13px;">'
+        '🔎 Bộ lọc bảng Miss Combo (áp dụng chung 3 bảng)</p>',
+        unsafe_allow_html=True,
+    )
+    f1, f2, f3 = st.columns(3)
+    with f1:
+      st.markdown('<p class="filter-label">👤 Tên NVBH</p>', unsafe_allow_html=True)
+      miss_f_nv = st.multiselect(
+          'miss_nv', _opts('Tên NVBH'), default=[],
+          key='combo_miss_nv', label_visibility='collapsed',
+      )
+    with f2:
+      st.markdown('<p class="filter-label">🆔 Mã KH</p>', unsafe_allow_html=True)
+      miss_f_ma = st.multiselect(
+          'miss_ma', _opts('Mã KH'), default=[],
+          key='combo_miss_ma', label_visibility='collapsed',
+      )
+    with f3:
+      st.markdown('<p class="filter-label">🏪 Tên KH</p>', unsafe_allow_html=True)
+      miss_f_ten = st.multiselect(
+          'miss_ten', _opts('Tên KH'), default=[],
+          key='combo_miss_ten', label_visibility='collapsed',
+      )
+    f4, f5, f6 = st.columns(3)
+    with f4:
+      st.markdown('<p class="filter-label">📅 Ngày ĐH</p>', unsafe_allow_html=True)
+      miss_f_ngay = st.multiselect(
+          'miss_ngay', _opts('Ngày ĐH'), default=[],
+          key='combo_miss_ngay', label_visibility='collapsed',
+      )
+    with f5:
+      st.markdown('<p class="filter-label">🏷️ L1</p>', unsafe_allow_html=True)
+      miss_f_l1 = st.multiselect(
+          'miss_l1', _opts('Loại Hình L1'), default=[],
+          key='combo_miss_l1', label_visibility='collapsed',
+      )
+    with f6:
+      st.write('')
+
+    def _apply_miss_filters(df_in):
+      if df_in is None or df_in.empty:
+        return df_in if df_in is not None else pd.DataFrame()
+      out = df_in.copy()
+      if miss_f_nv and 'Tên NVBH' in out.columns:
+        out = out[out['Tên NVBH'].astype(str).str.strip().isin(miss_f_nv)]
+      if miss_f_ma and 'Mã KH' in out.columns:
+        out = out[out['Mã KH'].astype(str).str.strip().isin(miss_f_ma)]
+      if miss_f_ten and 'Tên KH' in out.columns:
+        out = out[out['Tên KH'].astype(str).str.strip().isin(miss_f_ten)]
+      if miss_f_ngay and 'Ngày ĐH' in out.columns:
+        out = out[out['Ngày ĐH'].astype(str).str.strip().isin(miss_f_ngay)]
+      if miss_f_l1 and 'Loại Hình L1' in out.columns:
+        out = out[out['Loại Hình L1'].astype(str).str.strip().isin(miss_f_l1)]
+      if not out.empty and 'STT' in out.columns:
+        out = out.reset_index(drop=True)
+        # giữ dòng TỔNG nếu có
+        is_tot = out['Tên NVBH'].astype(str).str.upper().str.contains('TỔNG|TOTAL', na=False)
+        body = out[~is_tot].copy()
+        if not body.empty and 'STT' in body.columns:
+          body['STT'] = range(1, len(body) + 1)
+        tot = out[is_tot]
+        out = pd.concat([body, tot], ignore_index=True) if not tot.empty else body
+      return out
+
+    df_miss_off_f = _apply_miss_filters(df_miss_off)
+    df_miss_on_f = _apply_miss_filters(df_miss_on)
+    df_miss_sum = build_combo_miss_summary(df_miss_off_f, df_miss_on_f)
+
     if df_miss_sum is not None and not df_miss_sum.empty:
       st.markdown(
           '<p style="font-weight:800;color:#034ea2;margin:14px 0 6px 0;">'
@@ -17088,6 +17174,8 @@ with tab_kpi:
           unsafe_allow_html=True,
       )
       st.markdown(render_html_table(df_miss_sum), unsafe_allow_html=True)
+    else:
+      st.caption('Không có dữ liệu tổng hợp miss Combo với bộ lọc hiện tại.')
 
     _n_off = 0 if df_combo_off is None or df_combo_off.empty else len(df_combo_off)
     _n_on = 0 if df_combo_on is None or df_combo_on.empty else len(df_combo_on)
@@ -17097,11 +17185,11 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
     st.caption(f'Đối chiếu Danh Sách KH Áp Dụng Combo OFF ({_n_off:,} CH trên Github)')
-    if df_miss_off is not None and not df_miss_off.empty:
-      st.markdown(render_combo_orders_html(df_miss_off), unsafe_allow_html=True)
-      st.caption(f'Hiển thị: {len(df_miss_off):,} đơn hàng')
+    if df_miss_off_f is not None and not df_miss_off_f.empty:
+      st.markdown(render_combo_orders_html(df_miss_off_f), unsafe_allow_html=True)
+      st.caption(f'Hiển thị: {len(df_miss_off_f):,} đơn hàng')
     else:
-      st.caption('Không có KH trong DS Combo OFF đạt ĐK chính mà thiếu KM Combo trong ngày đang chọn.')
+      st.caption('Không có KH trong DS Combo OFF đạt ĐK chính mà thiếu KM Combo (theo bộ lọc).')
 
     st.markdown(
         '<p style="font-weight:800;color:#c53030;margin:14px 0 6px 0;">'
@@ -17109,11 +17197,11 @@ with tab_kpi:
         unsafe_allow_html=True,
     )
     st.caption(f'Đối chiếu Danh Sách KH Áp Dụng Combo ON ({_n_on:,} CH trên Github)')
-    if df_miss_on is not None and not df_miss_on.empty:
-      st.markdown(render_combo_orders_html(df_miss_on), unsafe_allow_html=True)
-      st.caption(f'Hiển thị: {len(df_miss_on):,} đơn hàng')
+    if df_miss_on_f is not None and not df_miss_on_f.empty:
+      st.markdown(render_combo_orders_html(df_miss_on_f), unsafe_allow_html=True)
+      st.caption(f'Hiển thị: {len(df_miss_on_f):,} đơn hàng')
     else:
-      st.caption('Không có KH trong DS Combo ON đạt ĐK chính mà thiếu KM Combo trong ngày đang chọn.')
+      st.caption('Không có KH trong DS Combo ON đạt ĐK chính mà thiếu KM Combo (theo bộ lọc).')
 
 
     st.markdown(
