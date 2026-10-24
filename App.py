@@ -17185,6 +17185,10 @@ with tab_kpi:
     total_on = int(total_row['MTD (ON)'])
     ngay_off = int(total_row['Phát sinh Ngày (OFF)'])
     ngay_on = int(total_row['Phát sinh Ngày (ON)'])
+    suat_off_n = int(total_row.get('Suất Ngày (OFF)', 0) or 0)
+    suat_off_m = int(total_row.get('Suất MTD (OFF)', 0) or 0)
+    suat_on_n = int(total_row.get('Suất Ngày (ON)', 0) or 0)
+    suat_on_m = int(total_row.get('Suất MTD (ON)', 0) or 0)
 
     pct_off_team = (
         round(total_off / target_off_total * 100, 1)
@@ -17221,6 +17225,18 @@ with tab_kpi:
       render_metric_card('Phát sinh Ngày (OFF)', f'+{ngay_off}')
     with c4:
       render_metric_card('Phát sinh Ngày (ON)', f'+{ngay_on}')
+
+    c5, c6 = st.columns(2)
+    with c5:
+      render_metric_card(
+          'Số Suất OFF (TH Ngày / MTD)',
+          f'{suat_off_n:,} / {suat_off_m:,}',
+      )
+    with c6:
+      render_metric_card(
+          'Số Suất ON (TH Ngày / MTD)',
+          f'{suat_on_n:,} / {suat_on_m:,}',
+      )
 
     df_eval_off = df_combo.iloc[:-1].copy()
     df_eval_off['_pct_val_off'] = (
