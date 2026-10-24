@@ -12981,7 +12981,15 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
 
     min_sales = 800000.0 if str(channel).upper() == 'OFF' else 300000.0
     rd = report_date.date() if hasattr(report_date, 'date') else report_date
-    d = df_rpt[df_rpt['date'] == rd].copy()
+    month_start = date(rd.year, rd.month, 1)
+    # Chuẩn hoá cột date → date thuần để so sánh MTD
+    d = df_rpt.copy()
+    if 'date' in d.columns:
+      _dd = pd.to_datetime(d['date'], errors='coerce')
+      d['_d'] = _dd.dt.date
+      d = d[(d['_d'] >= month_start) & (d['_d'] <= rd)].copy()
+    else:
+      d = d.iloc[0:0].copy()
     if d.empty:
       return empty
     if nv_selected(filter_nv) and 'Tên NVBH' in d.columns:
@@ -13081,7 +13089,9 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
     order_sales = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['_sales'].sum()
     order_combo = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['is_combo'].any()
     order_ma = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['_ma'].first()
-    if 'date' in tagged.columns:
+    if '_d' in tagged.columns:
+      order_date = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['_d'].first()
+    elif 'date' in tagged.columns:
       order_date = tagged.groupby(tagged['Mã đơn hàng'].astype(str))['date'].first()
     else:
       order_date = pd.Series(dtype=object)
