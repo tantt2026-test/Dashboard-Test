@@ -1131,8 +1131,12 @@ def set_color_moc_for_kpi(kpi_key, total_pct=None):
   """
   global _CURRENT_SALARY_KPI
   _CURRENT_SALARY_KPI = str(kpi_key)
-  if kpi_key == 'COMBO' and total_pct is not None:
-    set_color_moc(total_pct)
+  if kpi_key == 'COMBO':
+    # Tô màu % theo Timegone (giống các KPI khác)
+    try:
+      set_color_moc(float(_CURRENT_TIMEGONE))
+    except Exception:
+      set_color_moc(100.0)
     return
 
   kpi_key = str(kpi_key)
@@ -13358,11 +13362,7 @@ def render_combo_matrix_html(df):
       return str(v) if v is not None else '-'
 
   def pct_class_and_style(v, is_total=False):
-    """Cùng rule tô màu % với Tab KPI (class + inline)."""
-    if is_total:
-      return '', (
-          'background-color:#1a365d !important;color:#ffffff !important;font-weight:800 !important;'
-      )
+    """Cùng rule tô màu % với Tab KPI theo Timegone (cả dòng Total)."""
     raw = v
     try:
       cls = color_pct_class(raw, moc=_CURRENT_COLOR_MOC) or ''
