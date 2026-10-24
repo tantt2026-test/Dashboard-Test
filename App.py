@@ -12957,7 +12957,7 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
         'Giá trị ĐH [Doanh Số]': int(round(float(g['_sales'].sum()), 0)),
         'Ngày ĐH': ngay_s,
         'Loại Hình L1': l1,
-        'Sản Phẩm Khuyến Mãi': ' | '.join(promo_names),
+        'Sản Phẩm Khuyến Mãi': (' | '.join(promo_names) if promo_names else ('Chiết khấu 20.000đ' if has_ck_20k else '')),
     })
 
   if not rows:
