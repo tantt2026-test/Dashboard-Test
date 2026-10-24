@@ -6028,6 +6028,20 @@ def tag_combo_orders_t10(df_mtd, mcp_df=None):
   else:
     d['is_combo'] = d['_line_combo']
 
+  # CV 433: chỉ tính ĐH đạt ĐK chính theo kênh
+  # OFF ≥800k | ON ≥300k
+  val_col = None
+  for c in ['Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Tổng tiền', 'Giá trị sau CK']:
+    if c in d.columns:
+      val_col = c
+      break
+  if val_col and 'Mã đơn hàng' in d.columns:
+    d['_line_sales'] = pd.to_numeric(d[val_col], errors='coerce').fillna(0)
+    order_sales = d.groupby(d['Mã đơn hàng'].astype(str))['_line_sales'].transform('sum')
+    ch = d['channel'].astype(str).str.upper() if 'channel' in d.columns else pd.Series('OFF', index=d.index)
+    min_req = ch.map(lambda x: 300000.0 if ('ON' in str(x) and 'OFF' not in str(x)) else 800000.0)
+    d['is_combo'] = d['is_combo'] & (order_sales >= min_req)
+
   combo = d[d['is_combo']].copy()
   return combo
 
