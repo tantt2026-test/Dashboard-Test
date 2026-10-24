@@ -13282,6 +13282,112 @@ def render_combo_orders_html(df):
 
 
 
+
+def render_combo_miss_table(df, title, key_prefix):
+  """Bảng chi tiết miss Combo: max 25 dòng cuộn dọc, sticky STT + Tên NVBH, toolbar CSV/Full."""
+  if df is None or df.empty:
+    return
+  df = df.drop(columns=['Mã NVBH', '_sales', '_date'], errors='ignore').copy()
+  cols = [
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'Loại Hình L1', 'Ghi chú',
+  ]
+  for c in cols:
+    if c not in df.columns:
+      df[c] = ''
+  df = df[[c for c in cols if c in df.columns]]
+
+  t1, t2, t3 = st.columns([2.2, 1.1, 1])
+  with t1:
+    st.markdown(
+        f'<p style="font-weight:800;color:#1a365d;margin:8px 0 4px 0;font-size:14px;">'
+        f'📋 {title}</p>',
+        unsafe_allow_html=True,
+    )
+  with t2:
+    show_full = st.checkbox('🔍 Xem full bảng', key=f'{key_prefix}_full', value=False)
+  with t3:
+    csv_bytes = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        '⬇️ Tải CSV',
+        data=csv_bytes,
+        file_name=f'{key_prefix}.csv',
+        mime='text/csv',
+        key=f'{key_prefix}_csv',
+    )
+
+  w_stt, w_nv = 48, 160
+  max_h = 'none' if show_full else '920px'
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:8px 6px;font-size:12px;'
+      'white-space:nowrap;'
+  )
+  th_sticky = th + 'position:sticky;top:0;z-index:5;'
+  td_base = (
+      'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
+      'text-align:center !important;white-space:nowrap;'
+  )
+
+  html = [
+      f'<div style="overflow:auto;max-height:{max_h};-webkit-overflow-scrolling:touch;'
+      f'border:1px solid #bee3f8;border-radius:6px;">',
+      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
+      'min-width:980px;font-family:Arial,sans-serif;">',
+      '<thead><tr>',
+  ]
+  for c in df.columns:
+    if c == 'STT':
+      html.append(
+          f'<th style="{th_sticky}left:0;z-index:7;min-width:{w_stt}px;'
+          f'box-shadow:2px 0 4px rgba(0,0,0,.08);">{c}</th>'
+      )
+    elif c == 'Tên NVBH':
+      html.append(
+          f'<th style="{th_sticky}left:{w_stt}px;z-index:7;min-width:{w_nv}px;'
+          f'box-shadow:2px 0 4px rgba(0,0,0,.08);">{c}</th>'
+      )
+    else:
+      html.append(f'<th style="{th_sticky}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr>')
+    for c in df.columns:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Ghi chú') else 'center'
+      if c == 'STT':
+        html.append(
+            f'<td style="{td_base}background-color:{bg} !important;text-align:{al};'
+            f'position:sticky;left:0;z-index:3;min-width:{w_stt}px;'
+            f'box-shadow:2px 0 4px rgba(0,0,0,.06);">{val}</td>'
+        )
+      elif c == 'Tên NVBH':
+        html.append(
+            f'<td style="{td_base}background-color:{bg} !important;text-align:left;'
+            f'position:sticky;left:{w_stt}px;z-index:3;min-width:{w_nv}px;'
+            f'box-shadow:2px 0 4px rgba(0,0,0,.06);font-weight:600;">{val}</td>'
+        )
+      else:
+        html.append(
+            f'<td style="{td_base}background-color:{bg} !important;text-align:{al};">{val}</td>'
+        )
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  if not show_full and len(df) > 25:
+    html.append(
+        f'<p style="font-size:11px;color:#718096;margin:4px 0 0 0;">'
+        f'Cuộn dọc (~25 dòng khung nhìn) · Tổng {len(df):,} dòng · '
+        f'Bật "Xem full bảng" hoặc Tải CSV để xem hết.</p>'
+    )
+  st.markdown(''.join(html), unsafe_allow_html=True)
+
+
+
 def build_performance_comments(df):
   """Nhận xét 5 chỉ số: SO, VT KO ĐH, ASO Xanh, ASO Vàng, Trái tuyến & VIP."""
   if df is None or df.empty:
@@ -17242,28 +17348,35 @@ with tab_kpi:
 
     _n_off = 0 if df_combo_off is None or df_combo_off.empty else len(df_combo_off)
     _n_on = 0 if df_combo_on is None or df_combo_on.empty else len(df_combo_on)
-    st.markdown(
-        '<p style="font-weight:800;color:#c53030;margin:14px 0 6px 0;">'
-        '⚠️ KH ∈ DS Combo OFF — ĐH ≥ 800.000đ nhưng <u>thiếu ĐK phụ / không có KM Combo</u></p>',
-        unsafe_allow_html=True,
-    )
-    st.caption(f'Đối chiếu Danh Sách KH Áp Dụng Combo OFF ({_n_off:,} CH trên Github)')
     if df_miss_off_f is not None and not df_miss_off_f.empty:
-      st.markdown(render_combo_orders_html(df_miss_off_f), unsafe_allow_html=True)
-      st.caption(f'Hiển thị: {len(df_miss_off_f):,} đơn hàng')
+      render_combo_miss_table(
+          df_miss_off_f, 'CHI TIẾT ĐH COMBO OFF', 'combo_miss_off'
+      )
+      st.caption(
+          f'Đối chiếu DS Combo OFF ({_n_off:,} CH) · {len(df_miss_off_f):,} đơn hàng'
+      )
     else:
+      st.markdown(
+          '<p style="font-weight:800;color:#1a365d;margin:8px 0 4px 0;">'
+          '📋 CHI TIẾT ĐH COMBO OFF</p>',
+          unsafe_allow_html=True,
+      )
       st.caption('Không có KH trong DS Combo OFF đạt ĐK chính mà thiếu KM Combo (theo bộ lọc).')
 
-    st.markdown(
-        '<p style="font-weight:800;color:#c53030;margin:14px 0 6px 0;">'
-        '⚠️ KH ∈ DS Combo ON — ĐH ≥ 300.000đ nhưng <u>thiếu ĐK phụ / không có KM Combo</u></p>',
-        unsafe_allow_html=True,
-    )
-    st.caption(f'Đối chiếu Danh Sách KH Áp Dụng Combo ON ({_n_on:,} CH trên Github)')
+    st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
     if df_miss_on_f is not None and not df_miss_on_f.empty:
-      st.markdown(render_combo_orders_html(df_miss_on_f), unsafe_allow_html=True)
-      st.caption(f'Hiển thị: {len(df_miss_on_f):,} đơn hàng')
+      render_combo_miss_table(
+          df_miss_on_f, 'CHI TIẾT ĐH COMBO ON', 'combo_miss_on'
+      )
+      st.caption(
+          f'Đối chiếu DS Combo ON ({_n_on:,} CH) · {len(df_miss_on_f):,} đơn hàng'
+      )
     else:
+      st.markdown(
+          '<p style="font-weight:800;color:#1a365d;margin:8px 0 4px 0;">'
+          '📋 CHI TIẾT ĐH COMBO ON</p>',
+          unsafe_allow_html=True,
+      )
       st.caption('Không có KH trong DS Combo ON đạt ĐK chính mà thiếu KM Combo (theo bộ lọc).')
 
 
