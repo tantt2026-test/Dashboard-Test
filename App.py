@@ -8369,14 +8369,21 @@ def build_performance_report(
         if 'channel' not in _combo_day.columns:
           _combo_day['channel'] = 'OFF'
         _ch = _combo_day['channel'].astype(str).str.upper()
-        if 'Mã đơn hàng' in _combo_day.columns:
+        # Đồng bộ Báo Cáo ĐH Combo: unique Mã CH có ĐH Combo trong ngày
+        _ma_col = 'Mã CH' if 'Mã CH' in _combo_day.columns else None
+        if _ma_col is None:
+          for _c in ['Outlet_code', 'Outlet Code', 'Mã KH']:
+            if _c in _combo_day.columns:
+              _ma_col = _c
+              break
+        if _ma_col:
           th_combo_off = int(
-              _combo_day.loc[_ch.str.contains('OFF', na=False), 'Mã đơn hàng'].nunique()
+              _combo_day.loc[_ch.str.contains('OFF', na=False), _ma_col].nunique()
           )
           th_combo_on = int(
               _combo_day.loc[
                   _ch.str.contains('ON', na=False) & ~_ch.str.contains('OFF', na=False),
-                  'Mã đơn hàng',
+                  _ma_col,
               ].nunique()
           )
         else:
