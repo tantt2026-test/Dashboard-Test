@@ -13357,23 +13357,40 @@ def render_combo_matrix_html(df):
     except Exception:
       return str(v) if v is not None else '-'
 
-  def pct_style(v, is_total=False):
-    """Cùng rule tô màu % với Tab KPI: color_pct_bg + _CURRENT_COLOR_MOC."""
+  def pct_class_and_style(v, is_total=False):
+    """Cùng rule tô màu % với Tab KPI (class + inline)."""
     if is_total:
-      return 'background-color:#1a365d !important;color:#ffffff !important;font-weight:800;'
+      return '', (
+          'background-color:#1a365d !important;color:#ffffff !important;font-weight:800 !important;'
+      )
+    raw = v
     try:
-      return color_pct_bg(v, moc=_CURRENT_COLOR_MOC) or ''
+      cls = color_pct_class(raw, moc=_CURRENT_COLOR_MOC) or ''
     except Exception:
+      cls = ''
+    try:
+      st = color_pct_bg(raw, moc=_CURRENT_COLOR_MOC) or ''
+    except Exception:
+      st = ''
+    if not st:
       try:
-        f = float(str(v).replace('%', '').strip())
-        p = float(_CURRENT_COLOR_MOC)
+        f = float(str(raw).replace('%', '').strip())
+        p = float(_CURRENT_COLOR_MOC) if _CURRENT_COLOR_MOC is not None else 100.0
         if f < p:
-          return 'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;'
-        if f <= p + 5:
-          return 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;'
-        return 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;'
+          cls, st = 'pct-red', (
+              'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;'
+          )
+        elif f <= p + 5:
+          cls, st = 'pct-green', (
+              'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;'
+          )
+        else:
+          cls, st = 'pct-purple', (
+              'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;'
+          )
       except Exception:
-        return ''
+        cls, st = '', ''
+    return cls, st
 
   # Cột sticky
   stt_w, nv_w = 48, 180
@@ -13468,8 +13485,12 @@ def render_combo_matrix_html(df):
     )
     for i_v, v in enumerate(vals):
       if i_v in pct_idxs:
-        st = pct_style(g(r, '% MTD (OFF)' if i_v == 3 else '% MTD (ON)', default='0'), is_total)
-        html.append(f'<td style="{td_base}{st}">{v}</td>')
+        raw_pct = g(r, '% MTD (OFF)' if i_v == 3 else '% MTD (ON)', default='0')
+        cls, st = pct_class_and_style(raw_pct, is_total)
+        html.append(
+            f'<td class="{cls}" data-colored="1" '
+            f'style="{td_base}{st}text-align:center !important;">{v}</td>'
+        )
       else:
         html.append(
             f'<td style="{td_base}background-color:{row_bg} !important;'
@@ -17448,6 +17469,11 @@ with tab_kpi:
         ]
     )
 
+    # Đảm bảo mốc màu % đã set trước khi render bảng
+    try:
+      set_color_moc_for_kpi('COMBO', total_pct=_combo_moc)
+    except Exception:
+      pass
     st.markdown(render_combo_matrix_html(df_combo), unsafe_allow_html=True)
 
     # Chi tiết đơn hàng Combo phát sinh đúng ngày đang chọn, format giống Báo Cáo Hiệu Suất.
