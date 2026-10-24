@@ -13323,7 +13323,7 @@ def build_combo_miss_summary(df_miss_off, df_miss_on):
 
 
 def render_combo_matrix_html(df):
-  """Bảng Matrix Combo header 2 tầng theo mẫu Kênh OFF / Kênh ON."""
+  """Matrix Combo — cấu trúc 2 tầng OFF/ON, style giống bảng Trưng Bày."""
   if df is None or df.empty:
     return '<p style="color:#888;">Không có dữ liệu</p>'
 
@@ -13352,92 +13352,133 @@ def render_combo_matrix_html(df):
 
   def fmt_pct(v):
     try:
-      s = str(v).replace('%', '').strip()
-      f = float(s)
+      f = float(str(v).replace('%', '').strip())
       return f'{f:.2f}%'
     except Exception:
       return str(v) if v is not None else '-'
 
-  def pct_style(v):
+  def pct_style(v, is_total=False):
+    if is_total:
+      return 'background-color:#1a365d !important;color:#ffffff !important;font-weight:800;'
     try:
       f = float(str(v).replace('%', '').strip())
     except Exception:
       return ''
     try:
       bg, fg = color_for_pct(f / 100.0)
-      return f'background:{bg};color:{fg};font-weight:700;'
+      return f'background-color:{bg} !important;color:{fg} !important;font-weight:800;'
     except Exception:
       if f >= 100:
-        return 'background:#c6efce;color:#006100;font-weight:700;'
+        return 'background-color:#c6efce !important;color:#006100 !important;font-weight:800;'
       if f >= 50:
-        return 'background:#e2d5f1;color:#5b2c6f;font-weight:700;'
-      return 'background:#ffc7ce;color:#9c0006;font-weight:700;'
+        return 'background-color:#e2d5f1 !important;color:#5b2c6f !important;font-weight:800;'
+      return 'background-color:#ffc7ce !important;color:#9c0006 !important;font-weight:800;'
 
-  style = (
-      '<style>'
-      '.combo-mx{width:100%;border-collapse:collapse;font-size:12px;}'
-      '.combo-mx th,.combo-mx td{border:1px solid #c5d0de;padding:5px 6px;text-align:center;white-space:nowrap;}'
-      '.combo-mx thead th{background:#034ea2;color:#fff;font-weight:700;position:sticky;top:0;z-index:3;}'
-      '.combo-mx thead tr.sub th{background:#023a7a;font-size:11px;}'
-      '.combo-mx td.nv,.combo-mx th.nv{text-align:left;position:sticky;left:40px;z-index:2;background:#fff;}'
-      '.combo-mx td.stt,.combo-mx th.stt{position:sticky;left:0;z-index:2;background:#fff;width:36px;}'
-      '.combo-mx thead th.nv,.combo-mx thead th.stt{background:#034ea2;z-index:4;}'
-      '.combo-mx tr.total td{background:#034ea2!important;color:#fff!important;font-weight:700;}'
-      '.combo-mx tr.total td.nv,.combo-mx tr.total td.stt{background:#034ea2!important;color:#fff!important;}'
-      '.combo-mx tr:nth-child(even) td{background:#eef5fb;}'
-      '.combo-mx tr:nth-child(odd) td{background:#fff;}'
-      '.combo-wrap{max-width:100%;overflow-x:auto;border:1px solid #c5d0de;border-radius:6px;}'
-      '</style>'
+  # Cột sticky
+  stt_w, nv_w = 48, 180
+  # Ước lượng width tên NV
+  try:
+    max_name = max((len(str(x)) for x in d['Tên NVBH'].astype(str)), default=12)
+    nv_w = max(150, min(260, max_name * 9 + 24))
+  except Exception:
+    pass
+
+  th_base = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 8px;font-size:11px;'
+      'white-space:nowrap;'
   )
-  hdr = (
-      '<div class="combo-wrap"><table class="combo-mx"><thead>'
-      '<tr>'
-      '<th class="stt" rowspan="2">STT</th>'
-      '<th class="nv" rowspan="2">Tên NVBH</th>'
-      '<th colspan="6">Kênh OFF</th>'
-      '<th colspan="6">Kênh ON</th>'
-      '</tr>'
-      '<tr class="sub">'
-      '<th>Target</th><th>Phát sinh<br>Ngày</th><th>MTD</th><th>% MTD</th><th>Số Suất</th><th>MTD</th>'
-      '<th>Target</th><th>Phát sinh<br>Ngày</th><th>MTD</th><th>% MTD</th><th>Số Suất</th><th>MTD</th>'
-      '</tr></thead><tbody>'
+  sh = 'box-shadow:3px 0 5px -2px rgba(0,0,0,.22);'
+  td_base = (
+      'border:1px solid #cbd5e0;padding:5px 8px;text-align:center;'
+      'font-size:12px;white-space:nowrap;'
   )
 
-  rows_html = []
-  for _, r in d.iterrows():
-    is_tot = str(r.get('STT', '')).strip() == '-'
-    cls = ' class="total"' if is_tot else ''
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;">',
+      '<thead>',
+      # Row 1
+      '<tr>',
+      f'<th rowspan="2" style="{th_base}position:sticky;left:0;z-index:9;'
+      f'min-width:{stt_w}px;max-width:{stt_w}px;{sh}">STT</th>',
+      f'<th rowspan="2" style="{th_base}position:sticky;left:{stt_w}px;z-index:9;'
+      f'min-width:{nv_w}px;max-width:{nv_w}px;{sh}">Tên NVBH</th>',
+      f'<th colspan="6" style="{th_base}">Kênh OFF</th>',
+      f'<th colspan="6" style="{th_base}">Kênh ON</th>',
+      '</tr>',
+      # Row 2
+      '<tr>',
+  ]
+  sub_cols = [
+      'Target', 'Phát sinh<br>Ngày', 'MTD', '% MTD', 'Số Suất', 'MTD'
+  ] * 2
+  for c in sub_cols:
+    html.append(f'<th style="{th_base}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, r) in enumerate(d.iterrows()):
+    is_total = (
+        str(r.get('STT', '')).strip() == '-'
+        or 'TOTAL' in str(r.get('Tên NVBH', '')).upper()
+        or 'TỔNG' in str(r.get('Tên NVBH', '')).upper()
+    )
+    if is_total:
+      row_bg, row_fg = '#1a365d', '#ffffff'
+    else:
+      row_bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+      row_fg = '#1a202c'
+
     stt = str(r.get('STT', ''))
     nv = str(r.get('Tên NVBH', ''))
 
-    off_tgt = fmt_num(g(r, 'Target (OFF)'))
-    off_ngay = fmt_num(g(r, 'Phát sinh Ngày (OFF)'))
-    off_mtd = fmt_num(g(r, 'MTD (OFF)'))
-    off_pct = fmt_pct(g(r, '% MTD (OFF)', default='0%'))
-    off_suat = fmt_num(g(r, 'Suất Ngày (OFF)'))
-    off_suat_m = fmt_num(g(r, 'Suất MTD (OFF)'))
+    vals = [
+        fmt_num(g(r, 'Target (OFF)')),
+        fmt_num(g(r, 'Phát sinh Ngày (OFF)')),
+        fmt_num(g(r, 'MTD (OFF)')),
+        fmt_pct(g(r, '% MTD (OFF)', default='0%')),
+        fmt_num(g(r, 'Suất Ngày (OFF)')),
+        fmt_num(g(r, 'Suất MTD (OFF)')),
+        fmt_num(g(r, 'Target (ON)')),
+        fmt_num(g(r, 'Phát sinh Ngày (ON)')),
+        fmt_num(g(r, 'MTD (ON)')),
+        fmt_pct(g(r, '% MTD (ON)', default='0%')),
+        fmt_num(g(r, 'Suất Ngày (ON)')),
+        fmt_num(g(r, 'Suất MTD (ON)')),
+    ]
+    pct_idxs = {3, 9}  # % MTD OFF / ON
 
-    on_tgt = fmt_num(g(r, 'Target (ON)'))
-    on_ngay = fmt_num(g(r, 'Phát sinh Ngày (ON)'))
-    on_mtd = fmt_num(g(r, 'MTD (ON)'))
-    on_pct = fmt_pct(g(r, '% MTD (ON)', default='0%'))
-    on_suat = fmt_num(g(r, 'Suất Ngày (ON)'))
-    on_suat_m = fmt_num(g(r, 'Suất MTD (ON)'))
-
-    off_pct_s = '' if is_tot else pct_style(g(r, '% MTD (OFF)', default='0'))
-    on_pct_s = '' if is_tot else pct_style(g(r, '% MTD (ON)', default='0'))
-
-    rows_html.append(
-        f'<tr{cls}>'
-        f'<td class="stt">{stt}</td><td class="nv">{nv}</td>'
-        f'<td>{off_tgt}</td><td>{off_ngay}</td><td>{off_mtd}</td>'
-        f'<td style="{off_pct_s}">{off_pct}</td><td>{off_suat}</td><td>{off_suat_m}</td>'
-        f'<td>{on_tgt}</td><td>{on_ngay}</td><td>{on_mtd}</td>'
-        f'<td style="{on_pct_s}">{on_pct}</td><td>{on_suat}</td><td>{on_suat_m}</td>'
-        f'</tr>'
+    html.append('<tr>')
+    # STT sticky
+    html.append(
+        f'<td style="{td_base}position:sticky;left:0;z-index:{"7" if is_total else "5"};'
+        f'min-width:{stt_w}px;max-width:{stt_w}px;'
+        f'background-color:{row_bg} !important;color:{row_fg} !important;'
+        f'font-weight:{"800" if is_total else "600"};{sh}">{stt}</td>'
     )
+    # NV sticky
+    html.append(
+        f'<td style="{td_base}text-align:left;position:sticky;left:{stt_w}px;'
+        f'z-index:{"7" if is_total else "5"};min-width:{nv_w}px;max-width:{nv_w}px;'
+        f'background-color:{row_bg} !important;color:{row_fg} !important;'
+        f'font-weight:{"800" if is_total else "600"};{sh}">{nv}</td>'
+    )
+    for i_v, v in enumerate(vals):
+      if i_v in pct_idxs:
+        st = pct_style(g(r, '% MTD (OFF)' if i_v == 3 else '% MTD (ON)', default='0'), is_total)
+        html.append(f'<td style="{td_base}{st}">{v}</td>')
+      else:
+        html.append(
+            f'<td style="{td_base}background-color:{row_bg} !important;'
+            f'color:{row_fg} !important;font-weight:{"800" if is_total else "500"};">{v}</td>'
+        )
+    html.append('</tr>')
 
-  return style + hdr + ''.join(rows_html) + '</tbody></table></div>'
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
 
 
 def render_combo_orders_html(df):
