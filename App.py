@@ -5913,31 +5913,46 @@ def is_combo_line_t09_on(row):
 
 
 def is_combo_line_t10(row):
-  """Line thuộc CTKM Combo T10:
-  - Tặng 1 chai Tương Ớt Chinsu 250gr (Hàng KM)
-  - Tặng 1 chai Wake UP 247 (Hàng KM)
-  - Chiết khấu 20.000đ
+  """Line thuộc CTKM Combo T10 theo CV 433-300926/HCM-CDGT-MSC:
+
+  OFF (ĐK chính ≥800k MSC+HPC, ĐK phụ ≥100k nhóm SP):
+    → Tặng 1 Chai Tương Ớt Chinsu MN 250gr (Hàng KM)
+
+  ON Bev (ĐK chính ≥300k Bev, ĐK phụ ≥80k Tea365 / WK247 Amazon):
+    → Tặng 1 Chai Wake UP 247 330ml (Hàng thường — không bắt buộc cờ KM)
+
+  ON Nam Ngư (≥500k Gia vị + ≥200k Nam Ngư) / Tam Thái Tử (≥400k + ≥45k):
+    → Tặng 1 Chai Chinsu MN 250gr (KM)
+
+  Homey tiềm năng (≥800k + ≥280k Homey):
+    → Chiết khấu 20.000đ
   """
   sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
   km = _get_km_flag(row)
   ck = _get_ck_value(row)
-  is_ck_20k = abs(ck - 20000) < 1 or ck == 20000
+  is_ck_20k = abs(ck - 20000) < 1 or abs(ck - 20_000) < 1
 
-  is_chinsu_250 = km and (
+  # Chinsu MN 250gr — thường là Hàng KM; vẫn nhận nếu tên khớp rõ
+  is_chinsu_250 = (
       ('chinsu' in sp or 'chin-su' in sp or 'chin su' in sp)
       and ('250' in sp)
-      and ('tương' in sp or 'tuong' in sp or 'ớt' in sp or 'ot' in sp or 'sauce' in sp)
   )
-  if km and not is_chinsu_250:
-    is_chinsu_250 = ('chinsu' in sp or 'chin-su' in sp) and '250' in sp
+  if is_chinsu_250 and not km:
+    # chỉ tính khi là line KM hoặc số lượng/đơn giá gần như tặng
+    is_chinsu_250 = km  # bắt buộc KM cho Chinsu OFF
 
-  is_wakeup = km and (
+  # Wake UP 247 — CV ghi Hàng thường (ON Bev), không bắt buộc cờ KM
+  is_wakeup = (
       ('wake' in sp and 'up' in sp and '247' in sp)
-      or 'wakeup 247' in sp.replace(' ', '')
+      or 'wakeup247' in sp.replace(' ', '').replace('-', '')
       or 'wake up 247' in sp
       or ('247' in sp and 'wake' in sp)
   )
-  return is_chinsu_250 or is_wakeup or is_ck_20k
+  # Chỉ lấy chai 330ml tặng (không lấy Amazon 245ml là ĐK phụ)
+  if is_wakeup and '245' in sp and '330' not in sp:
+    is_wakeup = False
+
+  return bool(is_chinsu_250 or is_wakeup or is_ck_20k)
 
 
 
@@ -12964,10 +12979,17 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
 
 
 def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=None, mcp_df=None):
-  """ĐH đạt ĐK chính (OFF≥800k / ON≥300k) nhưng thiếu KM Combo.
+  """ĐH đạt ĐK chính theo CV 433 nhưng thiếu ĐK phụ → không phát sinh KM Combo.
 
-  BẮT BUỘC đối chiếu Mã CH với Danh Sách KH được Áp Dụng ĐH Combo
-  (file Combo Kênh OFF / Combo Kênh ON trên Github — cột outlet_code).
+  CV 433-300926/HCM-CDGT-MSC (T10/2026):
+    OFF MSC+HPC: ĐK chính ≥800.000đ · ĐK phụ ≥100.000đ nhóm SP → tặng Chinsu 250
+    ON Bev:      ĐK chính ≥300.000đ · ĐK phụ ≥80.000đ Tea365/WK247 → tặng WK247 330ml
+    ON Nam Ngư:  ĐK chính ≥500.000đ · ĐK phụ ≥200.000đ Nam Ngư → tặng Chinsu
+    ON TTT:      ĐK chính ≥400.000đ · ĐK phụ ≥45.000đ Tam Thái Tử → tặng Chinsu
+    Homey:       ĐK chính ≥800.000đ · ĐK phụ ≥280.000đ Homey → CK 20.000đ
+
+  BẮT BUỘC đối chiếu Mã CH với DS KH Áp Dụng Combo (Combo Kênh OFF/ON — outlet_code).
+  Miss = có trong DS + ĐH ≥ ĐK chính kênh + KHÔNG có line KM Combo.
   """
   empty = pd.DataFrame(columns=[
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
@@ -13142,7 +13164,7 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
           'Giá trị ĐH [Doanh Số]': f'{float(sales):,.0f}'.replace(',', '.'),
           'Ngày ĐH': ngay_str,
           'Loại Hình L1': l1,
-          'Ghi chú': f'Có trong DS Combo {channel} · Đạt ĐK chính (≥{min_sales:,.0f}đ) · Thiếu ĐK phụ/KM'.replace(',', '.'),
+          'Ghi chú': f'CV433 · DS Combo {channel} · Đạt ĐK chính (≥{min_sales:,.0f}đ) · Thiếu ĐK phụ → chưa KM'.replace(',', '.'),
           '_sales': float(sales),
           '_date': od if hasattr(od, 'year') else rd,
       })
