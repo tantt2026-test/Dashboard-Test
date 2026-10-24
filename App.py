@@ -6165,8 +6165,17 @@ def build_combo_matrix(
 
     if 'Mã CH' in dsub.columns:
       mtd_ch = dsub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-      day = dsub[dsub['_d'] == rd]
-      ngay_ch = day.groupby('Tên NVBH')['Mã CH'].nunique().to_dict() if not day.empty else {}
+      # Phát sinh Ngày = CH có first_date = ngày BC (lần đầu phát sinh Combo trong tháng)
+      first = (
+          dsub.groupby(['Tên NVBH', 'Mã CH'])['_d'].min().reset_index()
+      )
+      first.columns = ['Tên NVBH', 'Mã CH', 'first_date']
+      ngay_ch = (
+          first[first['first_date'] == rd]
+          .groupby('Tên NVBH')['Mã CH']
+          .nunique()
+          .to_dict()
+      )
     else:
       mtd_ch, ngay_ch = {}, {}
 
