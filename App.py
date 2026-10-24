@@ -1706,6 +1706,7 @@ def build_mcp_nv_summary(
 
   # ----- MTD từ RPT -----
   mtd_map = {}
+  mtd_full_map = {}
   if df_rpt is not None and not getattr(df_rpt, 'empty', True) and report_date is not None:
     d = df_rpt.copy()
     if 'date' in d.columns:
@@ -1765,7 +1766,15 @@ def build_mcp_nv_summary(
             d = d[d['_nv'].isin({_norm_nv(x) for x in filter_nv})]
           else:
             d = d[d['_nv'] == _norm_nv(filter_nv)]
-        mtd_map = d.groupby('_nv')['_val'].sum().to_dict()
+        mtd_full_map = d.groupby('_nv')['_val'].sum().to_dict()
+        # Lọc MTD theo CH đang chọn (VIP/L1/…)
+        c_ma_r = find_col(d, ['Mã CH', 'Mã KH', 'Outlet_code', 'Outlet Code'])
+        if c_ma_r is not None and '_ma' in mcp.columns:
+          allow_ma = set(mcp['_ma'].astype(str).tolist())
+          d = d.copy()
+          d['_ma_r'] = d[c_ma_r].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+          d = d[d['_ma_r'].isin(allow_ma)]
+        mtd_map = d.groupby('_nv')['_val'].sum().to_dict() if not d.empty else {}
 
   # ----- Chỉ tiêu từ Performance -----
   target_map = {}
@@ -1919,13 +1928,19 @@ def build_mcp_nv_summary(
   for nv in nvs:
     ct = float(target_map.get(nv, 0) or 0)
     mtd = float(mtd_map.get(nv, 0) or 0)
+    mtd_full = float(mtd_full_map.get(nv, 0) or 0)
+    # Khi lọc nhóm KH (VIP/L1/…): scale chỉ tiêu theo tỷ trọng MTD nhóm / MTD full
+    if mtd_full > 0 and abs(mtd_full - mtd) > 1:
+      ct = ct * (mtd / mtd_full)
+    elif mtd_full > 0 and mtd == 0:
+      ct = 0.0
     pct_ds = round(mtd / ct * 100, 1) if ct > 0 else 0.0
     mcp_n = int(mcp_cnt.get(nv, 0) or 0)
     aso_n = int(aso_map.get(nv, 0) or 0)
     pct_aso = round(aso_n / mcp_n * 100, 1) if mcp_n > 0 else 0.0
     rows.append({
         'Tên NVBH': nv,
-        'Chỉ tiêu Doanh Số': ct,
+        'Chỉ tiêu Doanh Số': round(ct, 0),
         'MTD': mtd,
         '% MTD DS': pct_ds,
         'MCP': mcp_n,
