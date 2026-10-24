@@ -12895,6 +12895,126 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
   return out
 
 
+def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=None, mcp_df=None):
+  """KH nằm trong DS Combo (OFF/ON) có phát sinh ĐH trong ngày nhưng ĐH không đạt điều kiện Combo.
+
+  channel: 'OFF' | 'ON'
+  """
+  empty = pd.DataFrame(columns=[
+      'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
+      'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'Loại Hình L1',
+      'Ghi chú',
+  ])
+  if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
+    return empty
+  if df_master is None or df_master.empty:
+    return empty
+
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  d = df_rpt[df_rpt['date'] == rd].copy()
+  if d.empty:
+    return empty
+  if nv_selected(filter_nv) and 'Tên NVBH' in d.columns:
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    d = d[d['Tên NVBH'].astype(str).str.strip().isin(vals)].copy()
+  if d.empty:
+    return empty
+
+  # Master CH đủ điều kiện tham gia Combo
+  c_ma_m = find_col(df_master, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH', 'Customer Code', 'Ship-to'])
+  if not c_ma_m:
+    return empty
+  master_set = set(
+      str(x).strip() for x in df_master[c_ma_m].dropna().astype(str)
+      if str(x).strip() and str(x).strip().lower() not in ('nan', 'none')
+  )
+  if not master_set:
+    return empty
+
+  ma_col = find_col(d, ['Mã CH', 'Mã KH', 'Outlet_code', 'Outlet Code'])
+  if not ma_col:
+    return empty
+  d['_ma'] = d[ma_col].astype(str).str.strip()
+  d = d[d['_ma'].isin(master_set)].copy()
+  if d.empty:
+    return empty
+
+  # Tag combo trên toàn bộ ĐH ngày (để biết ĐH nào đạt / không đạt)
+  tagged = tag_combo_orders_t10(d, mcp_df=mcp_df)
+  if tagged is None or tagged.empty:
+    tagged = d.copy()
+    tagged['is_combo'] = False
+    tagged['channel'] = channel
+
+  # Chỉ lấy kênh tương ứng nếu có cột channel
+  if 'channel' in tagged.columns:
+    tagged = tagged[tagged['channel'].astype(str).str.upper() == channel.upper()].copy()
+
+  # ĐH đạt combo trong ngày (unique Mã ĐH)
+  if 'is_combo' in tagged.columns and 'Mã đơn hàng' in tagged.columns:
+    combo_orders = set(
+        tagged.loc[tagged['is_combo'] == True, 'Mã đơn hàng'].astype(str).str.strip().unique()
+    )
+  else:
+    combo_orders = set()
+
+  # Các ĐH của CH trong master nhưng KHÔNG đạt combo
+  if 'Mã đơn hàng' not in tagged.columns:
+    return empty
+  miss = tagged[~tagged['Mã đơn hàng'].astype(str).str.strip().isin(combo_orders)].copy()
+  if miss.empty:
+    return empty
+
+  val_col = find_col(miss, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Tổng tiền', 'Giá trị sau CK'])
+  if val_col:
+    miss['_sales'] = pd.to_numeric(miss[val_col], errors='coerce').fillna(0)
+  else:
+    miss['_sales'] = 0
+
+  ten_kh_col = find_col(miss, ['Tên CH', 'Tên khách hàng', 'Tên Cửa hàng'])
+  nv_col = find_col(miss, ['Tên NVBH', 'Tên NV', 'SM name', 'Nhân viên'])
+  l1_col = find_col(miss, ['L1', 'Channel', 'Loại Hình Kinh Doanh', 'Loại hình kinh doanh'])
+
+  rows = []
+  for ma_dh, g in miss.groupby('Mã đơn hàng', sort=False):
+    ma_kh = str(g['_ma'].iloc[0]) if '_ma' in g.columns else ''
+    ten_kh = ''
+    if ten_kh_col:
+      vals = g[ten_kh_col].dropna().astype(str).str.strip()
+      if not vals.empty:
+        ten_kh = vals.iloc[0]
+    nv = ''
+    if nv_col:
+      vals = g[nv_col].dropna().astype(str).str.strip()
+      if not vals.empty:
+        nv = vals.iloc[0]
+    l1 = channel
+    if l1_col:
+      vals = g[l1_col].dropna().astype(str).str.strip()
+      if not vals.empty:
+        l1 = vals.iloc[0]
+    sales = float(g['_sales'].sum())
+    rows.append({
+        'STT': 0,
+        'Tên NVBH': nv,
+        'Mã KH': ma_kh,
+        'Tên KH': ten_kh,
+        'Mã ĐH': str(ma_dh),
+        'Giá trị ĐH [Doanh Số]': f'{sales:,.0f}'.replace(',', '.'),
+        'Ngày ĐH': rd.strftime('%d/%m/%Y') if hasattr(rd, 'strftime') else str(rd),
+        'Loại Hình L1': l1,
+        'Ghi chú': f'Có ĐH · Chưa đạt ĐK Combo {channel}',
+    })
+
+  if not rows:
+    return empty
+  out = pd.DataFrame(rows)
+  out = out.sort_values(['Tên NVBH', 'Mã KH']).reset_index(drop=True)
+  out['STT'] = range(1, len(out) + 1)
+  return out
+
+
+
 def render_combo_orders_html(df):
   """Bảng chi tiết ĐH Combo — format giống Chi Tiết ĐH Trái Tuyến."""
   if df is None or df.empty:
@@ -12905,6 +13025,8 @@ def render_combo_orders_html(df):
       'Giá trị ĐH [Doanh Số]', 'Ngày ĐH', 'Loại Hình L1',
       'Sản Phẩm Khuyến Mãi',
   ]
+  if 'Ghi chú' in df.columns:
+    cols = [c for c in cols if c != 'Sản Phẩm Khuyến Mãi'] + ['Ghi chú']
   for c in cols:
     if c not in df.columns:
       df[c] = ''
@@ -13426,6 +13548,60 @@ def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter
       rows.append({'name': 'Doanh số', 'th': 0, 'ct': 0, 'pct': 0, 'fmt': 'money'})
   except Exception:
     rows.append({'name': 'Doanh số', 'th': 0, 'ct': 0, 'pct': 0, 'fmt': 'money'})
+
+  # PC BT / Call Plan Kênh OFF — ngay dưới Doanh số
+  # TH = PC ≥1 line MOQ | CT = tổng CH OFF trên MCP (số CH team phải VT trong tháng)
+  try:
+    df_pc, _, _ = build_report(df, report_date, targets, 'PC_BT', filter_nv, mcp_df=mcp_df)
+    th_pc = 0.0
+    if df_pc is not None and not df_pc.empty:
+      name_col = 'Tên NVBH' if 'Tên NVBH' in df_pc.columns else None
+      body = df_pc
+      if name_col:
+        body = df_pc[~df_pc[name_col].astype(str).str.upper().str.contains('TOTAL|TỔNG', na=False, regex=True)]
+      col_mtd = None
+      for c in body.columns:
+        cl = str(c).lower().strip()
+        if cl == 'mtd' or cl == 'thực hiện' or cl.startswith('mtd'):
+          col_mtd = c
+          break
+      if col_mtd:
+        th_pc = float(pd.to_numeric(body[col_mtd], errors='coerce').fillna(0).sum())
+
+    call_plan_off = 0
+    if mcp_df is not None and not mcp_df.empty:
+      m = mcp_df.copy()
+      c_ma = find_col(m, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Ma CH', 'Customer Code'])
+      c_sm = find_col(m, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên', 'SM Code', 'Mã NVBH'])
+      if filter_nv and c_sm:
+        if isinstance(filter_nv, (list, tuple, set)):
+          vals = [str(x).strip() for x in filter_nv]
+          m = m[m[c_sm].astype(str).str.strip().isin(vals)]
+        else:
+          m = m[m[c_sm].astype(str).str.contains(str(filter_nv), case=False, na=False)]
+      ch_map = build_mcp_channel_map(m)
+      if c_ma is not None and not m.empty:
+        codes = m[c_ma].astype(str).str.strip()
+        codes = codes[(codes != '') & (~codes.str.lower().isin(['nan', 'none']))]
+        off_codes = set()
+        for ma in codes.unique():
+          if ch_map.get(ma) == 'ON':
+            continue
+          off_codes.add(ma)
+        call_plan_off = len(off_codes)
+      else:
+        call_plan_off = int(len(m))
+
+    pct_pc = (th_pc / call_plan_off * 100) if call_plan_off else 0
+    rows.append({
+        'name': 'PC BT / Call Plan OFF',
+        'th': th_pc,
+        'ct': call_plan_off,
+        'pct': pct_pc,
+        'fmt': 'num',
+    })
+  except Exception:
+    rows.append({'name': 'PC BT / Call Plan OFF', 'th': 0, 'ct': 0, 'pct': 0, 'fmt': 'num'})
 
   kpi_list = [
     ('PC_BT', 'PC BT', 'num'),
@@ -16631,6 +16807,31 @@ with tab_kpi:
         df, report_date, filter_nv, mcp_df=mcp
     )
     st.markdown(render_combo_orders_html(df_combo_orders), unsafe_allow_html=True)
+
+    # KH trong DS Combo có ĐH ngày nhưng chưa đạt ĐK Combo
+    df_miss_off = build_combo_miss_detail(
+        df, report_date, df_combo_off, 'OFF', filter_nv, mcp_df=mcp
+    )
+    df_miss_on = build_combo_miss_detail(
+        df, report_date, df_combo_on, 'ON', filter_nv, mcp_df=mcp
+    )
+    if df_miss_off is not None and not df_miss_off.empty:
+      st.markdown(
+          '<p style="font-weight:800;color:#c53030;margin:14px 0 6px 0;">'
+          '⚠️ KH DS Combo OFF — Có ĐH trong ngày nhưng <u>chưa đạt</u> điều kiện Combo</p>',
+          unsafe_allow_html=True,
+      )
+      st.markdown(render_combo_orders_html(df_miss_off), unsafe_allow_html=True)
+      st.caption(f'Hiển thị: {len(df_miss_off):,} đơn hàng')
+    if df_miss_on is not None and not df_miss_on.empty:
+      st.markdown(
+          '<p style="font-weight:800;color:#c53030;margin:14px 0 6px 0;">'
+          '⚠️ KH DS Combo ON — Có ĐH trong ngày nhưng <u>chưa đạt</u> điều kiện Combo</p>',
+          unsafe_allow_html=True,
+      )
+      st.markdown(render_combo_orders_html(df_miss_on), unsafe_allow_html=True)
+      st.caption(f'Hiển thị: {len(df_miss_on):,} đơn hàng')
+
 
     st.markdown(
         f"""
