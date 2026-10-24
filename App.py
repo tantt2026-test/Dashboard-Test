@@ -13283,10 +13283,17 @@ def render_combo_orders_html(df):
 
 
 
+
 def render_combo_miss_table(df, title, key_prefix):
-  """Bảng chi tiết miss Combo: max 25 dòng cuộn dọc, sticky STT + Tên NVBH, toolbar CSV/Full."""
+  """Bảng chi tiết miss Combo — Plotly Table + modebar (camera / fullscreen)."""
   if df is None or df.empty:
     return
+  try:
+    import plotly.graph_objects as go
+  except Exception:
+    st.dataframe(df, use_container_width=True)
+    return
+
   df = df.drop(columns=['Mã NVBH', '_sales', '_date'], errors='ignore').copy()
   cols = [
       'STT', 'Tên NVBH', 'Mã KH', 'Tên KH', 'Mã ĐH',
@@ -13295,96 +13302,72 @@ def render_combo_miss_table(df, title, key_prefix):
   for c in cols:
     if c not in df.columns:
       df[c] = ''
-  df = df[[c for c in cols if c in df.columns]]
+  df = df[[c for c in cols if c in df.columns]].copy()
+  # Giới hạn hiển thị mặc định ~25 dòng trong khung; modebar fullscreen xem hết
+  n = len(df)
+  row_h = 28
+  header_h = 36
+  visible_rows = min(n, 25)
+  fig_h = header_h + visible_rows * row_h + 40
 
-  t1, t2, t3 = st.columns([2.2, 1.1, 1])
-  with t1:
-    st.markdown(
-        f'<p style="font-weight:800;color:#1a365d;margin:8px 0 4px 0;font-size:14px;">'
-        f'📋 {title}</p>',
-        unsafe_allow_html=True,
-    )
-  with t2:
-    show_full = st.checkbox('🔍 Xem full bảng', key=f'{key_prefix}_full', value=False)
-  with t3:
-    csv_bytes = df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        '⬇️ Tải CSV',
-        data=csv_bytes,
-        file_name=f'{key_prefix}.csv',
-        mime='text/csv',
-        key=f'{key_prefix}_csv',
-    )
+  # Màu xen kẽ
+  fill = [['#e6f4fc' if i % 2 == 0 else '#ffffff' for i in range(n)] for _ in cols]
 
-  w_stt, w_nv = 48, 160
-  max_h = 'none' if show_full else '920px'
-  th = (
-      'background-color:#1a365d !important;color:#ffffff !important;'
-      'font-weight:800 !important;text-align:center !important;'
-      'border:1px solid #2b6cb0 !important;padding:8px 6px;font-size:12px;'
-      'white-space:nowrap;'
+  fig = go.Figure(
+      data=[
+          go.Table(
+              columnwidth=[40, 130, 80, 120, 120, 100, 80, 110, 220],
+              header=dict(
+                  values=[f'<b>{c}</b>' for c in df.columns],
+                  fill_color='#1a365d',
+                  font=dict(color='white', size=12, family='Arial'),
+                  align='center',
+                  height=header_h,
+                  line_color='#2b6cb0',
+              ),
+              cells=dict(
+                  values=[df[c].astype(str).tolist() for c in df.columns],
+                  fill_color=fill,
+                  font=dict(color='#1a202c', size=11, family='Arial'),
+                  align=['center', 'left', 'center', 'left', 'center',
+                         'center', 'center', 'center', 'left'],
+                  height=row_h,
+                  line_color='#bce2f5',
+              ),
+          )
+      ]
   )
-  th_sticky = th + 'position:sticky;top:0;z-index:5;'
-  td_base = (
-      'border:1px solid #bce2f5 !important;padding:6px 5px;font-size:12px;'
-      'text-align:center !important;white-space:nowrap;'
+  fig.update_layout(
+      title=dict(
+          text=f'<b>📋 {title}</b>',
+          font=dict(size=14, color='#1a365d', family='Arial'),
+          x=0, xanchor='left',
+      ),
+      margin=dict(l=0, r=0, t=40, b=0),
+      height=fig_h,
+      paper_bgcolor='rgba(0,0,0,0)',
   )
-
-  html = [
-      f'<div style="overflow:auto;max-height:{max_h};-webkit-overflow-scrolling:touch;'
-      f'border:1px solid #bee3f8;border-radius:6px;">',
-      '<table class="custom-kpi-table" style="border-collapse:collapse;width:100%;'
-      'min-width:980px;font-family:Arial,sans-serif;">',
-      '<thead><tr>',
-  ]
-  for c in df.columns:
-    if c == 'STT':
-      html.append(
-          f'<th style="{th_sticky}left:0;z-index:7;min-width:{w_stt}px;'
-          f'box-shadow:2px 0 4px rgba(0,0,0,.08);">{c}</th>'
+  st.plotly_chart(
+      fig,
+      use_container_width=True,
+      key=f'{key_prefix}_plot',
+      config={
+          'displayModeBar': True,
+          'displaylogo': False,
+          'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+          'toImageButtonOptions': {
+              'format': 'png',
+              'filename': key_prefix,
+              'height': max(fig_h, header_h + n * row_h + 40),
+              'width': 1400,
+              'scale': 2,
+          },
+      },
+  )
+  if n > 25:
+      st.caption(
+          f'Tổng {n:,} dòng · Cuộn trong bảng hoặc dùng ⛶ fullscreen / 📷 lưu ảnh trên modebar.'
       )
-    elif c == 'Tên NVBH':
-      html.append(
-          f'<th style="{th_sticky}left:{w_stt}px;z-index:7;min-width:{w_nv}px;'
-          f'box-shadow:2px 0 4px rgba(0,0,0,.08);">{c}</th>'
-      )
-    else:
-      html.append(f'<th style="{th_sticky}">{c}</th>')
-  html.append('</tr></thead><tbody>')
-
-  for pos, (_, row) in enumerate(df.iterrows()):
-    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
-    html.append('<tr>')
-    for c in df.columns:
-      val = row.get(c, '')
-      if pd.isna(val):
-        val = ''
-      al = 'left' if c in ('Tên NVBH', 'Tên KH', 'Ghi chú') else 'center'
-      if c == 'STT':
-        html.append(
-            f'<td style="{td_base}background-color:{bg} !important;text-align:{al};'
-            f'position:sticky;left:0;z-index:3;min-width:{w_stt}px;'
-            f'box-shadow:2px 0 4px rgba(0,0,0,.06);">{val}</td>'
-        )
-      elif c == 'Tên NVBH':
-        html.append(
-            f'<td style="{td_base}background-color:{bg} !important;text-align:left;'
-            f'position:sticky;left:{w_stt}px;z-index:3;min-width:{w_nv}px;'
-            f'box-shadow:2px 0 4px rgba(0,0,0,.06);font-weight:600;">{val}</td>'
-        )
-      else:
-        html.append(
-            f'<td style="{td_base}background-color:{bg} !important;text-align:{al};">{val}</td>'
-        )
-    html.append('</tr>')
-  html.append('</tbody></table></div>')
-  if not show_full and len(df) > 25:
-    html.append(
-        f'<p style="font-size:11px;color:#718096;margin:4px 0 0 0;">'
-        f'Cuộn dọc (~25 dòng khung nhìn) · Tổng {len(df):,} dòng · '
-        f'Bật "Xem full bảng" hoặc Tải CSV để xem hết.</p>'
-    )
-  st.markdown(''.join(html), unsafe_allow_html=True)
 
 
 
