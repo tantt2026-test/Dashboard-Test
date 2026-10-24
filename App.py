@@ -13321,6 +13321,125 @@ def build_combo_miss_summary(df_miss_off, df_miss_on):
 
 
 
+
+def render_combo_matrix_html(df):
+  """Bảng Matrix Combo header 2 tầng theo mẫu Kênh OFF / Kênh ON."""
+  if df is None or df.empty:
+    return '<p style="color:#888;">Không có dữ liệu</p>'
+
+  d = df.copy()
+
+  def g(row, *names, default=0):
+    for n in names:
+      if n in row.index:
+        v = row[n]
+        if pd.isna(v):
+          return default
+        return v
+    return default
+
+  def fmt_num(v):
+    try:
+      if v is None or (isinstance(v, float) and pd.isna(v)):
+        return '-'
+      iv = int(float(v))
+      if iv == 0:
+        return '-'
+      return f'{iv:,}'.replace(',', '.')
+    except Exception:
+      s = str(v).strip()
+      return s if s and s not in ('0', '0.0', 'nan') else '-'
+
+  def fmt_pct(v):
+    try:
+      s = str(v).replace('%', '').strip()
+      f = float(s)
+      return f'{f:.2f}%'
+    except Exception:
+      return str(v) if v is not None else '-'
+
+  def pct_style(v):
+    try:
+      f = float(str(v).replace('%', '').strip())
+    except Exception:
+      return ''
+    try:
+      bg, fg = color_for_pct(f / 100.0)
+      return f'background:{bg};color:{fg};font-weight:700;'
+    except Exception:
+      if f >= 100:
+        return 'background:#c6efce;color:#006100;font-weight:700;'
+      if f >= 50:
+        return 'background:#e2d5f1;color:#5b2c6f;font-weight:700;'
+      return 'background:#ffc7ce;color:#9c0006;font-weight:700;'
+
+  style = (
+      '<style>'
+      '.combo-mx{width:100%;border-collapse:collapse;font-size:12px;}'
+      '.combo-mx th,.combo-mx td{border:1px solid #c5d0de;padding:5px 6px;text-align:center;white-space:nowrap;}'
+      '.combo-mx thead th{background:#034ea2;color:#fff;font-weight:700;position:sticky;top:0;z-index:3;}'
+      '.combo-mx thead tr.sub th{background:#023a7a;font-size:11px;}'
+      '.combo-mx td.nv,.combo-mx th.nv{text-align:left;position:sticky;left:40px;z-index:2;background:#fff;}'
+      '.combo-mx td.stt,.combo-mx th.stt{position:sticky;left:0;z-index:2;background:#fff;width:36px;}'
+      '.combo-mx thead th.nv,.combo-mx thead th.stt{background:#034ea2;z-index:4;}'
+      '.combo-mx tr.total td{background:#034ea2!important;color:#fff!important;font-weight:700;}'
+      '.combo-mx tr.total td.nv,.combo-mx tr.total td.stt{background:#034ea2!important;color:#fff!important;}'
+      '.combo-mx tr:nth-child(even) td{background:#eef5fb;}'
+      '.combo-mx tr:nth-child(odd) td{background:#fff;}'
+      '.combo-wrap{max-width:100%;overflow-x:auto;border:1px solid #c5d0de;border-radius:6px;}'
+      '</style>'
+  )
+  hdr = (
+      '<div class="combo-wrap"><table class="combo-mx"><thead>'
+      '<tr>'
+      '<th class="stt" rowspan="2">STT</th>'
+      '<th class="nv" rowspan="2">Tên NVBH</th>'
+      '<th colspan="6">Kênh OFF</th>'
+      '<th colspan="6">Kênh ON</th>'
+      '</tr>'
+      '<tr class="sub">'
+      '<th>Target</th><th>Phát sinh<br>Ngày</th><th>MTD</th><th>% MTD</th><th>Số Suất</th><th>MTD</th>'
+      '<th>Target</th><th>Phát sinh<br>Ngày</th><th>MTD</th><th>% MTD</th><th>Số Suất</th><th>MTD</th>'
+      '</tr></thead><tbody>'
+  )
+
+  rows_html = []
+  for _, r in d.iterrows():
+    is_tot = str(r.get('STT', '')).strip() == '-'
+    cls = ' class="total"' if is_tot else ''
+    stt = str(r.get('STT', ''))
+    nv = str(r.get('Tên NVBH', ''))
+
+    off_tgt = fmt_num(g(r, 'Target (OFF)'))
+    off_ngay = fmt_num(g(r, 'Phát sinh Ngày (OFF)'))
+    off_mtd = fmt_num(g(r, 'MTD (OFF)'))
+    off_pct = fmt_pct(g(r, '% MTD (OFF)', default='0%'))
+    off_suat = fmt_num(g(r, 'Suất Ngày (OFF)'))
+    off_suat_m = fmt_num(g(r, 'Suất MTD (OFF)'))
+
+    on_tgt = fmt_num(g(r, 'Target (ON)'))
+    on_ngay = fmt_num(g(r, 'Phát sinh Ngày (ON)'))
+    on_mtd = fmt_num(g(r, 'MTD (ON)'))
+    on_pct = fmt_pct(g(r, '% MTD (ON)', default='0%'))
+    on_suat = fmt_num(g(r, 'Suất Ngày (ON)'))
+    on_suat_m = fmt_num(g(r, 'Suất MTD (ON)'))
+
+    off_pct_s = '' if is_tot else pct_style(g(r, '% MTD (OFF)', default='0'))
+    on_pct_s = '' if is_tot else pct_style(g(r, '% MTD (ON)', default='0'))
+
+    rows_html.append(
+        f'<tr{cls}>'
+        f'<td class="stt">{stt}</td><td class="nv">{nv}</td>'
+        f'<td>{off_tgt}</td><td>{off_ngay}</td><td>{off_mtd}</td>'
+        f'<td style="{off_pct_s}">{off_pct}</td><td>{off_suat}</td><td>{off_suat_m}</td>'
+        f'<td>{on_tgt}</td><td>{on_ngay}</td><td>{on_mtd}</td>'
+        f'<td style="{on_pct_s}">{on_pct}</td><td>{on_suat}</td><td>{on_suat_m}</td>'
+        f'</tr>'
+    )
+
+  return style + hdr + ''.join(rows_html) + '</tbody></table></div>'
+
+
 def render_combo_orders_html(df):
   """Bảng chi tiết ĐH Combo — format giống Chi Tiết ĐH Trái Tuyến."""
   if df is None or df.empty:
@@ -17287,7 +17406,7 @@ with tab_kpi:
         ]
     )
 
-    st.markdown(render_html_table(df_combo), unsafe_allow_html=True)
+    st.markdown(render_combo_matrix_html(df_combo), unsafe_allow_html=True)
 
     # Chi tiết đơn hàng Combo phát sinh đúng ngày đang chọn, format giống Báo Cáo Hiệu Suất.
     df_combo_orders = build_combo_orders_detail(
