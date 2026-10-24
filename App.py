@@ -13358,21 +13358,22 @@ def render_combo_matrix_html(df):
       return str(v) if v is not None else '-'
 
   def pct_style(v, is_total=False):
+    """Cùng rule tô màu % với Tab KPI: color_pct_bg + _CURRENT_COLOR_MOC."""
     if is_total:
       return 'background-color:#1a365d !important;color:#ffffff !important;font-weight:800;'
     try:
-      f = float(str(v).replace('%', '').strip())
+      return color_pct_bg(v, moc=_CURRENT_COLOR_MOC) or ''
     except Exception:
-      return ''
-    try:
-      bg, fg = color_for_pct(f / 100.0)
-      return f'background-color:{bg} !important;color:{fg} !important;font-weight:800;'
-    except Exception:
-      if f >= 100:
-        return 'background-color:#c6efce !important;color:#006100 !important;font-weight:800;'
-      if f >= 50:
-        return 'background-color:#e2d5f1 !important;color:#5b2c6f !important;font-weight:800;'
-      return 'background-color:#ffc7ce !important;color:#9c0006 !important;font-weight:800;'
+      try:
+        f = float(str(v).replace('%', '').strip())
+        p = float(_CURRENT_COLOR_MOC)
+        if f < p:
+          return 'background-color:#fed7d7 !important;color:#742a2a !important;font-weight:700 !important;'
+        if f <= p + 5:
+          return 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:700 !important;'
+        return 'background-color:#e9d8fd !important;color:#553c9a !important;font-weight:700 !important;'
+      except Exception:
+        return ''
 
   # Cột sticky
   stt_w, nv_w = 48, 180
