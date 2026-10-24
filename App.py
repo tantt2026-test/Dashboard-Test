@@ -12947,6 +12947,25 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
         if x and x.lower() not in ('nan', 'none') and x not in promo_names:
           promo_names.append(x)
 
+    # Bằng chứng KM / CK 20k
+    has_ck_20k = False
+    try:
+      for _, rr in g.iterrows():
+        if abs(_get_ck_value(rr) - 20000) < 1:
+          has_ck_20k = True
+        if bool(rr.get('_line_combo', False)) and sp_col:
+          xn = str(rr.get(sp_col, '') or '').strip()
+          if xn and xn.lower() not in ('nan', 'none'):
+            xl = xn.lower()
+            if ('chinsu' in xl or 'wake' in xl) and xn not in promo_names:
+              promo_names.append(xn)
+    except Exception:
+      pass
+
+    # Chỉ giữ ĐH có KM Combo / CK 20k thật
+    if not promo_names and not has_ck_20k:
+      continue
+
     ngay_s = ''
     if 'Ngày tạo đơn hàng' in g.columns:
       ngay = pd.to_datetime(g['Ngày tạo đơn hàng'].iloc[0], errors='coerce')
@@ -12964,7 +12983,10 @@ def build_combo_orders_detail(df_rpt, report_date, filter_nv=None, mcp_df=None):
         'Giá trị ĐH [Doanh Số]': int(round(float(g['_sales'].sum()), 0)),
         'Ngày ĐH': ngay_s,
         'Loại Hình L1': l1,
-        'Sản Phẩm Khuyến Mãi': (' | '.join(promo_names) if promo_names else ('Chiết khấu 20.000đ' if has_ck_20k else '')),
+        'Sản Phẩm Khuyến Mãi': (
+            ' | '.join(promo_names) if promo_names
+            else ('Chiết khấu 20.000đ' if has_ck_20k else '')
+        ),
     })
 
   if not rows:
