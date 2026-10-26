@@ -16,6 +16,14 @@ st.set_page_config(
     initial_sidebar_state='collapsed',
 )
 
+
+# Streamlit fragment (1.33+): bọc phần báo cáo để widget trong report ít rerun toàn trang
+def _maybe_fragment(fn):
+  try:
+    return st.fragment(fn)
+  except Exception:
+    return fn
+
 # ====================== LOGO ======================
 logo_svg = """
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 158.15 61.91" width="130" height="50"><title>Masan Group logo</title><path d="M490.29,502.16s17.83-12.81,45.76-12.93c25.9-.11,30.18,8.14,38,10.79,0,0-3.8,5.82-5.78,9.63s-13.32,17.93-26.5,22.21c0,0,18.71-15.72,21.55-27.57,0,0-26.87-20.43-73.26-1.92" transform="translate(-432.92 -481.05)" style="fill:#f36f21"/><path d="M521.55,489.11c42-10.64,59.59,9.56,59.59,9.56A60.39,60.39,0,0,1,561,521.3c11.28-1.28,21.79-13,24-16.69s6.16-9.17,6.16-9.17c-7.12-3.22-13.13-12-35.93-14.22-16.3-1.59-33.6,7.88-33.6,7.88" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M454.12,528V512.92a58.92,58.92,0,0,1-.15-6.31l-.06,0-7.1,21.11h-3.41l-7.25-21h-.09c0,2.33.1,5.52.09,6.28v15h-3.24V502.39h4.8L445.1,524h.07l7.17-21.31h5V528Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M465.15,515c.21-1.42.7-3.56,4.21-3.58,2.94,0,4.35,1,4.37,3s-.87,2.12-1.62,2.19l-5.11.65c-5.13.67-5.58,4.26-5.57,5.81,0,3.16,2.42,5.3,5.8,5.29a8.32,8.32,0,0,0,6.64-3c.12,1.42.55,2.82,3.3,2.81a6.24,6.24,0,0,0,1.69-.36v-2.26a4.84,4.84,0,0,1-1,.14c-.63,0-1-.3-1-1.09l-.05-10.6c0-4.73-5.37-5.13-6.85-5.13-4.54,0-7.47,1.76-7.6,6.17Zm8.42,6.37c0,2.48-2.85,4.35-5.74,4.36-2.35,0-3.38-1.17-3.39-3.19,0-2.32,2.42-2.8,4-3,3.86-.52,4.64-.78,5.15-1.18Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M492.47,514.47c0-1.17-.47-3.12-4.44-3.1-1,0-3.7.34-3.7,2.64,0,1.53,1,1.88,3.4,2.46l3.14.77c3.89.94,5.27,2.35,5.27,4.87,0,3.83-3.15,6.14-7.37,6.16-7.39,0-7.94-4.21-8-6.44h3c.11,1.45.55,3.78,5,3.75,2.24,0,4.27-.89,4.26-3,0-1.47-1-2-3.72-2.63l-3.65-.88c-2.59-.62-4.31-1.91-4.34-4.46,0-4.09,3.39-6,7.05-6,6.66,0,7.17,4.87,7.17,5.78Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M502.6,514.75c.2-1.42.68-3.58,4.2-3.6,2.91,0,4.33,1.06,4.33,3s-.86,2.13-1.61,2.18l-5.1.66c-5.11.65-5.57,4.27-5.56,5.79,0,3.19,2.41,5.31,5.79,5.31a8.34,8.34,0,0,0,6.63-3c.11,1.41.53,2.83,3.28,2.8a5.87,5.87,0,0,0,1.68-.35l0-2.26a6.5,6.5,0,0,1-1,.15c-.62,0-1-.32-1-1.1l0-10.61c0-4.72-5.35-5.11-6.83-5.11-4.53,0-7.44,1.76-7.56,6.16Zm8.36,6.49c0,2.47-2.82,4.36-5.74,4.37-2.35,0-3.37-1.18-3.39-3.18,0-2.34,2.44-2.8,4-3,3.87-.51,4.65-.8,5.14-1.2Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M534.55,527.71h-3v-11.5c-.13-3.2-1.07-4.83-4.13-4.81-1.77,0-4.88,1.15-4.7,6.15v10.16h-3.24l-.07-18.56h2.72l0,2.66h.07a6.85,6.85,0,0,1,5.67-3.19c2.91,0,6.58,1.15,6.6,6.45Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M468,533.85a1.19,1.19,0,0,1,.07.34.6.6,0,0,1-.19.46.81.81,0,0,1-.51.21l-.54-.18q-.45-.15-.75-.23a2.37,2.37,0,0,0-.59-.08,2.27,2.27,0,0,0-1.47.49,3.1,3.1,0,0,0-.92,1.27,4.89,4.89,0,0,0-.35,1.64,5.25,5.25,0,0,0,.56,2.41,2.27,2.27,0,0,0,1.91,1.26.77.77,0,0,1,.27,0l.43-.06.37-.1.37-.15L467,541a1,1,0,0,1,.4-.11.54.54,0,0,1,.42.19.69.69,0,0,1,.17.48,1,1,0,0,1-.82,1,5.35,5.35,0,0,1-1.69.27,4.1,4.1,0,0,1-2.28-.63,4.15,4.15,0,0,1-1.5-1.71,5.52,5.52,0,0,1-.55-2.35,7.3,7.3,0,0,1,.25-1.93,5,5,0,0,1,.76-1.63,3.74,3.74,0,0,1,1.34-1.14,4.33,4.33,0,0,1,1.91-.45,4.73,4.73,0,0,1,1.68.27,1.72,1.72,0,0,1,.91.62" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M470.75,537.9a4.78,4.78,0,0,0,.63,2.45,2.13,2.13,0,0,0,2,1.1,2.3,2.3,0,0,0,1.48-.48,2.78,2.78,0,0,0,.88-1.28,5.69,5.69,0,0,0,.31-1.78,5.11,5.11,0,0,0-.3-1.78,2.94,2.94,0,0,0-.89-1.29,2.21,2.21,0,0,0-1.44-.48,2.3,2.3,0,0,0-1.44.46,2.82,2.82,0,0,0-.91,1.27,5.12,5.12,0,0,0-.31,1.82m-1.59,0a5.74,5.74,0,0,1,.54-2.53,4.26,4.26,0,0,1,1.51-1.76,4,4,0,0,1,4.42.06,4.39,4.39,0,0,1,1.47,1.8,5.8,5.8,0,0,1,.51,2.43,5.89,5.89,0,0,1-.51,2.46,4.25,4.25,0,0,1-1.47,1.79,4.11,4.11,0,0,1-4.49,0,4.31,4.31,0,0,1-1.48-1.8,5.85,5.85,0,0,1-.51-2.44" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M479.44,534.07a.79.79,0,0,1,.21-.58.7.7,0,0,1,.52-.21.73.73,0,0,1,.53.21.78.78,0,0,1,.22.59v.14l0,0a3,3,0,0,1,1.13-.91,3.31,3.31,0,0,1,1.43-.32,3.46,3.46,0,0,1,1.63.4,3,3,0,0,1,1.21,1.21,4,4,0,0,1,.46,2V542a.68.68,0,0,1-.22.54.77.77,0,0,1-.53.19.73.73,0,0,1-.51-.19.69.69,0,0,1-.21-.53v-5.36a2.16,2.16,0,0,0-.65-1.67,2.21,2.21,0,0,0-1.55-.6,2.32,2.32,0,0,0-1.09.26,2,2,0,0,0-.82.79,2.41,2.41,0,0,0-.31,1.25v5.05a.81.81,0,0,1-.2.59.68.68,0,0,1-.51.21.74.74,0,0,1-.54-.22.77.77,0,0,1-.23-.58Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M488.69,541.75a1.05,1.05,0,0,1-.44-.77.7.7,0,0,1,.2-.49.64.64,0,0,1,.49-.21,1,1,0,0,1,.46.13,6.25,6.25,0,0,1,.57.37,3.06,3.06,0,0,0,.49.31,3,3,0,0,0,1.34.36,2.88,2.88,0,0,0,1.37-.32,1.06,1.06,0,0,0,.6-1A1.24,1.24,0,0,0,493,539a9.34,9.34,0,0,0-1.39-.65q-1-.4-1.55-.68a3.05,3.05,0,0,1-1-.79,1.94,1.94,0,0,1-.42-1.28,2.36,2.36,0,0,1,.39-1.31,2.79,2.79,0,0,1,1.11-1,4,4,0,0,1,1.64-.4,5,5,0,0,1,1.71.3,3.57,3.57,0,0,1,1.22.66,1.1,1.1,0,0,1,.38.74.65.65,0,0,1-.21.47.78.78,0,0,1-.5.23,4.06,4.06,0,0,1-.89-.41c-.39-.22-.67-.38-.86-.46a1.78,1.78,0,0,0-.69-.15,2,2,0,0,0-1.28.35,1.16,1.16,0,0,0-.46.86,1.34,1.34,0,0,0,.42.75,2.92,2.92,0,0,0,.78.52q.44.2,1.07.41c.42.14.71.25.87.32a3.77,3.77,0,0,1,1.54,1,2.2,2.2,0,0,1,.47,1.42,2.72,2.72,0,0,1-.42,1.37,2.86,2.86,0,0,1-1.19,1,4.49,4.49,0,0,1-2,.41,4.67,4.67,0,0,1-3.14-1.06" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M496.81,533.76a.74.74,0,0,1,.21-.56.71.71,0,0,1,.52-.21.74.74,0,0,1,.53.2.73.73,0,0,1,.22.56V539a2.75,2.75,0,0,0,.58,1.85,2.16,2.16,0,0,0,1.74.69q2.38,0,2.38-2.53v-5.22a.74.74,0,0,1,.21-.56.71.71,0,0,1,.51-.21.74.74,0,0,1,.53.2.73.73,0,0,1,.22.56v5.3a4.35,4.35,0,0,1-.4,1.86,3.14,3.14,0,0,1-1.27,1.38,4.23,4.23,0,0,1-2.22.53,4,4,0,0,1-2.11-.51,3.14,3.14,0,0,1-1.25-1.37,4.36,4.36,0,0,1-.4-1.88Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M506.53,533.81a.7.7,0,0,1,.22-.53.76.76,0,0,1,.54-.21.68.68,0,0,1,.51.2.84.84,0,0,1,.2.61v.3h.94a2.69,2.69,0,0,1,2.29-1.15,2.75,2.75,0,0,1,2.4,1.62,3.7,3.7,0,0,1,1.29-1.26,3.26,3.26,0,0,1,1.53-.36,3,3,0,0,1,1.52.44,3,3,0,0,1,1.1,1.21,3.92,3.92,0,0,1,.41,1.84v5.58a.74.74,0,0,1-.22.57.74.74,0,0,1-.53.21.7.7,0,0,1-.5-.22.76.76,0,0,1-.22-.56v-5.54a2.57,2.57,0,0,0-.27-1.21,1.78,1.78,0,0,0-.72-.76,2.08,2.08,0,0,0-1-.25,2.2,2.2,0,0,0-1.51.53,2.14,2.14,0,0,0-.6,1.69v5.5a.62.62,0,0,1-.22.51.8.8,0,0,1-.53.18.75.75,0,0,1-.5-.18.63.63,0,0,1-.22-.5v-5.34a2.48,2.48,0,0,0-.63-1.87,2.18,2.18,0,0,0-1.57-.6,2.85,2.85,0,0,0-1.12.26,1.84,1.84,0,0,0-.8.74,2.45,2.45,0,0,0-.3,1.28v5.57a.75.75,0,0,1-.22.57.73.73,0,0,1-.52.21.7.7,0,0,1-.51-.22.75.75,0,0,1-.22-.56Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M522.43,537.42h5.42a3.31,3.31,0,0,0-.7-2.13,2.38,2.38,0,0,0-1.86-.83,2.53,2.53,0,0,0-1.94.78,3.25,3.25,0,0,0-.79,2.18m-1.59.47a6.14,6.14,0,0,1,.56-2.34,4.52,4.52,0,0,1,1.46-1.79,3.92,3.92,0,0,1,4.43,0,4.44,4.44,0,0,1,1.49,1.78,5.34,5.34,0,0,1,.53,2.31q0,.78-.88.78h-6a3.22,3.22,0,0,0,.41,1.62,2.5,2.5,0,0,0,1.05,1,3.23,3.23,0,0,0,1.46.33,3.91,3.91,0,0,0,2.58-1,1.26,1.26,0,0,1,.6-.29.49.49,0,0,1,.41.2.78.78,0,0,1,.15.47.9.9,0,0,1-.23.58,4.46,4.46,0,0,1-1.5,1,5.2,5.2,0,0,1-2.09.42,4.42,4.42,0,0,1-2-.44,3.84,3.84,0,0,1-1.39-1.17,5,5,0,0,1-.77-1.58,6.65,6.65,0,0,1-.26-1.72l0-.06v0" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/><path d="M531,534a.83.83,0,0,1,.21-.59.69.69,0,0,1,.52-.22.72.72,0,0,1,.53.22.81.81,0,0,1,.22.6v.81h0a4.3,4.3,0,0,1,.87-1.13,1.77,1.77,0,0,1,1.13-.53.85.85,0,0,1,.59.23.76.76,0,0,1,.26.58.69.69,0,0,1-.26.6,2.4,2.4,0,0,1-.76.33,3.19,3.19,0,0,0-.65.23,2.54,2.54,0,0,0-1.2,2.4v4.66a.84.84,0,0,1-.2.6.68.68,0,0,1-.51.21.73.73,0,0,1-.54-.22.86.86,0,0,1-.22-.63Z" transform="translate(-432.92 -481.05)" style="fill:#034ea2"/></svg>
@@ -719,24 +727,68 @@ def load_brand_data():
 
 
 @st.cache_data(ttl=600)
-def load_visit_schedule():
-  """File Danh sách lịch viếng thăm (upload lên data/)."""
-  candidates = [
-      VISIT_SCHED_PATH,
-      os.path.join(get_data_dir(), 'DanhSachLichViengTham.xlsx'),
-      os.path.join(get_data_dir(), 'DanhSachLichViengTham.xls'),
-      'DanhSachLichViengTham.xlsx',
-  ]
-  # Tìm file gần đúng tên
-  if os.path.isdir(get_data_dir()):
-    for f in os.listdir(get_data_dir()):
-      fl = f.lower().replace(' ', '')
-      if 'lichviengtham' in fl or 'viengtham' in fl or 'danhsachlich' in fl:
-        candidates.insert(0, os.path.join(get_data_dir(), f))
+@st.cache_data(ttl=600, show_spinner=False)
+def load_visit_schedule(_month_key='Thang10'):
+  """Tìm lịch VT ở data/ThangXX và fallback data/ root."""
+  try:
+    _refresh_paths()
+  except Exception:
+    pass
+
+  def _match_name(fn):
+    fl = str(fn).lower().replace(' ', '').replace('_', '')
+    for a, b in [
+        ('ế', 'e'), ('ễ', 'e'), ('ẹ', 'e'), ('è', 'e'), ('é', 'e'),
+        ('à', 'a'), ('á', 'a'), ('ả', 'a'), ('ã', 'a'), ('ạ', 'a'),
+        ('ư', 'u'), ('ơ', 'o'), ('ô', 'o'),
+    ]:
+      fl = fl.replace(a, b)
+    keys = ['lichviengtham', 'viengtham', 'danhsachlich', 'lichvt']
+    return any(k in fl for k in keys) and fl.endswith(('.xlsx', '.xls', '.xlsm'))
+
+  search_dirs = []
+  try:
+    ddir = get_data_dir()
+    if ddir:
+      search_dirs.append(ddir)
+  except Exception:
+    pass
+  if os.path.isdir('data') and 'data' not in search_dirs:
+    search_dirs.append('data')
+  search_dirs.append('.')
+
+  candidates = []
+  for d in search_dirs:
+    if not os.path.isdir(d):
+      continue
+    for name in [
+        'DanhSachLichViengTham.xlsx',
+        'DanhSachLichViengTham.xls',
+        'DanhSachLichViengTham.xlsm',
+    ]:
+      candidates.append(os.path.join(d, name))
+    try:
+      for f in os.listdir(d):
+        if _match_name(f):
+          candidates.insert(0, os.path.join(d, f))
+    except Exception:
+      pass
+
+  seen = set()
+  uniq = []
   for p in candidates:
-    if os.path.exists(p):
+    if p not in seen:
+      seen.add(p)
+      uniq.append(p)
+
+  for p in uniq:
+    if not os.path.isfile(p):
+      continue
+    for hdr in (2, 0, 1):
       try:
-        df = pd.read_excel(p, header=2)
+        df = pd.read_excel(p, header=hdr)
+        if df is None or df.empty:
+          continue
         if 'Ngày lịch VT' in df.columns:
           df['_plan_date'] = pd.to_datetime(
               df['Ngày lịch VT'], dayfirst=True, errors='coerce'
@@ -746,8 +798,8 @@ def load_visit_schedule():
               df['Ngày VT thực tế'], dayfirst=True, errors='coerce'
           )
         return df
-      except Exception as e:
-        st.warning(f'Không đọc được file lịch VT ({p}): {e}')
+      except Exception:
+        continue
   return pd.DataFrame()
 
 
@@ -14342,43 +14394,41 @@ def build_hs_combo_mbs_summary(df, report_date, df_combo_off, df_combo_on, cat_d
   except Exception:
     pass
 
-  def _mbs_info(mbs_df):
+  def _mbs_info(mbs_df, kind='CAT'):
+    """Dùng đúng logic 6 nhóm của Báo Cáo MBS Cat / MBS Brand."""
     if mbs_df is None or getattr(mbs_df, 'empty', True):
       return None
-    d = mbs_df.copy()
-    c_nv = find_col(d, ['SM Name', 'SM name', 'Tên NVBH', 'Nhân viên'])
-    if nv_selected(filter_nv) and c_nv:
-      d = filter_df_by_nv(d, c_nv, filter_nv)
-    c_type = find_col(d, ['Member Type', 'Member type', 'Loại', 'Group', 'Nhóm'])
-    c_actual = find_col(d, [
-        'Doanh số thực đạt của CAT', 'Doanh số thực đạt CAT',
-        'Doanh số thực đạt của BRAND', 'Doanh số thực đạt BRAND',
-        'Doanh số thực đạt', 'Actual',
-    ])
-    c_ct = find_col(d, [
-        'Doanh số nền tảng của OUTLET', 'Chỉ tiêu của CAT', 'Chỉ tiêu CAT',
-        'Chỉ tiêu của BRAND', 'Chỉ tiêu BRAND', 'Target',
-    ])
-    groups = {}
-    dat = total = 0
-    if c_type:
-      for gname, gdf in d.groupby(d[c_type].astype(str).str.strip()):
-        if not gname or gname.lower() in ('nan', 'none', ''):
-          continue
-        n = len(gdf)
-        n_dat = 0
-        if c_actual and c_ct:
-          act = pd.to_numeric(gdf[c_actual], errors='coerce').fillna(0)
-          ct = pd.to_numeric(gdf[c_ct], errors='coerce').fillna(0)
-          n_dat = int(((act >= ct) & (ct > 0)).sum())
-        groups[gname] = f'{n_dat}/{n}'
-        dat += n_dat
-        total += n
-    else:
-      total = len(d)
-    return {'groups': groups, 'dat': dat, 'total': total}
+    try:
+      if kind == 'BRAND':
+        rep = build_mbs_brand_report(mbs_df, filter_nv=filter_nv, mcp_df=mcp_df)
+      else:
+        rep = build_mbs_cat_report(mbs_df, filter_nv=filter_nv, mcp_df=mcp_df)
+    except Exception:
+      return None
+    if not rep or not rep.get('total_kh'):
+      return None
+    groups_out = {}
+    # Nhóm 1 = Đã đạt MBS (đạt DS + nhiệm vụ) — metric "đạt NV"
+    dat = 0
+    gdict = rep.get('groups') or {}
+    for g in range(1, 7):
+      info = gdict.get(g) or {}
+      kh = int(info.get('kh', 0) or 0)
+      name = str(info.get('name', f'Nhóm {g}'))
+      # short label: N1, N2...
+      short = f'N{g}'
+      groups_out[short] = str(kh)
+      if g == 1:
+        dat = kh
+    total = int(rep.get('total_kh', 0) or 0)
+    return {'groups': groups_out, 'dat': dat, 'total': total}
 
-  return combo_off, combo_on, _mbs_info(cat_df), _mbs_info(brand_df)
+  return (
+      combo_off,
+      combo_on,
+      _mbs_info(cat_df, 'CAT'),
+      _mbs_info(brand_df, 'BRAND'),
+  )
 
 def render_performance_html(df):
   if df is None or df.empty:
@@ -14406,21 +14456,110 @@ st.markdown(
 col_reload, col_empty = st.columns([2, 5])
 with col_reload:
   if st.button('🔄 Xóa Cache & Reload Dữ Liệu'):
-    st.cache_data.clear()
+    try:
+      st.cache_data.clear()
+    except Exception:
+      pass
+    for _k in list(st.session_state.keys()):
+      if str(_k).startswith('prep_') or str(_k).startswith('lazy_'):
+        try:
+          del st.session_state[_k]
+        except Exception:
+          pass
+    st.session_state['_force_reload'] = True
     st.rerun()
 
-with st.spinner('Đang tải dữ liệu...'):
-  df, mcp = load_main_data()
-  targets = get_targets()
-  turnover_targets = get_turnover_targets()
-  df_cat = load_cat_data()
-  df_brand = load_brand_data()
-  df_combo_off, df_combo_on = load_combo_data()
-  df_visit_sched = load_visit_schedule()
 
-  mcp = process_mcp_sales(df, mcp)
-  df_cat = process_cat_sales(df, df_cat)
-  df_brand = process_brand_sales(df, df_brand)
+# ====================== PREPARED DATA (cache gộp — giảm lag) ======================
+@st.cache_data(ttl=600, show_spinner=False)
+def load_prepared_core(_month_key='Thang10'):
+  """Load RPT+MCP + process sales MCP 1 lần / cache hit."""
+  df, mcp = load_main_data(_month_key)
+  mcp2 = process_mcp_sales(df, mcp)
+  return df, mcp2
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_prepared_cat(_month_key='Thang10'):
+  df, _ = load_main_data(_month_key)
+  cat = load_cat_data()
+  return process_cat_sales(df, cat)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_prepared_brand(_month_key='Thang10'):
+  df, _ = load_main_data(_month_key)
+  brand = load_brand_data()
+  return process_brand_sales(df, brand)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_combo_matrix(_month_key, date_str, filter_nv_key):
+  """Cache kết quả Matrix Combo theo tháng/ngày/filter."""
+  df, mcp = load_prepared_core(_month_key)
+  df_off, df_on = load_combo_data()
+  try:
+    rd = pd.to_datetime(date_str).date()
+  except Exception:
+    rd = date.today()
+  fnv = None
+  if filter_nv_key and filter_nv_key != '__ALL__':
+    parts = [x for x in str(filter_nv_key).split('||') if x]
+    fnv = parts if len(parts) > 1 else (parts[0] if parts else None)
+  return build_combo_matrix(df, rd, df_off, df_on, fnv, mcp_df=mcp)
+
+
+# ---- DATA: session_state giữ DataFrame giữa các lần click (mượt hơn cache hash) ----
+try:
+  _mk = get_month_key()
+except Exception:
+  _mk = st.session_state.get('report_month_key', 'Thang10')
+
+def _ensure_core_data(month_key):
+  sk = f'prep_core_{month_key}'
+  if st.session_state.get('_force_reload') or sk not in st.session_state:
+    with st.spinner('Đang tải dữ liệu gốc (chỉ lần đầu hoặc sau Reload)...'):
+      _df, _mcp = load_prepared_core(month_key)
+      st.session_state[sk] = (_df, _mcp)
+    st.session_state['_force_reload'] = False
+  return st.session_state[sk]
+
+def _lazy_cat(month_key):
+  sk = f'lazy_cat_{month_key}'
+  if sk not in st.session_state:
+    st.session_state[sk] = load_prepared_cat(month_key)
+  return st.session_state[sk]
+
+def _lazy_brand(month_key):
+  sk = f'lazy_brand_{month_key}'
+  if sk not in st.session_state:
+    st.session_state[sk] = load_prepared_brand(month_key)
+  return st.session_state[sk]
+
+def _lazy_combo(month_key):
+  sk = f'lazy_combo_{month_key}'
+  if sk not in st.session_state:
+    st.session_state[sk] = load_combo_data()
+  return st.session_state[sk]
+
+def _lazy_visit(month_key):
+  sk = f'lazy_visit_{month_key}'
+  cur = st.session_state.get(sk)
+  if cur is None or (hasattr(cur, 'empty') and cur.empty):
+    try:
+      _refresh_paths()
+    except Exception:
+      pass
+    st.session_state[sk] = load_visit_schedule(str(month_key))
+  return st.session_state[sk]
+
+df, mcp = _ensure_core_data(_mk)
+targets = get_targets()
+turnover_targets = get_turnover_targets()
+df_cat = None
+df_brand = None
+df_combo_off, df_combo_on = None, None
+df_visit_sched = None
 
 # Full NV list: RPT + Target_KPI + MCP (NV chưa bán vẫn chọn được / hiện 0)
 _nv_set = set()
@@ -14519,16 +14658,17 @@ with mc1:
 _new_key = [k for k, v in MONTH_OPTIONS.items() if v['label'] == _sel_label][0]
 if _new_key != st.session_state.get('report_month_key'):
   st.session_state['report_month_key'] = _new_key
-  # Đổi tháng → clear cache data
+  for _k in list(st.session_state.keys()):
+    if str(_k).startswith('prep_') or str(_k).startswith('lazy_'):
+      try:
+        del st.session_state[_k]
+      except Exception:
+        pass
+  st.session_state['_force_reload'] = True
   try:
-    load_main_data.clear()
+    _refresh_paths()
   except Exception:
     pass
-  try:
-    st.cache_data.clear()
-  except Exception:
-    pass
-  _refresh_paths()
   st.rerun()
 
 _cfg_m = get_month_cfg()
@@ -14646,6 +14786,26 @@ with f2:
       label_visibility='collapsed',
   )
   selected_kpi = kpi_map[selected_name]
+# Lazy-load đúng data cho KPI đang chọn
+try:
+  _mk_now = get_month_key()
+except Exception:
+  _mk_now = st.session_state.get('report_month_key', 'Thang10')
+_sk = str(selected_kpi)
+if _sk in ('MBS_CAT', 'SUMMARY', 'PERFORMANCE', 'TEA_BATTLE', 'PERF_CAT'):
+  df_cat = _lazy_cat(_mk_now)
+if _sk in ('MBS_BRAND', 'SUMMARY', 'PERFORMANCE', 'PERF_CAT'):
+  df_brand = _lazy_brand(_mk_now)
+if _sk in ('COMBO', 'SUMMARY', 'PERFORMANCE'):
+  df_combo_off, df_combo_on = _lazy_combo(_mk_now)
+if _sk in ('VISIT', 'WEEKLY_PREVIEW', 'SUMMARY', 'ASO_ALL', 'ASO_FOCUS', 'ASO_FOCUS_2'):
+  df_visit_sched = _lazy_visit(_mk_now)
+# Hiệu suất / display thường cần gần như tất cả
+if _sk in ('DISPLAY',) or 'HIEU' in _sk.upper() or 'HS' == _sk:
+  df_cat = _lazy_cat(_mk_now)
+  df_brand = _lazy_brand(_mk_now)
+  df_combo_off, df_combo_on = _lazy_combo(_mk_now)
+  df_visit_sched = _lazy_visit(_mk_now)
 with f3:
   st.markdown(
       '<p class="filter-label">ĐDKD (Nhân viên - Chọn nhiều)</p>',
@@ -14816,17 +14976,32 @@ components.html(
 
 st.markdown('---')
 
-tab_kpi, tab_mcp, tab_cat, tab_brand, tab_dskh_off, tab_dskh_on = st.tabs([
+_nav_opts = [
     '📊 BÁO CÁO KPI',
     '🗺️ MCP VISIT',
     '📦 TRACKING MBS - CAT',
     '🏷️ TRACKING MBS - BRAND',
     '📋 DSKH_Combo OFF',
     '📋 DSKH_Combo ON',
-])
+]
+_nav = st.radio(
+    'Section', _nav_opts, horizontal=True,
+    key='main_nav_section', label_visibility='collapsed',
+)
 
 # ----- TAB KPI -----
-with tab_kpi:
+if _nav == '📊 BÁO CÁO KPI':
+  # Fallback rỗng nếu KPI không cần (tránh NoneType)
+  if df_cat is None:
+    df_cat = pd.DataFrame()
+  if df_brand is None:
+    df_brand = pd.DataFrame()
+  if df_combo_off is None:
+    df_combo_off = pd.DataFrame()
+  if df_combo_on is None:
+    df_combo_on = pd.DataFrame()
+  if df_visit_sched is None:
+    df_visit_sched = pd.DataFrame()
   # Báo cáo hỗ trợ lọc Mã KH / Tên KH (có thông tin cửa hàng)
   _KPI_SUPPORT_KH = {
       'MBS_CAT', 'MBS_BRAND', 'VISIT', 'COMBO', 'SUMMARY',
@@ -15995,10 +16170,32 @@ with tab_kpi:
 
   elif selected_kpi == 'PERFORMANCE':
     set_color_moc_for_kpi('SUMMARY')
-    if df_visit_sched is None or df_visit_sched.empty:
+    try:
+      _mk_p = get_month_key()
+    except Exception:
+      _mk_p = st.session_state.get('report_month_key', 'Thang10')
+    try:
+      _refresh_paths()
+    except Exception:
+      pass
+    # Xóa cache rỗng nếu có
+    for _k in list(st.session_state.keys()):
+      if str(_k).startswith('lazy_visit'):
+        _v = st.session_state.get(_k)
+        if _v is None or (hasattr(_v, 'empty') and _v.empty):
+          try:
+            del st.session_state[_k]
+          except Exception:
+            pass
+    try:
+      load_visit_schedule.clear()
+    except Exception:
+      pass
+    df_visit_sched = load_visit_schedule(_mk_p)
+    if df_visit_sched is None or getattr(df_visit_sched, 'empty', True):
       st.warning(
-          '⚠️ Chưa có file **DanhSachLichViengTham.xlsx** trong thư mục `data/`. '
-          'Upload file lịch viếng thăm lên GitHub rồi bấm **Xóa Cache & Reload**.'
+          '⚠️ Không tìm thấy **DanhSachLichViengTham.xlsx** trong `data/Thang10/` '
+          'hoặc `data/`. Kiểm tra tên file trên GitHub rồi **Xóa Cache & Reload**.'
       )
     else:
       df_perf, title_perf = build_performance_report(
@@ -17079,10 +17276,24 @@ with tab_kpi:
     df_off = pd.DataFrame()
     df_on = pd.DataFrame()
     try:
-      sales_hist = load_weekly_sales()
-      df_off, df_on = build_weekly_preview(
-          mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+      try:
+        _mk_w = get_month_key()
+      except Exception:
+        _mk_w = st.session_state.get('report_month_key', 'Thang10')
+      _fnv_w = (
+          '||'.join([str(x) for x in filter_nv]) if isinstance(filter_nv, list)
+          else (str(filter_nv) if filter_nv else '__ALL__')
       )
+      _wk = f'weekly_prev_{_mk_w}_{_fnv_w}_{report_date}'
+      if _wk in st.session_state and not st.session_state.get('_force_reload'):
+        df_off, df_on, sales_hist = st.session_state[_wk]
+      else:
+        with st.spinner('Đang tính Weekly Review (lần đầu sẽ chậm hơn)...'):
+          sales_hist = load_weekly_sales()
+          df_off, df_on = build_weekly_preview(
+              mcp, sales_hist, df_rpt=df, filter_nv=filter_nv
+          )
+          st.session_state[_wk] = (df_off, df_on, sales_hist)
     except Exception as e:
       st.error('Lỗi chạy Weekly Preview: ' + str(e))
       st.exception(e)
@@ -17389,8 +17600,18 @@ with tab_kpi:
     )
 
   else:
-    df_combo, target_off_total, target_on_total = build_combo_matrix(
-        df, report_date, df_combo_off, df_combo_on, filter_nv, mcp_df=mcp
+    _fnv_key = (
+        '||'.join([str(x) for x in filter_nv]) if isinstance(filter_nv, list)
+        else (str(filter_nv) if filter_nv else '__ALL__')
+    )
+    if not _fnv_key or _fnv_key in ('None', 'nan'):
+      _fnv_key = '__ALL__'
+    try:
+      _mk2 = get_month_key()
+    except Exception:
+      _mk2 = 'Thang10'
+    df_combo, target_off_total, target_on_total = cached_combo_matrix(
+        _mk2, str(report_date), _fnv_key
     )
     total_row = df_combo.iloc[-1]
     # Mốc tô màu Combo = % MTD dòng Total (trung bình OFF/ON nếu có)
@@ -18220,7 +18441,7 @@ def render_mbs_data_summary(df_summary, title):
 # ----- TAB MCP -----
 
 
-with tab_mcp:
+if _nav == '🗺️ MCP VISIT':
   st.markdown(
       '<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
       ' font-size: 15px;">🗺️ MCP VISIT & MAPPING DOANH SỐ BÁN HÀNG</h3>',
@@ -18850,7 +19071,9 @@ with tab_mcp:
 
 
 # ----- TAB CAT -----
-with tab_cat:
+if _nav == '📦 TRACKING MBS - CAT':
+  if df_cat is None:
+    df_cat = _lazy_cat(get_month_key() if True else "Thang10")
   st.markdown(
       '<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
       ' font-size: 15px;">🎯 TRACKING MBS - THEO NGÀNH HÀNG (CATEGORY)</h3>',
@@ -19008,7 +19231,9 @@ with tab_cat:
     render_mbs_data_summary(df_cat_summary, 'DATA_CAT SUMMARY')
 
 # ----- TAB BRAND -----
-with tab_brand:
+if _nav == '🏷️ TRACKING MBS - BRAND':
+  if df_brand is None:
+    df_brand = _lazy_brand(get_month_key() if True else "Thang10")
   st.markdown(
       '<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
       ' font-size: 15px;">🏷️ TRACKING MBS - THEO THƯƠNG HIỆU (BRAND)</h3>',
@@ -19166,7 +19391,9 @@ with tab_brand:
     render_mbs_data_summary(df_brand_summary, 'DATA_BRAND SUMMARY')
 
 # ----- TAB DSKH_Combo OFF -----
-with tab_dskh_off:
+if _nav == '📋 DSKH_Combo OFF':
+  if df_combo_off is None:
+    df_combo_off, df_combo_on = _lazy_combo(get_month_key() if True else "Thang10")
   st.markdown(
       '<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
       ' font-size: 15px;">📋 DANH SÁCH KHÁCH HÀNG COMBO OFF (TÂN_COMBO KÊNH'
@@ -19319,7 +19546,9 @@ with tab_dskh_off:
     st.caption(f'Hiển thị: {len(df_off_f):,} / {len(df_combo_off):,} cửa hàng')
 
 # ----- TAB DSKH_Combo ON -----
-with tab_dskh_on:
+if _nav == '📋 DSKH_Combo ON':
+  if df_combo_on is None:
+    df_combo_off, df_combo_on = _lazy_combo(get_month_key() if True else "Thang10")
   st.markdown(
       '<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
       ' font-size: 15px;">📋 DANH SÁCH KHÁCH HÀNG COMBO ON (TÂN_COMBO KÊNH'
