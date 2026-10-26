@@ -14395,7 +14395,9 @@ def build_hs_combo_mbs_summary(df, report_date, df_combo_off, df_combo_on, cat_d
     pass
 
   def _mbs_info(mbs_df, kind='CAT'):
-    """Dùng đúng logic 6 nhóm của Báo Cáo MBS Cat / MBS Brand."""
+    """Phân CAT1/2/3 hoặc BRAND1/2/3: số CH đạt / tổng CH.
+    Đạt = Nhóm 1 (Đã đạt MBS) theo logic Báo Cáo MBS Cat/Brand.
+    """
     if mbs_df is None or getattr(mbs_df, 'empty', True):
       return None
     try:
@@ -14405,22 +14407,64 @@ def build_hs_combo_mbs_summary(df, report_date, df_combo_off, df_combo_on, cat_d
         rep = build_mbs_cat_report(mbs_df, filter_nv=filter_nv, mcp_df=mcp_df)
     except Exception:
       return None
-    if not rep or not rep.get('total_kh'):
+    det = rep.get('df_detail') if rep else None
+    if det is None or getattr(det, 'empty', True):
       return None
+
+    d = det.copy()
+    # Member type column
+    c_mem = None
+    for c in d.columns:
+      if str(c).strip().lower() in ('member type', 'member_type', 'member type'):
+        c_mem = c
+        break
+    if c_mem is None:
+      c_mem = find_col(d, ['Member type', 'Member Type', 'Phân loại CAT', 'Phân loại'])
+
+    c_nhom = 'Nhóm' if 'Nhóm' in d.columns else find_col(d, ['Nhóm', 'Nhom', 'Group'])
+    if not c_mem or not c_nhom:
+      total = len(d)
+      dat = int((pd.to_numeric(d[c_nhom], errors='coerce') == 1).sum()) if c_nhom else 0
+      return {'groups': {}, 'dat': dat, 'total': total}
+
+    d['_mem'] = d[c_mem].astype(str).str.strip()
+    d['_nhom'] = pd.to_numeric(d[c_nhom], errors='coerce').fillna(0).astype(int)
+    d['_dat'] = (d['_nhom'] == 1).astype(int)
+
+    # Chỉ lấy CAT1/2/3 hoặc BRAND1/2/3
+    prefix = 'BRAND' if kind == 'BRAND' else 'CAT'
+    order = [f'{prefix}{i}' for i in (1, 2, 3)]
+
     groups_out = {}
-    # Nhóm 1 = Đã đạt MBS (đạt DS + nhiệm vụ) — metric "đạt NV"
-    dat = 0
-    gdict = rep.get('groups') or {}
-    for g in range(1, 7):
-      info = gdict.get(g) or {}
-      kh = int(info.get('kh', 0) or 0)
-      name = str(info.get('name', f'Nhóm {g}'))
-      # short label: N1, N2...
-      short = f'N{g}'
-      groups_out[short] = str(kh)
-      if g == 1:
-        dat = kh
-    total = int(rep.get('total_kh', 0) or 0)
+    dat = total = 0
+    for key in order:
+      # match linh hoạt: CAT1, Cat 1, CAT 1...
+      mask = d['_mem'].str.upper().str.replace(' ', '', regex=False) == key.upper()
+      if not mask.any():
+        # fallback contains
+        mask = d['_mem'].str.upper().str.replace(' ', '', regex=False).str.contains(
+            key.upper(), na=False
+        )
+      sub = d.loc[mask]
+      n = int(len(sub))
+      n_dat = int(sub['_dat'].sum()) if n else 0
+      if n > 0:
+        groups_out[key] = f'{n_dat}/{n}'
+        dat += n_dat
+        total += n
+
+    # Nếu không match được CAT1/2/3 — group theo giá trị Member type gốc
+    if not groups_out:
+      for gname, gdf in d.groupby('_mem'):
+        gn = str(gname).strip()
+        if not gn or gn.lower() in ('nan', 'none', ''):
+          continue
+        n = len(gdf)
+        n_dat = int(gdf['_dat'].sum())
+        groups_out[gn] = f'{n_dat}/{n}'
+        dat += n_dat
+        total += n
+
     return {'groups': groups_out, 'dat': dat, 'total': total}
 
   return (
