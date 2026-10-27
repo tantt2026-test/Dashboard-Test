@@ -18595,6 +18595,13 @@ if _nav == '🗺️ MCP VISIT':
     col_ds = find_col(
         mcp, ['Doanh Số MTD', 'Doanh số MTD', 'Doanh_so_MTD']
     )
+    col_created = find_col(
+        mcp,
+        [
+            'Created_date', 'Created date', 'Created Date',
+            'created_date', 'Ngày tạo', 'Create Date', 'CREATE_DATE',
+        ],
+    )
 
     saved_mcp_nv = st.query_params.get('mcp_nv', '')
     default_nv_list = (
@@ -18756,6 +18763,54 @@ if _nav == '🗺️ MCP VISIT':
           label_visibility='collapsed',
       )
 
+    # Bộ lọc Created_date: Ngày - Tháng - Năm (áp dụng cả 2 bảng MCP)
+    f_cd_day = f_cd_month = f_cd_year = []
+    if col_created and col_created in mcp.columns:
+      _cd_series = pd.to_datetime(mcp[col_created], errors='coerce')
+      _years = sorted([int(y) for y in _cd_series.dt.year.dropna().unique().tolist()])
+      _months = list(range(1, 13))
+      _days = list(range(1, 32))
+      cd1, cd2, cd3 = st.columns(3)
+      with cd1:
+        st.markdown(
+            '<p class="filter-label">📅 Created_date — Ngày</p>',
+            unsafe_allow_html=True,
+        )
+        f_cd_day = st.multiselect(
+            '',
+            _days,
+            default=[],
+            key='mcp_cd_day',
+            label_visibility='collapsed',
+            placeholder='Tất cả Ngày',
+        )
+      with cd2:
+        st.markdown(
+            '<p class="filter-label">📅 Created_date — Tháng</p>',
+            unsafe_allow_html=True,
+        )
+        f_cd_month = st.multiselect(
+            '',
+            _months,
+            default=[],
+            key='mcp_cd_month',
+            label_visibility='collapsed',
+            placeholder='Tất cả Tháng',
+        )
+      with cd3:
+        st.markdown(
+            '<p class="filter-label">📅 Created_date — Năm</p>',
+            unsafe_allow_html=True,
+        )
+        f_cd_year = st.multiselect(
+            '',
+            _years,
+            default=[],
+            key='mcp_cd_year',
+            label_visibility='collapsed',
+            placeholder='Tất cả Năm',
+        )
+
     st.query_params['mcp_nv'] = (
         ','.join(st.session_state.mcp_nv_input)
         if st.session_state.mcp_nv_input
@@ -18814,6 +18869,17 @@ if _nav == '🗺️ MCP VISIT':
       if f_ds and d_ds and d_ds in dfx.columns:
         formatted_col_ds = pd.to_numeric(dfx[d_ds], errors='coerce').apply(format_number_vn).astype(str)
         dfx = dfx[formatted_col_ds.isin(f_ds)]
+      # Lọc Created_date theo Ngày / Tháng / Năm
+      if col_created and col_created in dfx.columns and (f_cd_day or f_cd_month or f_cd_year):
+        _dt = pd.to_datetime(dfx[col_created], errors='coerce')
+        _mask = pd.Series(True, index=dfx.index)
+        if f_cd_day:
+          _mask &= _dt.dt.day.isin([int(x) for x in f_cd_day])
+        if f_cd_month:
+          _mask &= _dt.dt.month.isin([int(x) for x in f_cd_month])
+        if f_cd_year:
+          _mask &= _dt.dt.year.isin([int(x) for x in f_cd_year])
+        dfx = dfx[_mask.fillna(False)]
       return dfx
 
     try:
