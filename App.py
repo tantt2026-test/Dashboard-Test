@@ -6204,7 +6204,7 @@ def build_combo_matrix(
   combo_df = tag_combo_orders_t10(df_mtd, mcp_df=mcp_df)
 
   def _maps_from_combo(combo_sub, report_date):
-    """CH MTD/Ngày + Suất (unique ĐH) MTD/Ngày."""
+    """CH MTD/Ngày = unique cửa hàng; Suất = unique mã đơn hàng."""
     empty = {}
     if combo_sub is None or combo_sub.empty or 'Tên NVBH' not in combo_sub.columns:
       return empty, empty, empty, empty
@@ -6215,16 +6215,38 @@ def build_combo_matrix(
     else:
       dsub['_d'] = rd
 
-    if 'Mã CH' in dsub.columns:
-      mtd_ch = dsub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
-      # Phát sinh Ngày = CH có first_date = ngày BC (lần đầu phát sinh Combo trong tháng)
+    # Chuẩn hoá cột mã CH
+    ma_ch_col = None
+    for c in ['Mã CH', 'Outlet Code', 'Outlet_code', 'OutletCode', 'Mã KH', 'Poscode']:
+      if c in dsub.columns:
+        ma_ch_col = c
+        break
+    if ma_ch_col is None:
+      for c in dsub.columns:
+        cl = str(c).lower().replace(' ', '')
+        if cl in ('mãch', 'mach', 'outletcode', 'outlet_code', 'mãkh'):
+          ma_ch_col = c
+          break
+
+    def _norm_ch(x):
+      s = str(x).strip()
+      if s.endswith('.0'):
+        s = s[:-2]
+      return s
+
+    if ma_ch_col is not None:
+      dsub['_ma_ch'] = dsub[ma_ch_col].map(_norm_ch)
+      dsub = dsub[dsub['_ma_ch'].notna() & ~dsub['_ma_ch'].isin(('', 'nan', 'None', 'none'))]
+      # MTD = số CH unique có mua Combo trong tháng (KHÔNG đếm suất)
+      mtd_ch = dsub.groupby('Tên NVBH')['_ma_ch'].nunique().to_dict()
+      # Phát sinh Ngày = CH first_date = ngày BC
       first = (
-          dsub.groupby(['Tên NVBH', 'Mã CH'])['_d'].min().reset_index()
+          dsub.groupby(['Tên NVBH', '_ma_ch'])['_d'].min().reset_index()
       )
-      first.columns = ['Tên NVBH', 'Mã CH', 'first_date']
+      first.columns = ['Tên NVBH', '_ma_ch', 'first_date']
       ngay_ch = (
           first[first['first_date'] == rd]
-          .groupby('Tên NVBH')['Mã CH']
+          .groupby('Tên NVBH')['_ma_ch']
           .nunique()
           .to_dict()
       )
@@ -6237,19 +6259,21 @@ def build_combo_matrix(
         ma_dh_col = c
         break
     if ma_dh_col:
-      mtd_suat = dsub.groupby('Tên NVBH')[ma_dh_col].nunique().to_dict()
+      dsub['_ma_dh'] = dsub[ma_dh_col].astype(str).str.strip()
+      mtd_suat = dsub.groupby('Tên NVBH')['_ma_dh'].nunique().to_dict()
       day = dsub[dsub['_d'] == rd]
-      ngay_suat = day.groupby('Tên NVBH')[ma_dh_col].nunique().to_dict() if not day.empty else {}
+      ngay_suat = (
+          day.groupby('Tên NVBH')['_ma_dh'].nunique().to_dict() if not day.empty else {}
+      )
     else:
-      # fallback: 1 suất / CH / ngày
-      if 'Mã CH' in dsub.columns:
-        mtd_suat = dsub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
+      # fallback suất: không lấy nunique CH làm suất MTD tháng (tránh nhầm với MTD CH)
+      mtd_suat, ngay_suat = {}, {}
+      if ma_ch_col is not None:
         day = dsub[dsub['_d'] == rd]
+        # ước suất ngày = CH có ĐH trong ngày (tối đa 1/CH/ngày khi thiếu mã ĐH)
         ngay_suat = (
-            day.groupby('Tên NVBH')['Mã CH'].nunique().to_dict() if not day.empty else {}
+            day.groupby('Tên NVBH')['_ma_ch'].nunique().to_dict() if not day.empty else {}
         )
-      else:
-        mtd_suat, ngay_suat = {}, {}
     return mtd_ch, ngay_ch, mtd_suat, ngay_suat
 
   def _ch_mask(s, want):
@@ -13492,7 +13516,7 @@ def render_combo_matrix_html(df):
       '<tr>',
   ]
   sub_cols = [
-      'Target', 'Phát sinh<br>Ngày', 'MTD', '% MTD', 'Số Suất', 'MTD'
+      'Target', 'Phát sinh<br>Ngày', 'MTD CH', '% MTD', 'Suất Ngày', 'Suất MTD'
   ] * 2
   for c in sub_cols:
     html.append(f'<th style="{th_base}">{c}</th>')
