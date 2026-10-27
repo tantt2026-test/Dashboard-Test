@@ -16875,15 +16875,16 @@ if _nav == '📊 BÁO CÁO KPI':
               )
           except Exception:
             pass
-          _html_day = render_hs_daily_metric_cards(
-              df_perf, report_date, lppc_moc=_moc,
-              aso_off=_aso_off, aso_on=_aso_on,
-              mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
+          st.markdown(
+              render_hs_daily_metric_cards(
+                  df_perf, report_date, lppc_moc=_moc,
+                  aso_off=_aso_off, aso_on=_aso_on,
+                  mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
+              ),
+              unsafe_allow_html=True,
           )
         except Exception as _e_daily:
-          _html_day = ''
           st.caption(f'(Metric ngày) {_e_daily}')
-        _html_mon = ''
         try:
           _rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
           _wd, _el, _rem, _tg = get_timegone_stats(_rd)
@@ -16899,53 +16900,15 @@ if _nav == '📊 BÁO CÁO KPI':
               df_combo_off, df_combo_on, df_cat, df_brand,
               mcp, filter_nv,
           )
-          _html_mon = render_hs_monthly_kpi_table(
-              _rows, _tg, combo_off=_co, combo_on=_cn,
-              mbs_cat=_mc, mbs_brand=_mb, report_date=_rd,
+          st.markdown(
+              render_hs_monthly_kpi_table(
+                  _rows, _tg, combo_off=_co, combo_on=_cn,
+                  mbs_cat=_mc, mbs_brand=_mb, report_date=_rd,
+              ),
+              unsafe_allow_html=True,
           )
         except Exception as _e_mon:
           st.caption(f'(Bảng tháng) {_e_mon}')
-
-        # Bundle + toolbar lưu PNG 9:16
-        _hs_bundle = (_html_day or '') + (_html_mon or '')
-        if _hs_bundle.strip():
-          _hs_page = (
-              '<!DOCTYPE html><html><head><meta charset="utf-8"/>'
-              '<meta name="viewport" content="width=device-width, initial-scale=1"/>'
-              '<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>'
-              '<style>'
-              'body{margin:0;padding:8px;font-family:Arial,sans-serif;background:#fff;}'
-              '.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;'
-              'margin-bottom:10px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:10px;'
-              'position:sticky;top:0;z-index:30;}'
-              '.bar button{background:#1a365d;color:#fff;border:none;border-radius:8px;'
-              'padding:10px 16px;font-weight:800;cursor:pointer;font-size:14px;}'
-              '.bar span{font-size:12px;color:#4a5568;}'
-              '</style></head><body>'
-              '<div class="bar">'
-              '<button type="button" onclick="saveHsPng()">📷 Lưu ảnh PNG (9:16)</button>'
-              '<span>Tỷ lệ mặc định <b>1080×1920</b> — tối ưu xem trên mobile</span>'
-              '</div>'
-              '<div id="snap">' + _hs_bundle + '</div>'
-              '<script>'
-              'async function saveHsPng(){'
-              'try{'
-              'const el=document.getElementById("snap");'
-              'const canvas=await html2canvas(el,{scale:2,backgroundColor:"#ffffff",useCORS:true,logging:false});'
-              'const W=1080,H=1920;'
-              'const out=document.createElement("canvas");out.width=W;out.height=H;'
-              'const ctx=out.getContext("2d");ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);'
-              'const scale=Math.min(W/canvas.width,(H-80)/canvas.height);'
-              'const w=canvas.width*scale,h=canvas.height*scale;'
-              'ctx.drawImage(canvas,(W-w)/2,40,w,h);'
-              'const a=document.createElement("a");'
-              'a.download="Hieu_Suat_Ban_Hang_9x16.png";'
-              'a.href=out.toDataURL("image/png");a.click();'
-              '}catch(e){alert("Lỗi lưu ảnh: "+e);}'
-              '}'
-              '</script></body></html>'
-          )
-          components.html(_hs_page, height=2800, scrolling=True)
 
         # ===== Chart mức độ hoàn thành KPI theo ngày (từ dòng TOTAL 2 bảng) =====
         try:
