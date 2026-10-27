@@ -14426,15 +14426,12 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
 
   html = [
     '<style>'
-    '.hs-day-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;}'
-    '@media(max-width:1200px){.hs-day-grid{grid-template-columns:repeat(3,1fr)!important;}}'
-    '@media(max-width:700px){.hs-day-grid{grid-template-columns:repeat(2,1fr)!important;}}'
-    '@media(max-width:480px){.hs-day-grid{grid-template-columns:1fr!important;}}'
-    '.hs-day-card{background:#fff;border-radius:12px;padding:12px 14px;'
-    'box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #cbd5e0;}'
-    '.hs-day-card .t{font-size:10px;font-weight:700;color:#718096;letter-spacing:.2px;}'
-    '.hs-day-card .m{font-size:16px;font-weight:800;color:#1a202c;margin:4px 0;line-height:1.25;}'
-    '.hs-day-card .s{font-size:12px;color:#4a5568;}'
+    '.hs-day-grid{display:grid;width:100%;gap:10px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}'
+    '@media(min-width:1400px){.hs-day-grid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));}}'
+    '.hs-day-card{background:#fff;border-radius:12px;padding:clamp(8px,1.2vw,12px) clamp(8px,1.2vw,14px);box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #cbd5e0;min-width:0;}'
+    '.hs-day-card .t{font-size:clamp(9px,1.1vw,12px);font-weight:700;color:#718096;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
+    '.hs-day-card .m{font-size:clamp(13px,1.6vw,18px);font-weight:800;color:#1a202c;margin:4px 0;line-height:1.25;word-break:break-word;}'
+    '.hs-day-card .s{font-size:clamp(10px,1.1vw,12px);color:#4a5568;}'
     '</style>',
     f'<div style="margin:18px 0 8px 0;">'
     f'<div style="font-size:16px;font-weight:800;color:#1a365d;margin-bottom:10px;">'
