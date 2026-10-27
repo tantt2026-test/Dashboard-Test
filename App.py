@@ -10087,8 +10087,11 @@ def build_tea_battle_report(df_raw, df_rpt, df_mcp, report_date, filter_nv=None)
   out = pd.DataFrame(rows)
   if out.empty:
     return pd.DataFrame(columns=empty_cols)
-  # Chỉ hiển thị CH có RR BEV >= 3 triệu
-  if 'RR BEV [Triệu]' in out.columns:
+  # Chỉ hiển thị CH có MTD TEA [Thùng] >= 3
+  if 'MTD TEA [Thùng]' in out.columns:
+    out = out[pd.to_numeric(out['MTD TEA [Thùng]'], errors='coerce').fillna(0) >= 3.0]
+  elif 'RR BEV [Triệu]' in out.columns:
+    # fallback cũ nếu thiếu cột MTD TEA
     out = out[pd.to_numeric(out['RR BEV [Triệu]'], errors='coerce').fillna(0) >= 3.0]
   if out.empty:
     return pd.DataFrame(columns=empty_cols)
@@ -17307,10 +17310,10 @@ if _nav == '📊 BÁO CÁO KPI':
         f_nv_t = st.multiselect('', nvs, default=[], key='tea_nv', label_visibility='collapsed', placeholder='Tất cả NV')
       with r1c2:
         st.markdown('<p class="filter-label">Mã KH</p>', unsafe_allow_html=True)
-        f_ma_t = st.multiselect('', mas, default=[], key='tea_ma', label_visibility='collapsed', placeholder='Tất cả Mã KH')
+        f_ma_t = st.text_input('', key='tea_ma', label_visibility='collapsed', placeholder='Nhập Mã KH...')
       with r1c3:
         st.markdown('<p class="filter-label">Tên KH</p>', unsafe_allow_html=True)
-        f_ten_t = st.multiselect('', tens, default=[], key='tea_ten', label_visibility='collapsed', placeholder='Tất cả Tên KH')
+        f_ten_t = st.text_input('', key='tea_ten', label_visibility='collapsed', placeholder='Nhập Tên KH...')
       with r1c4:
         st.markdown('<p class="filter-label">L1</p>', unsafe_allow_html=True)
         f_l1_t = st.multiselect('', l1s, default=[], key='tea_l1', label_visibility='collapsed', placeholder='Tất cả L1')
@@ -17330,10 +17333,15 @@ if _nav == '📊 BÁO CÁO KPI':
       if not view.empty:
         if f_nv_t:
           view = view[view['Tên NVBH'].isin(f_nv_t)]
-        if f_ma_t:
-          view = view[view['Mã KH'].astype(str).str.replace(r'\.0$', '', regex=True).isin([str(x) for x in f_ma_t])]
-        if f_ten_t:
-          view = view[view['Tên KH'].astype(str).isin([str(x) for x in f_ten_t])]
+        if f_ma_t and str(f_ma_t).strip():
+          _q = str(f_ma_t).strip()
+          view = view[
+              view['Mã KH'].astype(str).str.replace(r'\.0$', '', regex=True)
+              .str.contains(_q, case=False, na=False)
+          ]
+        if f_ten_t and str(f_ten_t).strip():
+          _q = str(f_ten_t).strip()
+          view = view[view['Tên KH'].astype(str).str.contains(_q, case=False, na=False)]
         if f_l1_t:
           view = view[view['L1'].astype(str).isin([str(x) for x in f_l1_t])]
         if f_thu_t:
@@ -19090,6 +19098,15 @@ if _nav == '🗺️ MCP VISIT':
       df_total_show[d_ds] = pd.to_numeric(
           df_total_show[d_ds], errors='coerce'
       ).apply(format_number_vn)
+    # Format cột 3M sales cùng style với Doanh Số MTD
+    for _c3m in list(df_total_show.columns):
+      _cl = str(_c3m).lower().replace(' ', '').replace('_', '')
+      if _cl in ('3msales', '3msale', 'sales3m') or (
+          '3m' in _cl and 'sale' in _cl
+      ):
+        df_total_show[_c3m] = pd.to_numeric(
+            df_total_show[_c3m], errors='coerce'
+        ).apply(format_number_vn)
 
     total_all_cols = [c for c in list(mcp.columns) if c in df_total_show.columns]
     if d_ds and d_ds in df_total_show.columns and d_ds not in total_all_cols:
@@ -19140,6 +19157,14 @@ if _nav == '🗺️ MCP VISIT':
       df_show['Doanh Số MTD'] = pd.to_numeric(
           df_show['Doanh Số MTD'], errors='coerce'
       ).apply(format_number_vn)
+    for _c3m in list(df_show.columns):
+      _cl = str(_c3m).lower().replace(' ', '').replace('_', '')
+      if _cl in ('3msales', '3msale', 'sales3m') or (
+          '3m' in _cl and 'sale' in _cl
+      ):
+        df_show[_c3m] = pd.to_numeric(
+            df_show[_c3m], errors='coerce'
+        ).apply(format_number_vn)
 
     detail_cols = ['Sub Division', 'Group STD SKU', 'Tên sản phẩm']
     preferred = []
