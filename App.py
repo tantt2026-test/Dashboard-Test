@@ -16872,16 +16872,15 @@ if _nav == '📊 BÁO CÁO KPI':
               )
           except Exception:
             pass
-          st.markdown(
-              render_hs_daily_metric_cards(
-                  df_perf, report_date, lppc_moc=_moc,
-                  aso_off=_aso_off, aso_on=_aso_on,
-                  mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
-              ),
-              unsafe_allow_html=True,
+          _html_day = render_hs_daily_metric_cards(
+              df_perf, report_date, lppc_moc=_moc,
+              aso_off=_aso_off, aso_on=_aso_on,
+              mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
           )
         except Exception as _e_daily:
+          _html_day = ''
           st.caption(f'(Metric ngày) {_e_daily}')
+        _html_mon = ''
         try:
           _rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
           _wd, _el, _rem, _tg = get_timegone_stats(_rd)
@@ -16897,15 +16896,35 @@ if _nav == '📊 BÁO CÁO KPI':
               df_combo_off, df_combo_on, df_cat, df_brand,
               mcp, filter_nv,
           )
-          st.markdown(
-              render_hs_monthly_kpi_table(
-                  _rows, _tg, combo_off=_co, combo_on=_cn,
-                  mbs_cat=_mc, mbs_brand=_mb, report_date=_rd,
-              ),
-              unsafe_allow_html=True,
+          _html_mon = render_hs_monthly_kpi_table(
+              _rows, _tg, combo_off=_co, combo_on=_cn,
+              mbs_cat=_mc, mbs_brand=_mb, report_date=_rd,
           )
         except Exception as _e_mon:
           st.caption(f'(Bảng tháng) {_e_mon}')
+
+        # Khung gộp: Kết quả ngày + Lũy kế + Combo/MBS
+        _hs_inner = (_html_day or '') + (_html_mon or '')
+        if _hs_inner.strip():
+          _hs_wrap = (
+              '<div class="hs-report-frame">'
+              '<div class="hs-report-body" id="hs-report-snap">'
+              + _hs_inner
+              + '</div></div>'
+              '<style>'
+              '.hs-report-frame{border:2px solid #2b6cb0;border-radius:14px;background:#fff;'
+              'box-shadow:0 2px 10px rgba(26,54,93,.12);overflow:hidden;margin:8px 0 16px 0;position:relative;}'
+              '.hs-report-body{padding:12px 14px 16px 14px;transform-origin:top center;'
+              'transition:transform .15s ease;}'
+              '.hs-report-frame:fullscreen,.hs-report-frame:-webkit-full-screen{'
+              'background:#fff;overflow:auto;padding:12px;}'
+              '</style>'
+          )
+          st.markdown(_hs_wrap, unsafe_allow_html=True)
+          components.html(
+'<!DOCTYPE html><html><head><meta charset="utf-8"/><script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script><style>html,body{margin:0;padding:0;background:transparent}.bar{display:flex;justify-content:flex-end;gap:4px;padding:4px 6px;background:linear-gradient(180deg,#f7fafc,#edf2f7);border:1px solid #cbd5e0;border-radius:8px}button{width:34px;height:30px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer;font-size:14px;color:#4a5568}button:hover{background:#edf2f7;color:#1a365d;border-color:#a0aec0}</style></head><body><div class="bar"><button type="button" id="bPng" title="Tai PNG">&#128247;</button><button type="button" id="bIn" title="Zoom in">+</button><button type="button" id="bOut" title="Zoom out">-</button><button type="button" id="bReset" title="Reset">&#8962;</button><button type="button" id="bFull" title="Fullscreen">&#9974;</button></div><script>(function(){var z=1;function bodyEl(){try{var d=window.parent.document;return d.getElementById("hs-report-snap")||d.querySelector(".hs-report-body");}catch(e){return null;}}function frameEl(){try{return window.parent.document.querySelector(".hs-report-frame");}catch(e){return null;}}function applyZ(){var el=bodyEl();if(el)el.style.transform="scale("+z+")";}document.getElementById("bIn").onclick=function(){z=Math.min(1.8,z+0.1);applyZ();};document.getElementById("bOut").onclick=function(){z=Math.max(0.6,z-0.1);applyZ();};document.getElementById("bReset").onclick=function(){z=1;applyZ();};document.getElementById("bFull").onclick=function(){var f=frameEl();if(!f)return;try{if(!window.parent.document.fullscreenElement){(f.requestFullscreen||f.webkitRequestFullscreen).call(f);}else{(window.parent.document.exitFullscreen||window.parent.document.webkitExitFullscreen).call(window.parent.document);}}catch(e){}};document.getElementById("bPng").onclick=async function(){var el=bodyEl()||frameEl();if(!el){alert("Khong tim thay khung");return;}try{var canvas=await html2canvas(el,{scale:2,backgroundColor:"#ffffff",useCORS:true,logging:false});var a=document.createElement("a");a.download="Hieu_Suat_Ban_Hang.png";a.href=canvas.toDataURL("image/png");a.click();}catch(e){alert("Loi PNG: "+e);}};})();</script></body></html>',
+              height=42,
+          )
 
         # ===== Chart mức độ hoàn thành KPI theo ngày (từ dòng TOTAL 2 bảng) =====
         try:
