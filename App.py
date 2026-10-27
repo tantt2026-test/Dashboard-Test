@@ -14283,7 +14283,7 @@ def _pct_color(pct, timegone=None):
 
 
 def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None, mbs_cat=None, mbs_brand=None):
-  """Bảng 1: Metric card KPI theo ngày — 2 hàng × 5 card, responsive mobile."""
+  """Bảng 1: Metric card KPI theo ngày — 2 hàng × 6 card, responsive mobile."""
   if df_perf is None or df_perf.empty:
     return ''
   tot = df_perf.iloc[-1]
@@ -14426,13 +14426,14 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
 
   html = [
     '<style>'
-    '.hs-day-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;}'
-    '@media(max-width:900px){.hs-day-grid{grid-template-columns:repeat(2,1fr)!important;}}'
+    '.hs-day-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;}'
+    '@media(max-width:1200px){.hs-day-grid{grid-template-columns:repeat(3,1fr)!important;}}'
+    '@media(max-width:700px){.hs-day-grid{grid-template-columns:repeat(2,1fr)!important;}}'
     '@media(max-width:480px){.hs-day-grid{grid-template-columns:1fr!important;}}'
     '.hs-day-card{background:#fff;border-radius:12px;padding:12px 14px;'
     'box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #cbd5e0;}'
-    '.hs-day-card .t{font-size:11px;font-weight:700;color:#718096;letter-spacing:.3px;}'
-    '.hs-day-card .m{font-size:20px;font-weight:800;color:#1a202c;margin:4px 0;}'
+    '.hs-day-card .t{font-size:10px;font-weight:700;color:#718096;letter-spacing:.2px;}'
+    '.hs-day-card .m{font-size:16px;font-weight:800;color:#1a202c;margin:4px 0;line-height:1.25;}'
     '.hs-day-card .s{font-size:12px;color:#4a5568;}'
     '</style>',
     f'<div style="margin:18px 0 8px 0;">'
@@ -16874,16 +16875,15 @@ if _nav == '📊 BÁO CÁO KPI':
               )
           except Exception:
             pass
-          st.markdown(
-              render_hs_daily_metric_cards(
-                  df_perf, report_date, lppc_moc=_moc,
-                  aso_off=_aso_off, aso_on=_aso_on,
-                  mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
-              ),
-              unsafe_allow_html=True,
+          _html_day = render_hs_daily_metric_cards(
+              df_perf, report_date, lppc_moc=_moc,
+              aso_off=_aso_off, aso_on=_aso_on,
+              mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
           )
         except Exception as _e_daily:
+          _html_day = ''
           st.caption(f'(Metric ngày) {_e_daily}')
+        _html_mon = ''
         try:
           _rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
           _wd, _el, _rem, _tg = get_timegone_stats(_rd)
@@ -16899,15 +16899,53 @@ if _nav == '📊 BÁO CÁO KPI':
               df_combo_off, df_combo_on, df_cat, df_brand,
               mcp, filter_nv,
           )
-          st.markdown(
-              render_hs_monthly_kpi_table(
-                  _rows, _tg, combo_off=_co, combo_on=_cn,
-                  mbs_cat=_mc, mbs_brand=_mb, report_date=_rd,
-              ),
-              unsafe_allow_html=True,
+          _html_mon = render_hs_monthly_kpi_table(
+              _rows, _tg, combo_off=_co, combo_on=_cn,
+              mbs_cat=_mc, mbs_brand=_mb, report_date=_rd,
           )
         except Exception as _e_mon:
           st.caption(f'(Bảng tháng) {_e_mon}')
+
+        # Bundle + toolbar lưu PNG 9:16
+        _hs_bundle = (_html_day or '') + (_html_mon or '')
+        if _hs_bundle.strip():
+          _hs_page = (
+              '<!DOCTYPE html><html><head><meta charset="utf-8"/>'
+              '<meta name="viewport" content="width=device-width, initial-scale=1"/>'
+              '<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>'
+              '<style>'
+              'body{margin:0;padding:8px;font-family:Arial,sans-serif;background:#fff;}'
+              '.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;'
+              'margin-bottom:10px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:10px;'
+              'position:sticky;top:0;z-index:30;}'
+              '.bar button{background:#1a365d;color:#fff;border:none;border-radius:8px;'
+              'padding:10px 16px;font-weight:800;cursor:pointer;font-size:14px;}'
+              '.bar span{font-size:12px;color:#4a5568;}'
+              '</style></head><body>'
+              '<div class="bar">'
+              '<button type="button" onclick="saveHsPng()">📷 Lưu ảnh PNG (9:16)</button>'
+              '<span>Tỷ lệ mặc định <b>1080×1920</b> — tối ưu xem trên mobile</span>'
+              '</div>'
+              '<div id="snap">' + _hs_bundle + '</div>'
+              '<script>'
+              'async function saveHsPng(){'
+              'try{'
+              'const el=document.getElementById("snap");'
+              'const canvas=await html2canvas(el,{scale:2,backgroundColor:"#ffffff",useCORS:true,logging:false});'
+              'const W=1080,H=1920;'
+              'const out=document.createElement("canvas");out.width=W;out.height=H;'
+              'const ctx=out.getContext("2d");ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);'
+              'const scale=Math.min(W/canvas.width,(H-80)/canvas.height);'
+              'const w=canvas.width*scale,h=canvas.height*scale;'
+              'ctx.drawImage(canvas,(W-w)/2,40,w,h);'
+              'const a=document.createElement("a");'
+              'a.download="Hieu_Suat_Ban_Hang_9x16.png";'
+              'a.href=out.toDataURL("image/png");a.click();'
+              '}catch(e){alert("Lỗi lưu ảnh: "+e);}'
+              '}'
+              '</script></body></html>'
+          )
+          components.html(_hs_page, height=2800, scrolling=True)
 
         # ===== Chart mức độ hoàn thành KPI theo ngày (từ dòng TOTAL 2 bảng) =====
         try:
