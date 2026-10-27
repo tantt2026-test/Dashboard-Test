@@ -1513,6 +1513,7 @@ def process_mcp_sales(df_rpt, df_mcp):
   return df_out.drop(columns=drop_cols)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def build_mcp_sales_detail(df_rpt, df_mcp, report_date=None):
   """Giữ NGUYÊN mọi cột Data_MCP + thêm Sub Division, Group STD SKU, Tên sản phẩm, Doanh Số MTD chi tiết."""
   if df_mcp is None or df_mcp.empty:
@@ -14894,42 +14895,37 @@ except Exception:
   _mk = st.session_state.get('report_month_key', 'Thang10')
 
 def _ensure_core_data(month_key):
-  sk = f'prep_core_{month_key}'
-  if st.session_state.get('_force_reload') or sk not in st.session_state:
-    with st.spinner('Đang tải dữ liệu gốc (chỉ lần đầu hoặc sau Reload)...'):
-      _df, _mcp = load_prepared_core(month_key)
-      st.session_state[sk] = (_df, _mcp)
-    st.session_state['_force_reload'] = False
-  return st.session_state[sk]
-
-def _lazy_cat(month_key):
-  sk = f'lazy_cat_{month_key}'
-  if sk not in st.session_state:
-    st.session_state[sk] = load_prepared_cat(month_key)
-  return st.session_state[sk]
-
-def _lazy_brand(month_key):
-  sk = f'lazy_brand_{month_key}'
-  if sk not in st.session_state:
-    st.session_state[sk] = load_prepared_brand(month_key)
-  return st.session_state[sk]
-
-def _lazy_combo(month_key):
-  sk = f'lazy_combo_{month_key}'
-  if sk not in st.session_state:
-    st.session_state[sk] = load_combo_data()
-  return st.session_state[sk]
-
-def _lazy_visit(month_key):
-  sk = f'lazy_visit_{month_key}'
-  cur = st.session_state.get(sk)
-  if cur is None or (hasattr(cur, 'empty') and cur.empty):
+  """Chỉ dùng @st.cache_data — KHÔNG nhét DataFrame lớn vào session_state
+  (tránh Streamlit serialize lại mỗi lần đổi tab → đứng máy).
+  """
+  if st.session_state.get('_force_reload'):
     try:
-      _refresh_paths()
+      load_prepared_core.clear()
+      load_prepared_cat.clear()
+      load_prepared_brand.clear()
+      load_combo_data.clear()
+      load_visit_schedule.clear()
+      load_main_data.clear()
     except Exception:
       pass
-    st.session_state[sk] = load_visit_schedule(str(month_key))
-  return st.session_state[sk]
+    st.session_state['_force_reload'] = False
+  return load_prepared_core(month_key)
+
+def _lazy_cat(month_key):
+  return load_prepared_cat(month_key)
+
+def _lazy_brand(month_key):
+  return load_prepared_brand(month_key)
+
+def _lazy_combo(month_key):
+  return load_combo_data()
+
+def _lazy_visit(month_key):
+  try:
+    _refresh_paths()
+  except Exception:
+    pass
+  return load_visit_schedule(str(month_key))
 
 df, mcp = _ensure_core_data(_mk)
 targets = get_targets()
@@ -15164,26 +15160,13 @@ with f2:
       label_visibility='collapsed',
   )
   selected_kpi = kpi_map[selected_name]
-# Lazy-load đúng data cho KPI đang chọn
+# Lazy-load: CHỈ đánh dấu — load thật khi vào đúng tab/KPI (tránh đứng khi đổi tab)
 try:
   _mk_now = get_month_key()
 except Exception:
   _mk_now = st.session_state.get('report_month_key', 'Thang10')
 _sk = str(selected_kpi)
-if _sk in ('MBS_CAT', 'SUMMARY', 'PERFORMANCE', 'TEA_BATTLE', 'PERF_CAT'):
-  df_cat = _lazy_cat(_mk_now)
-if _sk in ('MBS_BRAND', 'SUMMARY', 'PERFORMANCE', 'PERF_CAT'):
-  df_brand = _lazy_brand(_mk_now)
-if _sk in ('COMBO', 'SUMMARY', 'PERFORMANCE'):
-  df_combo_off, df_combo_on = _lazy_combo(_mk_now)
-if _sk in ('VISIT', 'WEEKLY_PREVIEW', 'SUMMARY', 'ASO_ALL', 'ASO_FOCUS', 'ASO_FOCUS_2'):
-  df_visit_sched = _lazy_visit(_mk_now)
-# Hiệu suất / display thường cần gần như tất cả
-if _sk in ('DISPLAY',) or 'HIEU' in _sk.upper() or 'HS' == _sk:
-  df_cat = _lazy_cat(_mk_now)
-  df_brand = _lazy_brand(_mk_now)
-  df_combo_off, df_combo_on = _lazy_combo(_mk_now)
-  df_visit_sched = _lazy_visit(_mk_now)
+# df_cat / brand / combo / visit giữ None ở đây; load bên trong nhánh KPI
 with f3:
   st.markdown(
       '<p class="filter-label">ĐDKD (Nhân viên - Chọn nhiều)</p>',
@@ -15338,10 +15321,14 @@ components.html(
   }
 
   apply();
-  setInterval(apply, 600);
+  setInterval(apply, 4000);
   try {
-    var obs = new MutationObserver(function() { apply(); });
-    obs.observe(doc.body, { childList: true, subtree: true });
+    var _t = null;
+    var obs = new MutationObserver(function() {
+      if (_t) clearTimeout(_t);
+      _t = setTimeout(apply, 800);
+    });
+    obs.observe(doc.body, { childList: true, subtree: false });
   } catch (err) {}
   doc.addEventListener('touchstart', function() { setTimeout(apply, 20); }, true);
 })();
@@ -15369,7 +15356,26 @@ _nav = st.radio(
 
 # ----- TAB KPI -----
 if _nav == '📊 BÁO CÁO KPI':
-  # Fallback rỗng nếu KPI không cần (tránh NoneType)
+  # Load data phụ CHỈ khi đang ở tab KPI + đúng báo cáo cần
+  try:
+    _mk_now = get_month_key()
+  except Exception:
+    _mk_now = st.session_state.get('report_month_key', 'Thang10')
+  _sk = str(selected_kpi)
+  if _sk in ('MBS_CAT', 'SUMMARY', 'PERFORMANCE', 'TEA_BATTLE', 'PERF_CAT'):
+    df_cat = _lazy_cat(_mk_now)
+  if _sk in ('MBS_BRAND', 'SUMMARY', 'PERFORMANCE', 'PERF_CAT'):
+    df_brand = _lazy_brand(_mk_now)
+  if _sk in ('COMBO', 'SUMMARY', 'PERFORMANCE'):
+    df_combo_off, df_combo_on = _lazy_combo(_mk_now)
+  if _sk in ('VISIT', 'WEEKLY_PREVIEW', 'SUMMARY', 'ASO_ALL', 'ASO_FOCUS', 'ASO_FOCUS_2'):
+    df_visit_sched = _lazy_visit(_mk_now)
+  if _sk in ('DISPLAY',) or 'HIEU' in _sk.upper() or 'HS' == _sk:
+    df_cat = _lazy_cat(_mk_now)
+    df_brand = _lazy_brand(_mk_now)
+    df_combo_off, df_combo_on = _lazy_combo(_mk_now)
+    df_visit_sched = _lazy_visit(_mk_now)
+  # Fallback rỗng
   if df_cat is None:
     df_cat = pd.DataFrame()
   if df_brand is None:
