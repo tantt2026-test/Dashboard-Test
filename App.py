@@ -397,7 +397,7 @@ MONTH_OPTIONS = {
         'pc_on_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
         'pc_on_name': 'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)',
         'aso_all_name': 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)',
-        'pc_bt_exclude_meat': True,
+        'pc_bt_exclude_meat': False,
         'lppc_moc': 4.3,
         'salary': {
             'TURNOVER': '95%: 4.508.000đ | 100%: 6.440.000đ',
@@ -2890,29 +2890,31 @@ def build_report(
     key, title = 'ASO_ALL', ('ASO_ALL - Kênh OFF' if get_month_cfg().get('aso_all_channel')=='OFF' else 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)')
 
   elif report_type == 'PC_BT':
-    # L1 OFF, >=4 line MOQ, max 1 PC/CH/ngày
-    # T09 (CV20): trừ Beer | T10: trừ Meat & Beer
+    # L1 OFF, >=1 line MOQ, max 1 PC/CH/ngày
+    # T10: KHÔNG trừ Meat & Beer | T09: trừ Beer (cfg)
     cfg = get_month_cfg()
     off = df_mtd[
         df_mtd['L1'].astype(str).str.contains('Off', case=False, na=False)
     ].copy()
     if 'Tên SP lower' not in off.columns and 'Tên sản phẩm' in off.columns:
       off['Tên SP lower'] = off['Tên sản phẩm'].astype(str).str.lower()
-    sub = off['Sub Division'].astype(str) if 'Sub Division' in off.columns else pd.Series('', index=off.index)
-    name = off['Tên SP lower'] if 'Tên SP lower' in off.columns else pd.Series('', index=off.index)
-    if cfg.get('pc_bt_exclude_meat', True):
-      is_ex = sub.str.contains('Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False) | name.str.contains(
-          'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|cao bồi|cao boi|hotdog|thịt viên|chân gà', na=False)
-    else:
-      is_ex = sub.str.contains('Beer|Bia', case=False, na=False) | name.str.contains(
-          'beer|bia lush|white lion|red ruby', na=False)
-    off = off[~is_ex]
+    # T10: không trừ ngành nào. T09: trừ Beer nếu cfg yêu cầu
+    if get_month_key() != 'Thang10':
+      sub = off['Sub Division'].astype(str) if 'Sub Division' in off.columns else pd.Series('', index=off.index)
+      name = off['Tên SP lower'] if 'Tên SP lower' in off.columns else pd.Series('', index=off.index)
+      if cfg.get('pc_bt_exclude_meat', False):
+        is_ex = sub.str.contains('Beer|Bia|Processed Meats|Thịt chế biến', case=False, na=False) | name.str.contains(
+            'beer|bia lush|white lion|red ruby|xúc xích|xuc xich|ponnie|cao bồi|cao boi|hotdog|thịt viên|chân gà', na=False)
+      else:
+        is_ex = sub.str.contains('Beer|Bia', case=False, na=False) | name.str.contains(
+            'beer|bia lush|white lion|red ruby', na=False)
+      off = off[~is_ex]
     order_moq = count_moq_lines_per_order(off)
     ok = order_moq[order_moq['n_moq_lines'] >= 1]
     ok_day = pick_best_pc_per_outlet_day(ok)
     mtd = ok_day.groupby('Mã NVBH').size()
     ngay = ok_day[ok_day['date'] == report_date].groupby('Mã NVBH').size()
-    key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥1 line MOQ (L1 OFF)'
+    key, title = 'PC_BT', 'PC_BT - Đơn hàng ≥1 line MOQ (L1 OFF, không trừ Meat/Beer)'
 
   elif report_type == 'PC_ON':
     cfg = get_month_cfg()
