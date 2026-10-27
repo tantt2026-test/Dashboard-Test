@@ -5969,49 +5969,67 @@ def is_combo_line_t09_on(row):
 
 
 def is_combo_line_t10(row):
-  """Line thuộc CTKM Combo T10 theo CV 433-300926/HCM-CDGT-MSC:
+  """Line QUÀ tặng CTKM Combo T10 (không đếm hàng bán thường).
 
-  OFF (ĐK chính ≥800k MSC+HPC, ĐK phụ ≥100k nhóm SP):
-    → Tặng 1 Chai Tương Ớt Chinsu MN 250gr (Hàng KM)
+  Dấu hiệu quà (bắt buộc ≥1):
+    - Hàng KM = Y  OR  Đơn giá = 0  OR  Thành tiền = 0  OR  Giá trị hàng KM > 0
 
-  ON Bev (ĐK chính ≥300k Bev, ĐK phụ ≥80k Tea365 / WK247 Amazon):
-    → Tặng 1 Chai Wake UP 247 330ml (Hàng thường — không bắt buộc cờ KM)
+  Quà hợp lệ:
+    - Tương ớt Chinsu MN 250gr (OFF + ON Nhà hàng)
+    - Wake UP 247 330ml (ON Bev) — CHỈ khi là quà, không đếm hàng bán đủ giá
+    - Chiết khấu 20.000đ (Homey)
 
-  ON Nam Ngư (≥500k Gia vị + ≥200k Nam Ngư) / Tam Thái Tử (≥400k + ≥45k):
-    → Tặng 1 Chai Chinsu MN 250gr (KM)
-
-  Homey tiềm năng (≥800k + ≥280k Homey):
-    → Chiết khấu 20.000đ
+  Đối chiếu RPT: Wake UP bán (KM=N, giá 8000) ≠ Combo; chỉ KM=Y/giá 0 mới tính.
   """
   sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
   km = _get_km_flag(row)
   ck = _get_ck_value(row)
   is_ck_20k = abs(ck - 20000) < 1 or abs(ck - 20_000) < 1
 
-  # Chinsu MN 250gr — thường là Hàng KM; vẫn nhận nếu tên khớp rõ
+  # Đơn giá / thành tiền
+  try:
+    dg = float(row.get('Đơn giá', row.get('Don gia', 0)) or 0)
+  except Exception:
+    dg = 0.0
+  try:
+    tt = float(
+        row.get('Thành tiền trước CK', row.get('Thanh tien truoc CK', 0)) or 0
+    )
+  except Exception:
+    tt = 0.0
+  try:
+    gkm = float(row.get('Giá trị hàng KM', row.get('Gia tri hang KM', 0)) or 0)
+  except Exception:
+    gkm = 0.0
+
+  is_free = bool(km) or abs(dg) < 1e-6 or abs(tt) < 1e-6 or gkm > 0
+  if not is_free and not is_ck_20k:
+    return False
+
+  # Chinsu 250 tương ớt
   is_chinsu_250 = (
-      ('chinsu' in sp or 'chin-su' in sp or 'chin su' in sp)
+      ('chinsu' in sp or 'chin-su' in sp or 'chin su' in sp or 'chin-su' in sp)
       and ('250' in sp)
+      and ('ớt' in sp or 'ot ' in sp or 'ớt' in sp or 'tuong ot' in sp.replace('ơ', 'o'))
   )
-  if is_chinsu_250 and not km:
-    # chỉ tính khi là line KM hoặc số lượng/đơn giá gần như tặng
-    is_chinsu_250 = km  # bắt buộc KM cho Chinsu OFF
+  # fallback chinsu 250 without strict ớt
+  if not is_chinsu_250:
+    is_chinsu_250 = (
+        ('chinsu' in sp or 'chin-su' in sp or 'chin su' in sp)
+        and ('250' in sp)
+        and ('tương' in sp or 'tuong' in sp)
+    )
 
-  # Wake UP 247 — quà tặng Combo ON Bev (thường 330ml; không lấy Amazon 245 làm quà)
-  sp_nospace = sp.replace(' ', '').replace('-', '')
+  # Wake UP 247 330ml — chỉ quà, loại Amazon 245
+  sp_ns = sp.replace(' ', '').replace('-', '')
   is_wakeup = (
-      ('wake' in sp and 'up' in sp and '247' in sp)
-      or 'wakeup247' in sp_nospace
-      or 'wake up 247' in sp
-      or ('247' in sp and 'wake' in sp)
+      ('wake' in sp and '247' in sp)
+      or 'wakeup247' in sp_ns
   )
-  if is_wakeup and '245' in sp and '330' not in sp:
-    is_wakeup = False
-  # Amazon 245 là ĐK phụ (ITEM BUY), không phải quà → loại nếu chỉ là Amazon
-  if is_wakeup and 'amazon' in sp and '330' not in sp:
+  if is_wakeup and ('245' in sp or 'amazon' in sp) and '330' not in sp:
     is_wakeup = False
 
-  return bool(is_chinsu_250 or is_wakeup or is_ck_20k)
+  return bool((is_chinsu_250 or is_wakeup) and is_free) or is_ck_20k
 
 
 
