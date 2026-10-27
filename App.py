@@ -8109,7 +8109,7 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
 
 
 def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT THEO NGÀY BC'):
-  """Bảng tổng hợp NV MBS: sticky STT + Tên NVBH, dòng total xanh đậm.
+  """Format giống Báo Cáo Trưng Bày (custom-kpi-table + sticky STT/Tên NVBH + total).
   % Đạt / % TH: <50 Đỏ | 50–<100 Cam | >=100 Xanh lá (cả dòng Tổng).
   """
   if df is None or df.empty:
@@ -8118,124 +8118,118 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
       'STT', 'Tên NVBH', 'Tổng KH', 'KH Đạt (N1)', '% Đạt',
       'KH N2', 'KH N5', 'Actual', 'Target', '% TH',
   ] if c in df.columns]
+
   max_name = 12
-  for n in df['Tên NVBH'].astype(str):
-    max_name = max(max_name, len(n))
-  name_w = max(150, min(280, max_name * 9 + 24))
-  stt_w = 48
-  sh_stt = 'box-shadow:2px 0 0 0 #2b6cb0;'
-  sh_ten = 'box-shadow:4px 0 6px -2px rgba(0,0,0,.25);'
+  if 'Tên NVBH' in df.columns:
+    for n in df['Tên NVBH'].astype(str):
+      max_name = max(max_name, len(n))
+  name_w = max(140, min(280, max_name * 9 + 24))
+  stt_w = 44
+
   th = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
       'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
-      'white-space:nowrap;'
   )
-  td0 = (
-      'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
-      'white-space:nowrap;'
+  td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:12px;'
+  tot_style = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:900 !important;border:1px solid #2b6cb0 !important;'
+      'padding:5px 4px;font-size:12px;'
   )
+  sticky_stt_h = (
+      f'{th}position:sticky;left:0;z-index:6;min-width:{stt_w}px;max-width:{stt_w}px;'
+  )
+  sticky_ten_h = (
+      f'{th}position:sticky;left:{stt_w}px;z-index:6;min-width:{name_w}px;'
+  )
+  sticky_stt_c = f'position:sticky;left:0;z-index:2;min-width:{stt_w}px;max-width:{stt_w}px;'
+  sticky_ten_c = f'position:sticky;left:{stt_w}px;z-index:2;min-width:{name_w}px;'
 
-  def _pct_style(raw):
+  def _mbs_nv_pct_style(v):
     try:
-      pv = float(str(raw).replace('%', '').replace(',', '.').strip())
+      v = float(str(v).replace('%', '').replace(',', '.').strip())
     except Exception:
       return ''
-    if pv < 50:
+    if v < 50:
       return (
-          'background-color:#fc8181 !important;color:#742a2a !important;'
+          'background-color:#fed7d7 !important;color:#742a2a !important;'
           'font-weight:800 !important;'
       )
-    if pv < 100:
+    if v < 100:
       return (
-          'background-color:#f6ad55 !important;color:#7b341e !important;'
+          'background-color:#feebc8 !important;color:#c05621 !important;'
           'font-weight:800 !important;'
       )
     return (
-        'background-color:#68d391 !important;color:#22543d !important;'
+        'background-color:#c6f6d5 !important;color:#22543d !important;'
         'font-weight:800 !important;'
     )
-
-  def _is_total_row(row):
-    ten = str(row.get('Tên NVBH', '')).strip().upper()
-    if 'TỔNG' in ten or 'TONG' in ten or ten == 'TOTAL':
-      return True
-    stt = str(row.get('STT', '')).strip()
-    return stt == '' and pos == len(df) - 1
 
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:10px;">',
       f'<h4 style="color:#1a365d;font-weight:800;margin:10px 0 6px 0;">📋 {title}</h4>',
-      '<table style="border-collapse:separate;border-spacing:0;'
-      'width:max-content;min-width:100%;font-family:Arial,sans-serif;'
-      'background:#fff;"><thead><tr>',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;">',
+      '<thead style="position:sticky;top:0;z-index:5;"><tr>',
+      f'<th style="{sticky_stt_h}">STT</th>',
+      f'<th style="{sticky_ten_h}">Tên NVBH</th>',
   ]
   for c in cols:
-    if c == 'STT':
-      html.append(
-          f'<th style="{th}position:sticky;left:0;z-index:8;'
-          f'min-width:{stt_w}px;max-width:{stt_w}px;{sh_stt}">STT</th>'
-      )
-    elif c == 'Tên NVBH':
-      html.append(
-          f'<th style="{th}position:sticky;left:{stt_w}px;z-index:8;'
-          f'min-width:{name_w}px;max-width:{name_w}px;text-align:left !important;{sh_ten}">'
-          f'Tên NVBH</th>'
-      )
-    else:
-      html.append(f'<th style="{th}">{c}</th>')
+    if c in ('STT', 'Tên NVBH'):
+      continue
+    html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
 
-  n_rows = len(df)
   for pos, (_, row) in enumerate(df.iterrows()):
-    ten_u = str(row.get('Tên NVBH', '')).strip().upper()
-    is_tot = ('TỔNG' in ten_u) or ('TONG' in ten_u) or (ten_u == 'TOTAL')
-    if is_tot:
-      bg, color, fw = '#1a365d', '#ffffff', '800'
-    else:
-      bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
-      color, fw = '#1a202c', '500'
-    html.append('<tr>')
+    is_tot = (
+        str(row.get('STT', '')).strip() in ('-', 'TOTAL', '')
+        and 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
+    ) or ('TỔNG' in str(row.get('Tên NVBH', '')).upper())
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    tr_cls = ' class="row-total"' if is_tot else ''
+    html.append(f'<tr{tr_cls}>')
     for c in cols:
       raw = row.get(c, '')
       if pd.isna(raw):
         raw = ''
-      val = raw
-      if c in ('Actual', 'Target') and val != '' and not isinstance(val, str):
-        try:
-          val = format_number_vn(float(val))
-        except Exception:
-          val = str(val)
-      pct_css = ''
+      sticky = ''
+      if c == 'STT':
+        sticky = sticky_stt_c
+      elif c == 'Tên NVBH':
+        sticky = sticky_ten_c
+
       if c in ('% Đạt', '% TH'):
         try:
-          pv = float(str(raw).replace('%', '').replace(',', '.').strip())
-          val = f'{pv:.1f}%'
+          v = float(str(raw).replace('%', '').replace(',', '.').strip())
+          val_s = f'{v:.1f}%'
         except Exception:
-          pv = None
-        pct_css = _pct_style(raw)
-
-      if c == 'STT':
-        style = (
-            f'{td0}position:sticky;left:0;z-index:5;min-width:{stt_w}px;max-width:{stt_w}px;'
-            f'background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
-            f'text-align:center !important;{sh_stt}'
+          v, val_s = 0.0, str(raw)
+        style_bg = _mbs_nv_pct_style(v)
+        # data-colored=1 để CSS zebra / row-total không đè màu %
+        html.append(
+            f'<td data-colored="1" style="{td}{style_bg}{sticky}'
+            f'text-align:center !important;">{val_s}</td>'
         )
-      elif c == 'Tên NVBH':
-        style = (
-            f'{td0}position:sticky;left:{stt_w}px;z-index:5;min-width:{name_w}px;max-width:{name_w}px;'
-            f'background-color:{bg} !important;color:{color} !important;font-weight:700;'
-            f'text-align:left !important;{sh_ten}'
-        )
-      elif c in ('% Đạt', '% TH') and pct_css:
-        # Luôn tô màu theo rule — kể cả dòng Tổng
-        style = f'{td0}{pct_css}text-align:center !important;'
       else:
-        style = (
-            f'{td0}background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
-            f'text-align:center !important;'
-        )
-      html.append(f'<td style="{style}">{val}</td>')
+        val = raw
+        if c in ('Actual', 'Target') and val != '' and not isinstance(val, str):
+          try:
+            val = format_number_vn(float(val))
+          except Exception:
+            val = str(val)
+        al = 'left' if c == 'Tên NVBH' else 'center'
+        if is_tot:
+          html.append(
+              f'<td class="row-total-cell" style="{tot_style}{sticky}'
+              f'text-align:{al} !important;white-space:nowrap;">{val}</td>'
+          )
+        else:
+          fw = '600' if c == 'Tên NVBH' else '400'
+          html.append(
+              f'<td style="{td}{sticky}background:{bg} !important;color:#1a202c !important;'
+              f'font-weight:{fw};text-align:{al};white-space:nowrap;">{val}</td>'
+          )
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
