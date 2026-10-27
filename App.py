@@ -189,12 +189,33 @@ st.markdown(
     .custom-kpi-table td.pct-red {
         background-color: #fed7d7 !important;
         color: #742a2a !important;
-        font-weight: 700 !important;
+        font-weight: 800 !important;
+    }
+    .custom-kpi-table td.pct-orange {
+        background-color: #feebc8 !important;
+        color: #c05621 !important;
+        font-weight: 800 !important;
     }
     .custom-kpi-table td.pct-green {
         background-color: #c6f6d5 !important;
         color: #22543d !important;
-        font-weight: 700 !important;
+        font-weight: 800 !important;
+    }
+    /* Đảm bảo class màu % thắng zebra + row-total */
+    .custom-kpi-table tbody tr td.pct-red,
+    .custom-kpi-table tbody tr.row-total td.pct-red {
+        background-color: #fed7d7 !important;
+        color: #742a2a !important;
+    }
+    .custom-kpi-table tbody tr td.pct-orange,
+    .custom-kpi-table tbody tr.row-total td.pct-orange {
+        background-color: #feebc8 !important;
+        color: #c05621 !important;
+    }
+    .custom-kpi-table tbody tr td.pct-green,
+    .custom-kpi-table tbody tr.row-total td.pct-green {
+        background-color: #c6f6d5 !important;
+        color: #22543d !important;
     }
     .custom-kpi-table td.pct-purple {
         background-color: #e9d8fd !important;
@@ -8109,8 +8130,8 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
 
 
 def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT THEO NGÀY BC'):
-  """Format giống Báo Cáo Trưng Bày (custom-kpi-table + sticky STT/Tên NVBH + total).
-  % Đạt / % TH: <50 Đỏ | 50–<100 Cam | >=100 Xanh lá (cả dòng Tổng).
+  """Format giống Báo Cáo Trưng Bày.
+  % Đạt / % TH dùng class pct-red / pct-orange / pct-green (CSS global).
   """
   if df is None or df.empty:
     return ''
@@ -8146,25 +8167,16 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
   sticky_stt_c = f'position:sticky;left:0;z-index:2;min-width:{stt_w}px;max-width:{stt_w}px;'
   sticky_ten_c = f'position:sticky;left:{stt_w}px;z-index:2;min-width:{name_w}px;'
 
-  def _mbs_nv_pct_style(v):
+  def _pct_class(v):
     try:
       v = float(str(v).replace('%', '').replace(',', '.').strip())
     except Exception:
-      return ''
+      return 'pct-red'
     if v < 50:
-      return (
-          'background-color:#fed7d7 !important;color:#742a2a !important;'
-          'font-weight:800 !important;'
-      )
+      return 'pct-red'
     if v < 100:
-      return (
-          'background-color:#feebc8 !important;color:#c05621 !important;'
-          'font-weight:800 !important;'
-      )
-    return (
-        'background-color:#c6f6d5 !important;color:#22543d !important;'
-        'font-weight:800 !important;'
-    )
+      return 'pct-orange'
+    return 'pct-green'
 
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:10px;">',
@@ -8182,10 +8194,8 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
   html.append('</tr></thead><tbody>')
 
   for pos, (_, row) in enumerate(df.iterrows()):
-    is_tot = (
-        str(row.get('STT', '')).strip() in ('-', 'TOTAL', '')
-        and 'TỔNG' in str(row.get('Tên NVBH', '')).upper()
-    ) or ('TỔNG' in str(row.get('Tên NVBH', '')).upper())
+    ten_u = str(row.get('Tên NVBH', '')).upper()
+    is_tot = ('TỔNG' in ten_u) or ('TONG CONG' in ten_u) or (ten_u.strip() == 'TOTAL')
     bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
     tr_cls = ' class="row-total"' if is_tot else ''
     html.append(f'<tr{tr_cls}>')
@@ -8205,11 +8215,11 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
           val_s = f'{v:.1f}%'
         except Exception:
           v, val_s = 0.0, str(raw)
-        style_bg = _mbs_nv_pct_style(v)
-        # data-colored=1 để CSS zebra / row-total không đè màu %
+        cls = _pct_class(v)
+        # class CSS + data-colored để không bị zebra/row-total đè
         html.append(
-            f'<td data-colored="1" style="{td}{style_bg}{sticky}'
-            f'text-align:center !important;">{val_s}</td>'
+            f'<td data-colored="1" class="{cls}" '
+            f'style="{td}{sticky}text-align:center !important;">{val_s}</td>'
         )
       else:
         val = raw
