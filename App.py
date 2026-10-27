@@ -7985,6 +7985,245 @@ def format_trieu(v):
     return '0,0'
 
 
+def _mbs_rpt_sales_by_outlet(df_rpt, report_date):
+  """Doanh số RPT theo Mã CH từ đầu tháng → ngày BC (bỏ đơn huỷ)."""
+  empty = {}
+  if df_rpt is None or df_rpt.empty or report_date is None:
+    return empty
+  d = df_rpt.copy()
+  status = find_col(d, ['Tình trạng đơn hàng', 'Trạng thái', 'Status'])
+  if status:
+    d = d[~d[status].astype(str).str.contains('hủy|huy|cancel', case=False, na=False)]
+  c_ma = find_col(d, ['Mã CH', 'Outlet Code', 'Outlet_code', 'Mã KH'])
+  c_val = find_col(d, ['Tổng tiền', 'Giá trị sau CK', 'Doanh thu', 'Thành tiền', 'Sales Before Discount'])
+  c_dt = find_col(d, ['Ngày', 'Order Date', 'ORDER_DATE', 'Ngày đơn', 'date'])
+  if not c_ma or not c_val:
+    return empty
+  d['_ma'] = d[c_ma].astype(str).str.strip().map(
+      lambda x: x[:-2] if isinstance(x, str) and x.endswith('.0') else x
+  )
+  d['_val'] = pd.to_numeric(d[c_val], errors='coerce').fillna(0)
+  if c_dt:
+    d['_dt'] = pd.to_datetime(d[c_dt], errors='coerce')
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
+    start = date(rd.year, rd.month, 1)
+    d = d[(d['_dt'].dt.date >= start) & (d['_dt'].dt.date <= rd)]
+  return d.groupby('_ma')['_val'].sum().to_dict()
+
+
+def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
+  """Tổng hợp theo NV: chốt đạt MBS theo Actual RPT đầu tháng → ngày BC.
+
+  Giữ Target + Đạt nhiệm vụ từ Data_Cat/Brand; thay Actual bằng DS RPT MTD→ngày BC;
+  phân lại 6 nhóm rồi aggregate theo NV.
+  """
+  cols = [
+      'STT', 'Tên NVBH', 'Tổng KH', 'KH Đạt (N1)', '% Đạt',
+      'KH N2', 'KH N5', 'Actual', 'Target', '% TH',
+  ]
+  empty = pd.DataFrame(columns=cols)
+  if df_detail is None or df_detail.empty:
+    return empty
+
+  det = df_detail.copy()
+  if filter_nv:
+    nvs = filter_nv if isinstance(filter_nv, (list, tuple, set)) else [filter_nv]
+    det = det[det['Tên NVBH'].astype(str).isin([str(x) for x in nvs])]
+  if det.empty:
+    return empty
+
+  sales_map = _mbs_rpt_sales_by_outlet(df_rpt, report_date)
+
+  def _norm_ma(x):
+    s = str(x).strip()
+    return s[:-2] if s.endswith('.0') else s
+
+  rows = []
+  for _, r in det.iterrows():
+    ma = _norm_ma(r.get('Outlet Code', r.get('Mã KH', '')))
+    target = float(pd.to_numeric(r.get('Target', 0), errors='coerce') or 0)
+    actual = float(sales_map.get(ma, 0) or 0)
+    mission = str(r.get('Đạt nhiệm vụ', '')).strip() in ('Có', 'CO', 'Yes', '1', 'True', '✓')
+    pct = (actual / target * 100) if target > 0 else (100.0 if actual > 0 else 0.0)
+    if actual <= 0:
+      nhom = 5
+    elif actual >= target and mission:
+      nhom = 1
+    elif actual >= target and not mission:
+      nhom = 2
+    elif pct >= 50 and actual < target and mission:
+      nhom = 3
+    elif pct >= 60 and actual < target and not mission:
+      nhom = 4
+    else:
+      nhom = 6
+    rows.append({
+        'Tên NVBH': str(r.get('Tên NVBH', '')).strip(),
+        'Outlet Code': ma,
+        'Actual': actual,
+        'Target': target,
+        'Nhóm': nhom,
+    })
+  d = pd.DataFrame(rows)
+  if d.empty:
+    return empty
+
+  out_rows = []
+  for nv, g in d.groupby('Tên NVBH', sort=True):
+    total = len(g)
+    n1 = int((g['Nhóm'] == 1).sum())
+    n2 = int((g['Nhóm'] == 2).sum())
+    n5 = int((g['Nhóm'] == 5).sum())
+    act = float(g['Actual'].sum())
+    tgt = float(g['Target'].sum())
+    pct_dat = round(n1 / total * 100, 1) if total else 0.0
+    pct_th = round(act / tgt * 100, 1) if tgt > 0 else 0.0
+    out_rows.append({
+        'Tên NVBH': nv,
+        'Tổng KH': total,
+        'KH Đạt (N1)': n1,
+        '% Đạt': pct_dat,
+        'KH N2': n2,
+        'KH N5': n5,
+        'Actual': act,
+        'Target': tgt,
+        '% TH': pct_th,
+    })
+  out = pd.DataFrame(out_rows).sort_values('KH Đạt (N1)', ascending=False).reset_index(drop=True)
+  out.insert(0, 'STT', range(1, len(out) + 1))
+  # Dòng tổng
+  tot = {
+      'STT': '',
+      'Tên NVBH': 'TỔNG CỘNG',
+      'Tổng KH': int(out['Tổng KH'].sum()),
+      'KH Đạt (N1)': int(out['KH Đạt (N1)'].sum()),
+      '% Đạt': round(out['KH Đạt (N1)'].sum() / out['Tổng KH'].sum() * 100, 1) if out['Tổng KH'].sum() else 0.0,
+      'KH N2': int(out['KH N2'].sum()),
+      'KH N5': int(out['KH N5'].sum()),
+      'Actual': float(out['Actual'].sum()),
+      'Target': float(out['Target'].sum()),
+      '% TH': round(out['Actual'].sum() / out['Target'].sum() * 100, 1) if out['Target'].sum() else 0.0,
+  }
+  out = pd.concat([out, pd.DataFrame([tot])], ignore_index=True)
+  return out
+
+
+def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT THEO NGÀY BC'):
+  """Bảng tổng hợp NV MBS: sticky STT + Tên NVBH, dòng total xanh đậm."""
+  if df is None or df.empty:
+    return ''
+  cols = [c for c in [
+      'STT', 'Tên NVBH', 'Tổng KH', 'KH Đạt (N1)', '% Đạt',
+      'KH N2', 'KH N5', 'Actual', 'Target', '% TH',
+  ] if c in df.columns]
+  max_name = 12
+  for n in df['Tên NVBH'].astype(str):
+    max_name = max(max_name, len(n))
+  name_w = max(150, min(280, max_name * 9 + 24))
+  stt_w = 48
+  sh_stt = 'box-shadow:2px 0 0 0 #2b6cb0;'
+  sh_ten = 'box-shadow:4px 0 6px -2px rgba(0,0,0,.25);'
+  th = (
+      'background-color:#1a365d !important;color:#ffffff !important;'
+      'font-weight:800 !important;text-align:center !important;'
+      'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  td = (
+      'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
+      'white-space:nowrap;'
+  )
+  html = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:10px;">',
+      f'<h4 style="color:#1a365d;font-weight:800;margin:10px 0 6px 0;">📋 {title}</h4>',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;"><thead><tr>',
+  ]
+  for c in cols:
+    if c == 'STT':
+      html.append(
+          f'<th style="{th}position:sticky;left:0;z-index:8;'
+          f'min-width:{stt_w}px;max-width:{stt_w}px;{sh_stt}">STT</th>'
+      )
+    elif c == 'Tên NVBH':
+      html.append(
+          f'<th style="{th}position:sticky;left:{stt_w}px;z-index:8;'
+          f'min-width:{name_w}px;max-width:{name_w}px;text-align:left !important;{sh_ten}">'
+          f'Tên NVBH</th>'
+      )
+    else:
+      html.append(f'<th style="{th}">{c}</th>')
+  html.append('</tr></thead><tbody>')
+
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = str(row.get('Tên NVBH', '')).strip().upper() in ('TỔNG CỘNG', 'TONG CONG', 'TOTAL')
+    if is_tot:
+      bg = '#1a365d'
+      color = '#ffffff'
+      fw = '800'
+    else:
+      bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+      color = '#1a202c'
+      fw = '600' if False else '500'
+    html.append('<tr>')
+    for c in cols:
+      val = row.get(c, '')
+      if pd.isna(val):
+        val = ''
+      # format
+      if c in ('Actual', 'Target') and val != '' and not isinstance(val, str):
+        try:
+          val = format_number_vn(float(val))
+        except Exception:
+          pass
+      if c in ('% Đạt', '% TH') and val != '' and not is_tot:
+        try:
+          pv = float(val)
+          val = f'{pv:.1f}%'
+        except Exception:
+          pass
+      elif c in ('% Đạt', '% TH') and is_tot:
+        try:
+          val = f'{float(val):.1f}%'
+        except Exception:
+          pass
+      al = 'left' if c == 'Tên NVBH' else 'center'
+      if c == 'STT':
+        base = (
+            f'{td}position:sticky;left:0;z-index:5;min-width:{stt_w}px;max-width:{stt_w}px;'
+            f'background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
+            f'text-align:center !important;{sh_stt}'
+        )
+      elif c == 'Tên NVBH':
+        base = (
+            f'{td}position:sticky;left:{stt_w}px;z-index:5;min-width:{name_w}px;max-width:{name_w}px;'
+            f'background-color:{bg} !important;color:{color} !important;font-weight:700;'
+            f'text-align:left !important;{sh_ten}'
+        )
+      else:
+        base = (
+            f'{td}background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
+            f'text-align:{al} !important;'
+        )
+        # % color for non-total (rule timegone-ish green/red simple)
+        if c in ('% Đạt', '% TH') and not is_tot:
+          try:
+            pv = float(str(row.get(c, 0)).replace('%', ''))
+            if pv >= 100:
+              base += 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:800;'
+            elif pv >= 50:
+              base += 'background-color:#fefcbf !important;color:#744210 !important;font-weight:700;'
+            else:
+              base += 'background-color:#fed7d7 !important;color:#c53030 !important;font-weight:700;'
+          except Exception:
+            pass
+      html.append(f'<td style="{base}">{val}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
+
 
 
 def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
@@ -15795,6 +16034,29 @@ if _nav == '📊 BÁO CÁO KPI':
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+        # Tổng hợp theo NV — chốt đạt theo ngày BC (Actual RPT MTD→ngày)
+        try:
+          df_nv_sum = build_mbs_nv_summary_asof(
+              df_detail, df, report_date, filter_nv=filter_nv
+          )
+          if df_nv_sum is not None and not df_nv_sum.empty:
+            st.markdown(
+                render_mbs_nv_summary_html(
+                    df_nv_sum,
+                    title=(
+                        f'TỔNG HỢP THEO NV — CHỐT ĐẠT MBS CAT '
+                        f'(Actual RPT đến {report_date.strftime("%d/%m/%Y") if hasattr(report_date, "strftime") else report_date})'
+                    ),
+                ),
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                'Actual = Doanh số RPT từ đầu tháng → ngày BC | '
+                'Target & Nhiệm vụ lấy từ Data_Cat | '
+                'KH Đạt (N1) = Actual ≥ Target và đạt nhiệm vụ'
+            )
+        except Exception as _e_mbs_nv:
+          st.warning(f'Không dựng được bảng tổng hợp NV MBS CAT: {_e_mbs_nv}')
         render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm — MBS CAT')
         st.download_button(
             label='⬇️ Xuất file CSV - Chi tiết MBS CAT',
@@ -16029,6 +16291,28 @@ if _nav == '📊 BÁO CÁO KPI':
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+        try:
+          df_nv_sum = build_mbs_nv_summary_asof(
+              df_detail, df, report_date, filter_nv=filter_nv
+          )
+          if df_nv_sum is not None and not df_nv_sum.empty:
+            st.markdown(
+                render_mbs_nv_summary_html(
+                    df_nv_sum,
+                    title=(
+                        f'TỔNG HỢP THEO NV — CHỐT ĐẠT MBS BRAND '
+                        f'(Actual RPT đến {report_date.strftime("%d/%m/%Y") if hasattr(report_date, "strftime") else report_date})'
+                    ),
+                ),
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                'Actual = Doanh số RPT từ đầu tháng → ngày BC | '
+                'Target & Nhiệm vụ lấy từ Data_Brand | '
+                'KH Đạt (N1) = Actual ≥ Target và đạt nhiệm vụ'
+            )
+        except Exception as _e_mbs_nv:
+          st.warning(f'Không dựng được bảng tổng hợp NV MBS BRAND: {_e_mbs_nv}')
         render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm — MBS BRAND')
         st.download_button(
             label='⬇️ Xuất file CSV - Chi tiết MBS BRAND',
