@@ -8205,18 +8205,28 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
             f'{td}background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
             f'text-align:{al} !important;'
         )
-        # % Đạt & % TH: rule KPI MBS (mốc 100%) — kể cả dòng Tổng
+        # % Đạt & % TH — rule riêng bảng tổng hợp NV MBS:
+        # <50 Đỏ | 50–<100 Cam | >=100 Xanh lá
         if c in ('% Đạt', '% TH'):
           try:
-            raw_v = row.get(c, 0)
-            pct_style = color_pct_bg(raw_v, moc=100.0)
-            if pct_style:
-              base = (
-                  f'{td}{pct_style}text-align:center !important;'
+            pv = float(str(row.get(c, 0)).replace('%', '').strip())
+            if pv < 50:
+              pct_style = (
+                  'background-color:#fed7d7 !important;color:#742a2a !important;'
+                  'font-weight:800 !important;'
               )
-              if is_tot:
-                # Giữ nền total xanh đậm cho ô khác; % vẫn theo rule màu
-                pass
+            elif pv < 100:
+              pct_style = (
+                  'background-color:#feebc8 !important;color:#c05621 !important;'
+                  'font-weight:800 !important;'
+              )
+            else:
+              # % = 100 hoặc vượt
+              pct_style = (
+                  'background-color:#c6f6d5 !important;color:#22543d !important;'
+                  'font-weight:800 !important;'
+              )
+            base = f'{td}{pct_style}text-align:center !important;'
           except Exception:
             pass
       html.append(f'<td style="{base}">{val}</td>')
