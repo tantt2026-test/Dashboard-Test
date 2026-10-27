@@ -14449,7 +14449,10 @@ def build_hs_combo_mbs_summary(df, report_date, df_combo_off, df_combo_on, cat_d
       n = int(len(sub))
       n_dat = int(sub['_dat'].sum()) if n else 0
       if n > 0:
-        groups_out[key] = f'{n_dat}/{n}'
+        pct_g = (n_dat / n * 100) if n else 0
+        # Format: 4/51/7,8% (dùng dấu phẩy thập phân VN)
+        pct_s = f'{pct_g:.1f}'.replace('.', ',')
+        groups_out[key] = f'{n_dat}/{n}/{pct_s}%'
         dat += n_dat
         total += n
 
@@ -14461,7 +14464,9 @@ def build_hs_combo_mbs_summary(df, report_date, df_combo_off, df_combo_on, cat_d
           continue
         n = len(gdf)
         n_dat = int(gdf['_dat'].sum())
-        groups_out[gn] = f'{n_dat}/{n}'
+        pct_g = (n_dat / n * 100) if n else 0
+        pct_s = f'{pct_g:.1f}'.replace('.', ',')
+        groups_out[gn] = f'{n_dat}/{n}/{pct_s}%'
         dat += n_dat
         total += n
 
