@@ -8205,16 +8205,18 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
             f'{td}background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
             f'text-align:{al} !important;'
         )
-        # % color for non-total (rule timegone-ish green/red simple)
-        if c in ('% Đạt', '% TH') and not is_tot:
+        # % Đạt & % TH: rule KPI MBS (mốc 100%) — kể cả dòng Tổng
+        if c in ('% Đạt', '% TH'):
           try:
-            pv = float(str(row.get(c, 0)).replace('%', ''))
-            if pv >= 100:
-              base += 'background-color:#c6f6d5 !important;color:#22543d !important;font-weight:800;'
-            elif pv >= 50:
-              base += 'background-color:#fefcbf !important;color:#744210 !important;font-weight:700;'
-            else:
-              base += 'background-color:#fed7d7 !important;color:#c53030 !important;font-weight:700;'
+            raw_v = row.get(c, 0)
+            pct_style = color_pct_bg(raw_v, moc=100.0)
+            if pct_style:
+              base = (
+                  f'{td}{pct_style}text-align:center !important;'
+              )
+              if is_tot:
+                # Giữ nền total xanh đậm cho ô khác; % vẫn theo rule màu
+                pass
           except Exception:
             pass
       html.append(f'<td style="{base}">{val}</td>')
