@@ -5997,15 +5997,18 @@ def is_combo_line_t10(row):
     # chỉ tính khi là line KM hoặc số lượng/đơn giá gần như tặng
     is_chinsu_250 = km  # bắt buộc KM cho Chinsu OFF
 
-  # Wake UP 247 — CV ghi Hàng thường (ON Bev), không bắt buộc cờ KM
+  # Wake UP 247 — quà tặng Combo ON Bev (thường 330ml; không lấy Amazon 245 làm quà)
+  sp_nospace = sp.replace(' ', '').replace('-', '')
   is_wakeup = (
       ('wake' in sp and 'up' in sp and '247' in sp)
-      or 'wakeup247' in sp.replace(' ', '').replace('-', '')
+      or 'wakeup247' in sp_nospace
       or 'wake up 247' in sp
       or ('247' in sp and 'wake' in sp)
   )
-  # Chỉ lấy chai 330ml tặng (không lấy Amazon 245ml là ĐK phụ)
   if is_wakeup and '245' in sp and '330' not in sp:
+    is_wakeup = False
+  # Amazon 245 là ĐK phụ (ITEM BUY), không phải quà → loại nếu chỉ là Amazon
+  if is_wakeup and 'amazon' in sp and '330' not in sp:
     is_wakeup = False
 
   return bool(is_chinsu_250 or is_wakeup or is_ck_20k)
@@ -6084,18 +6087,38 @@ def tag_combo_orders_t10(df_mtd, mcp_df=None):
   else:
     d['is_combo'] = d['_line_combo']
 
-  # CV 433: chỉ tính ĐH đạt ĐK chính theo kênh
-  # OFF ≥800k | ON ≥300k
-  val_col = None
-  for c in ['Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Tổng tiền', 'Giá trị sau CK']:
+  # CV 433: ĐK chính theo kênh — OFF ≥800k | ON ≥300k
+  # Cộng dồn nhiều cột giá trị nếu có để tránh thiếu doanh số đơn
+  val_cols = []
+  for c in [
+      'Thành tiền trước CK', 'Thành tiền trước chiết khấu',
+      'Tổng tiền', 'Giá trị sau CK', 'Thành tiền', 'Doanh số',
+      'TOTAL VALUE', 'Amount',
+  ]:
     if c in d.columns:
-      val_col = c
-      break
-  if val_col and 'Mã đơn hàng' in d.columns:
-    d['_line_sales'] = pd.to_numeric(d[val_col], errors='coerce').fillna(0)
+      val_cols.append(c)
+  if not val_cols:
+    for c in d.columns:
+      cl = str(c).lower()
+      if 'thành tiền' in cl or 'doanh số' in cl or 'tổng tiền' in cl:
+        val_cols.append(c)
+        break
+
+  if val_cols and 'Mã đơn hàng' in d.columns:
+    d['_line_sales'] = 0.0
+    for c in val_cols:
+      d['_line_sales'] = d['_line_sales'] + pd.to_numeric(d[c], errors='coerce').fillna(0)
+    # nếu cộng nhiều cột bị double-count → lấy max từng cột thay vì sum
+    if len(val_cols) > 1:
+      _mx = pd.to_numeric(d[val_cols[0]], errors='coerce').fillna(0)
+      for c in val_cols[1:]:
+        _mx = np.maximum(_mx, pd.to_numeric(d[c], errors='coerce').fillna(0))
+      d['_line_sales'] = _mx
+
     order_sales = d.groupby(d['Mã đơn hàng'].astype(str))['_line_sales'].transform('sum')
     ch = d['channel'].astype(str).str.upper() if 'channel' in d.columns else pd.Series('OFF', index=d.index)
-    min_req = ch.map(lambda x: 300000.0 if ('ON' in str(x) and 'OFF' not in str(x)) else 800000.0)
+    is_on = ch.str.contains('ON', na=False) & ~ch.str.contains('OFF', na=False)
+    min_req = np.where(is_on, 300000.0, 800000.0)
     d['is_combo'] = d['is_combo'] & (order_sales >= min_req)
 
   combo = d[d['is_combo']].copy()
