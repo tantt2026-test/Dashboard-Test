@@ -8109,7 +8109,9 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
 
 
 def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT THEO NGÀY BC'):
-  """Bảng tổng hợp NV MBS: sticky STT + Tên NVBH, dòng total xanh đậm."""
+  """Bảng tổng hợp NV MBS: sticky STT + Tên NVBH, dòng total xanh đậm.
+  % Đạt / % TH: <50 Đỏ | 50–<100 Cam | >=100 Xanh lá (cả dòng Tổng).
+  """
   if df is None or df.empty:
     return ''
   cols = [c for c in [
@@ -8129,15 +8131,44 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
       'border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;'
       'white-space:nowrap;'
   )
-  td = (
+  td0 = (
       'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:11px;'
       'white-space:nowrap;'
   )
+
+  def _pct_style(raw):
+    try:
+      pv = float(str(raw).replace('%', '').replace(',', '.').strip())
+    except Exception:
+      return ''
+    if pv < 50:
+      return (
+          'background-color:#fc8181 !important;color:#742a2a !important;'
+          'font-weight:800 !important;'
+      )
+    if pv < 100:
+      return (
+          'background-color:#f6ad55 !important;color:#7b341e !important;'
+          'font-weight:800 !important;'
+      )
+    return (
+        'background-color:#68d391 !important;color:#22543d !important;'
+        'font-weight:800 !important;'
+    )
+
+  def _is_total_row(row):
+    ten = str(row.get('Tên NVBH', '')).strip().upper()
+    if 'TỔNG' in ten or 'TONG' in ten or ten == 'TOTAL':
+      return True
+    stt = str(row.get('STT', '')).strip()
+    return stt == '' and pos == len(df) - 1
+
   html = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:10px;">',
       f'<h4 style="color:#1a365d;font-weight:800;margin:10px 0 6px 0;">📋 {title}</h4>',
-      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
-      'width:max-content;min-width:100%;font-family:Arial,sans-serif;"><thead><tr>',
+      '<table style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;font-family:Arial,sans-serif;'
+      'background:#fff;"><thead><tr>',
   ]
   for c in cols:
     if c == 'STT':
@@ -8155,86 +8186,59 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
       html.append(f'<th style="{th}">{c}</th>')
   html.append('</tr></thead><tbody>')
 
+  n_rows = len(df)
   for pos, (_, row) in enumerate(df.iterrows()):
-    is_tot = str(row.get('Tên NVBH', '')).strip().upper() in ('TỔNG CỘNG', 'TONG CONG', 'TOTAL')
+    ten_u = str(row.get('Tên NVBH', '')).strip().upper()
+    is_tot = ('TỔNG' in ten_u) or ('TONG' in ten_u) or (ten_u == 'TOTAL')
     if is_tot:
-      bg = '#1a365d'
-      color = '#ffffff'
-      fw = '800'
+      bg, color, fw = '#1a365d', '#ffffff', '800'
     else:
       bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
-      color = '#1a202c'
-      fw = '600' if False else '500'
+      color, fw = '#1a202c', '500'
     html.append('<tr>')
     for c in cols:
-      val = row.get(c, '')
-      if pd.isna(val):
-        val = ''
-      # format
+      raw = row.get(c, '')
+      if pd.isna(raw):
+        raw = ''
+      val = raw
       if c in ('Actual', 'Target') and val != '' and not isinstance(val, str):
         try:
           val = format_number_vn(float(val))
         except Exception:
-          pass
-      if c in ('% Đạt', '% TH') and val != '' and not is_tot:
+          val = str(val)
+      pct_css = ''
+      if c in ('% Đạt', '% TH'):
         try:
-          pv = float(val)
+          pv = float(str(raw).replace('%', '').replace(',', '.').strip())
           val = f'{pv:.1f}%'
         except Exception:
-          pass
-      elif c in ('% Đạt', '% TH') and is_tot:
-        try:
-          val = f'{float(val):.1f}%'
-        except Exception:
-          pass
-      al = 'left' if c == 'Tên NVBH' else 'center'
+          pv = None
+        pct_css = _pct_style(raw)
+
       if c == 'STT':
-        base = (
-            f'{td}position:sticky;left:0;z-index:5;min-width:{stt_w}px;max-width:{stt_w}px;'
+        style = (
+            f'{td0}position:sticky;left:0;z-index:5;min-width:{stt_w}px;max-width:{stt_w}px;'
             f'background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
             f'text-align:center !important;{sh_stt}'
         )
       elif c == 'Tên NVBH':
-        base = (
-            f'{td}position:sticky;left:{stt_w}px;z-index:5;min-width:{name_w}px;max-width:{name_w}px;'
+        style = (
+            f'{td0}position:sticky;left:{stt_w}px;z-index:5;min-width:{name_w}px;max-width:{name_w}px;'
             f'background-color:{bg} !important;color:{color} !important;font-weight:700;'
             f'text-align:left !important;{sh_ten}'
         )
+      elif c in ('% Đạt', '% TH') and pct_css:
+        # Luôn tô màu theo rule — kể cả dòng Tổng
+        style = f'{td0}{pct_css}text-align:center !important;'
       else:
-        base = (
-            f'{td}background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
-            f'text-align:{al} !important;'
+        style = (
+            f'{td0}background-color:{bg} !important;color:{color} !important;font-weight:{fw};'
+            f'text-align:center !important;'
         )
-        # % Đạt & % TH — rule riêng bảng tổng hợp NV MBS:
-        # <50 Đỏ | 50–<100 Cam | >=100 Xanh lá
-        if c in ('% Đạt', '% TH'):
-          try:
-            pv = float(str(row.get(c, 0)).replace('%', '').strip())
-            if pv < 50:
-              pct_style = (
-                  'background-color:#fed7d7 !important;color:#742a2a !important;'
-                  'font-weight:800 !important;'
-              )
-            elif pv < 100:
-              pct_style = (
-                  'background-color:#feebc8 !important;color:#c05621 !important;'
-                  'font-weight:800 !important;'
-              )
-            else:
-              # % = 100 hoặc vượt
-              pct_style = (
-                  'background-color:#c6f6d5 !important;color:#22543d !important;'
-                  'font-weight:800 !important;'
-              )
-            base = f'{td}{pct_style}text-align:center !important;'
-          except Exception:
-            pass
-      html.append(f'<td style="{base}">{val}</td>')
+      html.append(f'<td style="{style}">{val}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
-
-
 
 
 
