@@ -8130,6 +8130,62 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
   return out
 
 
+def compute_mbs_day_metric(df_detail, df_rpt, report_date):
+  """KH Đạt / Tổng KH / % Đạt theo lịch VT của ngày BC.
+
+  Thứ 2→2&25 | 3→3&36 | 4→4&47 | 5→5&25 | 6→6&36 | 7→7&47
+  Actual = RPT đầu tháng→ngày BC; Target + nhiệm vụ từ Data MBS.
+  """
+  empty = (0, 0, 0.0)
+  if df_detail is None or df_detail.empty or report_date is None:
+    return empty
+  try:
+    wd = report_date.weekday()  # Mon=0 … Sun=6
+  except Exception:
+    return empty
+  thu_by_wd = {
+      0: {'2', '25'},
+      1: {'3', '36'},
+      2: {'4', '47'},
+      3: {'5', '25'},
+      4: {'6', '36'},
+      5: {'7', '47'},
+      6: set(),
+  }
+  valid = thu_by_wd.get(wd, set())
+  if not valid or 'Thứ VT' not in df_detail.columns:
+    return empty
+
+  det = df_detail.copy()
+  thu_s = det['Thứ VT'].astype(str).str.strip()
+  det = det[thu_s.isin(valid)]
+  if det.empty:
+    return empty
+
+  sales_map = _mbs_rpt_sales_by_outlet(df_rpt, report_date)
+
+  def _norm_ma(x):
+    s = str(x).strip()
+    return s[:-2] if s.endswith('.0') else s
+
+  n1 = 0
+  total = 0
+  for _, r in det.iterrows():
+    ma = _norm_ma(r.get('Outlet Code', r.get('Mã KH', '')))
+    if not ma:
+      continue
+    total += 1
+    target = float(pd.to_numeric(r.get('Target', 0), errors='coerce') or 0)
+    actual = float(sales_map.get(ma, 0) or 0)
+    mission = str(r.get('Đạt nhiệm vụ', '')).strip() in (
+        'Có', 'CO', 'Yes', '1', 'True', '✓', '✔'
+    )
+    if mission and actual >= target and (target > 0 or actual > 0):
+      n1 += 1
+  pct = round(n1 / total * 100, 1) if total else 0.0
+  return int(n1), int(total), float(pct)
+
+
 def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT THEO NGÀY BC'):
   """Format giống Báo Cáo Trưng Bày.
   % Đạt / % TH dùng class pct-red / pct-orange / pct-green (CSS global).
@@ -14226,7 +14282,7 @@ def _pct_color(pct, timegone=None):
   return '#e53e3e'
 
 
-def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None):
+def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None, mbs_cat=None, mbs_brand=None):
   """Bảng 1: Metric card KPI theo ngày — 2 hàng × 5 card, responsive mobile."""
   if df_perf is None or df_perf.empty:
     return ''
@@ -14346,6 +14402,20 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       '#c05621',
     ),
   ]
+  # MBS Cat / Brand — theo lịch VT ngày BC
+  def _mbs_card(label, tup, color):
+    if not tup:
+      dat, tong, pct = 0, 0, 0.0
+    else:
+      dat, tong, pct = tup
+    return (
+        label,
+        f'{int(dat)}/{int(tong)}/{pct:.1f}%'.replace('.', ','),
+        'KH Đạt/Tổng KH/% Đạt',
+        color,
+    )
+  cards.append(_mbs_card('MBS CAT', mbs_cat, '#9f7aea'))
+  cards.append(_mbs_card('MBS BRAND', mbs_brand, '#ed64a6'))
 
   wd = report_date.strftime('%d/%m') if hasattr(report_date, 'strftime') else str(report_date)
   try:
@@ -16789,10 +16859,26 @@ if _nav == '📊 BÁO CÁO KPI':
           except Exception:
             pass
 
+          # MBS Cat/Brand metric theo Thứ VT ngày BC
+          _mbs_cat_m = _mbs_brand_m = None
+          try:
+            if df_cat is not None and not df_cat.empty:
+              _rc = build_mbs_cat_report(df_cat, filter_nv, mcp_df=mcp)
+              _mbs_cat_m = compute_mbs_day_metric(
+                  _rc.get('df_detail'), df, report_date
+              )
+            if df_brand is not None and not df_brand.empty:
+              _rb = build_mbs_brand_report(df_brand, filter_nv, mcp_df=mcp)
+              _mbs_brand_m = compute_mbs_day_metric(
+                  _rb.get('df_detail'), df, report_date
+              )
+          except Exception:
+            pass
           st.markdown(
               render_hs_daily_metric_cards(
                   df_perf, report_date, lppc_moc=_moc,
                   aso_off=_aso_off, aso_on=_aso_on,
+                  mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
               ),
               unsafe_allow_html=True,
           )
