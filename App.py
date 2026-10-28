@@ -14429,7 +14429,7 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     '.hs-day-grid{display:grid;width:100%;gap:10px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}'
     '@media(min-width:1400px){.hs-day-grid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));}}'
     '.hs-day-card{background:#fff;border-radius:12px;padding:clamp(10px,1.3vw,14px) clamp(10px,1.3vw,14px);box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #cbd5e0;min-width:0;text-align:center;}'
-    '.hs-day-card .t{font-size:clamp(9px,1.1vw,12px);font-weight:700;color:#718096;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}'
+    '.hs-day-card .t{font-size:clamp(11px,1.3vw,14px);font-weight:700;color:#718096;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}'
     '.hs-day-card .m{font-size:clamp(16px,1.9vw,22px);font-weight:800;color:#1a202c;margin:4px 0;line-height:1.25;word-break:break-word;text-align:center;}'
     '.hs-day-card .s{font-size:clamp(12px,1.3vw,14px);color:#4a5568;text-align:center;}'
     '</style>',
