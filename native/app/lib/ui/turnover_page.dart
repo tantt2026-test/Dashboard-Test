@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../data/report_repository.dart';
 import '../logic/pyfmt.dart';
 import '../logic/turnover_logic.dart';
+import 'app_scale.dart';
 import 'kpi_table.dart';
+import 'report_table.dart';
 import 'theme.dart';
 
 class TurnoverPage extends StatefulWidget {
@@ -170,6 +172,7 @@ class _TurnoverPageState extends State<TurnoverPage> {
           ],
         ),
         actions: [
+          const ScaleButton(),
           IconButton(
             tooltip: 'Tải lại',
             onPressed: _loading ? null : () => _load(refresh: true),
@@ -243,7 +246,7 @@ class _TurnoverPageState extends State<TurnoverPage> {
           const SizedBox(height: 10),
           _cards(rep, wide),
           const SizedBox(height: 12),
-          TurnoverTable(report: rep),
+          ReportTable(data: turnoverTableData(rep), title: m.title),
           const SizedBox(height: 12),
           _notes(m, rep),
           const SizedBox(height: 24),

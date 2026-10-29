@@ -37,13 +37,19 @@ class ReportItems extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [for (final it in items) _item(context, it)],
-    );
+    // tiêu đề gần nhất phía trên mỗi bảng → tên bảng khi xem toàn màn hình
+    String? lastTitle;
+    final children = <Widget>[];
+    for (final it in items) {
+      if (it['t'] == 'h') {
+        lastTitle = (it['r'] as List).map((r) => (r as Map)['x']).join().trim();
+      }
+      children.add(_item(context, it, lastTitle));
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
   }
 
-  Widget _item(BuildContext context, Map<String, dynamic> it) {
+  Widget _item(BuildContext context, Map<String, dynamic> it, String? title) {
     switch (it['t']) {
       case 'h':
         final lv = (it['lv'] as int?) ?? 3;
@@ -117,7 +123,7 @@ class ReportItems extends StatelessWidget {
       case 'tbl':
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
-          child: ReportTable(data: it),
+          child: ReportTable(data: it, title: title),
         );
       case 'bar':
         return Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: BarChartView(data: it));

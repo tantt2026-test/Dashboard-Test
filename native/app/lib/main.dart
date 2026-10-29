@@ -3,9 +3,14 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'data/report_repository.dart';
 import 'ui/theme.dart';
+import 'ui/app_scale.dart';
 import 'ui/home_shell.dart';
 
-void main() {
+final appScale = AppScale();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await appScale.load();
   runApp(const KpiApp());
 }
 
@@ -32,6 +37,7 @@ class _KpiAppState extends State<KpiApp> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      builder: (ctx, child) => ScaledApp(scale: appScale, child: child!),
       home: HomeShell(repo: repo),
     );
   }

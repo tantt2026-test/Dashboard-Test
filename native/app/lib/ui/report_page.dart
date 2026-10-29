@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/report_repository.dart';
 import '../logic/turnover_logic.dart' show allNvLabel, isoDate;
+import 'app_scale.dart';
+import 'report_table.dart';
 import 'report_view.dart';
+import 'table_model.dart';
 import 'theme.dart';
 
-/// Màn hình chung cho 17 báo cáo tab KPI (giai đoạn 2): nội dung do App.py xuất sẵn.
-/// Lọc: Tháng, Ngày (Tất cả ĐDKD), hoặc 1 ĐDKD (ngày mặc định).
+/// Màn hình chung cho 17 báo cáo tab KPI: nội dung do App.py xuất sẵn.
+/// Bộ lọc như Streamlit: Tháng, Ngày, ĐDKD (chọn nhiều), Thứ VT, tìm Mã KH / Tên KH;
+/// mỗi bảng có thêm nút lọc theo cột + toàn màn hình.
 class KpiReportPage extends StatefulWidget {
   final ReportRepository repo;
   final Manifest manifest;
@@ -29,19 +35,35 @@ class KpiReportPage extends StatefulWidget {
   State<KpiReportPage> createState() => _KpiReportPageState();
 }
 
+const _thuOptions = ['2', '3', '4', '5', '6', '7', '25', '36', '47']; // như Streamlit
+
 class _KpiReportPageState extends State<KpiReportPage> {
   KpiIndex? _idx;
   ReportDoc? _doc;
   String? _date;
-  String? _nv;
+  List<String> _nvs = []; // giữ thứ tự chọn
+  Set<String> _thu = {};
+  String _query = '';
+  final _queryCtl = TextEditingController();
+  Timer? _debounce;
   bool _loading = true;
   bool _offline = false;
   String? _error;
+
+  /// 1 ĐDKD → bản xuất riêng (số chính xác); 0 hoặc ≥2 → bản Tất cả + lọc dòng.
+  String? get _exactNv => _nvs.length == 1 ? _nvs.first : null;
 
   @override
   void initState() {
     super.initState();
     _loadIndex();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _queryCtl.dispose();
+    super.dispose();
   }
 
   @override
@@ -65,9 +87,10 @@ class _KpiReportPageState extends State<KpiReportPage> {
       _idx = r.value;
       _offline = r.fromCache;
       if (_date == null || !_idx!.dates.contains(_date)) _date = _idx!.defaultDate;
-      if (_nv != null && !_idx!.nv.contains(_nv)) _nv = null;
+      _nvs = _nvs.where(_idx!.nv.contains).toList();
       await _loadDoc();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = '$e';
         _loading = false;
@@ -83,8 +106,9 @@ class _KpiReportPageState extends State<KpiReportPage> {
       _error = null;
     });
     try {
-      final date = _nv != null ? idx.nvDates.first : _date!;
-      final r = await widget.repo.kpiDoc(idx, widget.code, date, _nv);
+      final nv = _exactNv;
+      final date = nv != null ? idx.nvDates.first : _date!;
+      final r = await widget.repo.kpiDoc(idx, widget.code, date, nv);
       if (!mounted) return;
       setState(() {
         _doc = r.value;
@@ -107,12 +131,12 @@ class _KpiReportPageState extends State<KpiReportPage> {
 
   Future<void> _pickDate() async {
     final idx = _idx!;
-    if (_nv != null) {
+    if (_exactNv != null) {
       final ok = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Đổi ngày'),
-          content: Text('Báo cáo lọc theo 1 ĐDKD hiện chỉ có cho ngày ${_ddmm(idx.nvDates.first)}.\n'
+          content: Text('Số liệu riêng của 1 ĐDKD hiện chỉ có cho ngày ${_ddmm(idx.nvDates.first)}.\n'
               'Bỏ lọc ĐDKD để xem ngày khác?'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
@@ -121,7 +145,7 @@ class _KpiReportPageState extends State<KpiReportPage> {
         ),
       );
       if (ok != true || !mounted) return;
-      _nv = null;
+      _nvs = [];
     }
     final dates = idx.dates.map(DateTime.parse).toList();
     final picked = await showDatePicker(
@@ -132,54 +156,67 @@ class _KpiReportPageState extends State<KpiReportPage> {
       selectableDayPredicate: (d) => idx.dates.contains(isoDate(d)),
       helpText: 'Ngày báo cáo',
     );
-    if (picked != null) {
-      _date = isoDate(picked);
-    }
+    if (picked != null) _date = isoDate(picked);
     _loadDoc();
+  }
+
+  Future<List<String>?> _multiPick(String title, List<String> options, List<String> current, {String? note}) {
+    final sel = [...current];
+    return showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.8),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 12, 4),
+                child: Row(children: [
+                  Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                  TextButton(onPressed: () => setS(sel.clear), child: const Text('Tất cả')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, sel), child: const Text('Xong')),
+                ]),
+              ),
+              if (note != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Text(note, style: const TextStyle(fontSize: 12, color: Brand.muted)),
+                ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView(shrinkWrap: true, children: [
+                  for (final o in options)
+                    CheckboxListTile(
+                      dense: true,
+                      value: sel.contains(o),
+                      title: Text(o),
+                      onChanged: (v) => setS(() => v! ? sel.add(o) : sel.remove(o)),
+                    ),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickNv() async {
     final idx = _idx!;
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.8),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: Text('ĐDKD (ngày ${_ddmm(idx.nvDates.first)})',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            ),
-            const Divider(height: 1),
-            Flexible(
-              child: ListView(shrinkWrap: true, children: [
-                ListTile(
-                  dense: true,
-                  leading: Icon(_nv == null ? Icons.radio_button_checked : Icons.radio_button_off,
-                      color: Brand.navy),
-                  title: const Text(allNvLabel),
-                  onTap: () => Navigator.pop(ctx, ''),
-                ),
-                for (final n in idx.nv)
-                  ListTile(
-                    dense: true,
-                    leading: Icon(_nv == n ? Icons.radio_button_checked : Icons.radio_button_off,
-                        color: Brand.navy),
-                    title: Text(n),
-                    onTap: () => Navigator.pop(ctx, n),
-                  ),
-              ]),
-            ),
-          ]),
-        ),
-      ),
-    );
-    if (picked == null) return;
-    _nv = picked.isEmpty ? null : picked;
-    _loadDoc();
+    final r = await _multiPick('ĐDKD (chọn nhiều)', idx.nv, _nvs,
+        note: 'Chọn 1 người: số liệu riêng ngày ${_ddmm(idx.nvDates.first)}. '
+            'Chọn nhiều: lọc dòng theo người trong mọi bảng.');
+    if (r == null) return;
+    final wasExact = _exactNv;
+    setState(() => _nvs = r);
+    if (wasExact != _exactNv) _loadDoc();
+  }
+
+  Future<void> _pickThu() async {
+    final r = await _multiPick('Thứ VT', _thuOptions, _thu.toList());
+    if (r != null) setState(() => _thu = r.toSet());
   }
 
   @override
@@ -187,12 +224,13 @@ class _KpiReportPageState extends State<KpiReportPage> {
     final name = _idx?.reports.where((r) => r.code == widget.code).map((r) => r.name).firstOrNull ?? widget.code;
     final upd = widget.manifest.generatedAt?.toUtc().add(const Duration(hours: 7));
     final wide = MediaQuery.of(context).size.width >= 720;
+    final page = PageFilter(nv: _nvs.length >= 2 ? _nvs.toSet() : const {}, thu: _thu, query: _query);
     return Scaffold(
       appBar: AppBar(
         leading: widget.leading,
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          Text(name,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
           if (upd != null)
             Text(
               'Cập nhật ${upd.day.toString().padLeft(2, '0')}/${upd.month.toString().padLeft(2, '0')} '
@@ -202,20 +240,28 @@ class _KpiReportPageState extends State<KpiReportPage> {
             ),
         ]),
         actions: [
+          const ScaleButton(),
           IconButton(tooltip: 'Tải lại', onPressed: _loading ? null : _loadIndex, icon: const Icon(Icons.refresh)),
         ],
         bottom: _loading
             ? const PreferredSize(
-                preferredSize: Size.fromHeight(3),
-                child: LinearProgressIndicator(minHeight: 3, color: Brand.accent))
+                preferredSize: Size.fromHeight(3), child: LinearProgressIndicator(minHeight: 3, color: Brand.accent))
             : null,
       ),
       body: RefreshIndicator(
         onRefresh: _loadIndex,
         child: ListView(
-          padding: EdgeInsets.symmetric(horizontal: wide ? 24 : 12, vertical: 12),
+          padding: EdgeInsets.symmetric(horizontal: wide ? 24 : 10, vertical: 12),
           children: [
             if (_idx != null) _filters(),
+            if (_nvs.length >= 2)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Đang lọc dòng theo nhiều ĐDKD: thẻ số, biểu đồ và dòng Tổng vẫn là số của cả team.',
+                  style: TextStyle(fontSize: 12, color: Brand.salary),
+                ),
+              ),
             const SizedBox(height: 8),
             if (_error != null)
               Padding(
@@ -229,7 +275,7 @@ class _KpiReportPageState extends State<KpiReportPage> {
                 ]),
               )
             else if (_doc != null)
-              ReportItems(items: _doc!.items, wide: wide),
+              PageFilterScope(filter: page, child: ReportItems(items: _doc!.items, wide: wide)),
             const SizedBox(height: 24),
           ],
         ),
@@ -240,24 +286,70 @@ class _KpiReportPageState extends State<KpiReportPage> {
   Widget _filters() {
     final idx = _idx!;
     final months = widget.manifest.kpiMonths;
-    final date = _nv != null ? idx.nvDates.first : _date!;
-    return Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-      if (months.length > 1)
-        SegmentedButton<String>(
-          showSelectedIcon: false,
-          segments: [for (final m in months) ButtonSegment(value: m.key, label: Text(m.label))],
-          selected: {widget.monthKey},
-          onSelectionChanged: (s) => widget.onMonthChanged(s.first),
+    final date = _exactNv != null ? idx.nvDates.first : _date!;
+    final nvText = _nvs.isEmpty ? allNvLabel : (_nvs.length == 1 ? _nvs.first : '${_nvs.length} ĐDKD');
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        if (months.length > 1)
+          SegmentedButton<String>(
+            showSelectedIcon: false,
+            segments: [for (final m in months) ButtonSegment(value: m.key, label: Text(m.label))],
+            selected: {widget.monthKey},
+            onSelectionChanged: (s) => widget.onMonthChanged(s.first),
+          ),
+        OutlinedButton.icon(
+          onPressed: _pickDate,
+          icon: const Icon(Icons.calendar_today, size: 18),
+          label: Text(_ddmm(date)),
         ),
-      OutlinedButton.icon(
-        onPressed: _pickDate,
-        icon: const Icon(Icons.calendar_today, size: 18),
-        label: Text(_ddmm(date)),
-      ),
-      OutlinedButton.icon(
-        onPressed: _pickNv,
-        icon: const Icon(Icons.person_outline, size: 18),
-        label: Text(_nv ?? allNvLabel),
+        OutlinedButton.icon(
+          onPressed: _pickNv,
+          icon: const Icon(Icons.people_alt_outlined, size: 18),
+          label: Text(nvText),
+        ),
+        OutlinedButton.icon(
+          onPressed: _pickThu,
+          icon: const Icon(Icons.event_note_outlined, size: 18),
+          label: Text(_thu.isEmpty ? 'Tất cả các thứ' : 'Thứ ${_thu.join(', ')}'),
+        ),
+        if (_nvs.isNotEmpty || _thu.isNotEmpty || _query.isNotEmpty)
+          TextButton.icon(
+            onPressed: () {
+              final reload = _exactNv != null;
+              setState(() {
+                _nvs = [];
+                _thu = {};
+                _query = '';
+                _queryCtl.clear();
+              });
+              if (reload) _loadDoc();
+            },
+            icon: const Icon(Icons.clear, size: 18),
+            label: const Text('Bỏ lọc'),
+          ),
+      ]),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _queryCtl,
+        decoration: InputDecoration(
+          isDense: true,
+          prefixIcon: const Icon(Icons.search),
+          hintText: 'Tìm Mã KH / Tên KH / tên NV trong mọi bảng',
+          border: const OutlineInputBorder(),
+          suffixIcon: _query.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() {
+                    _queryCtl.clear();
+                    _query = '';
+                  }),
+                ),
+        ),
+        onChanged: (t) {
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(milliseconds: 350), () => setState(() => _query = t));
+        },
       ),
     ]);
   }
