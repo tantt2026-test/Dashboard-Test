@@ -3,7 +3,7 @@
 # Giữ thư mục của commit dữ liệu hiện tại + 1 commit trước, xoá cũ hơn.
 #   TOKEN=... REPO=owner/name bash native/ci/filters_publish.sh <thư mục _filters> "<message>"
 set -euo pipefail
-SRC="$1"; MSG="$2"
+SRC=$(cd "$1" && pwd); MSG="$2"
 URL="https://x-access-token:${TOKEN}@github.com/${REPO}.git"
 W=$(mktemp -d)
 if git clone -q --depth 1 -b filters "$URL" "$W" 2>/dev/null; then :; else
