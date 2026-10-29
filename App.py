@@ -17469,6 +17469,18 @@ if _nav == '📊 BÁO CÁO KPI':
               .isin([int(x) for x in f_anh3])
           ]
 
+      sort_nv_az_tb = st.checkbox(
+          '🔤 Sort Tên NVBH A → Z',
+          value=False,
+          key='disp_sort_nv_az',
+      )
+      if sort_nv_az_tb and not df3f.empty and 'Tên NVBH' in df3f.columns:
+        df3f = df3f.assign(
+            _nv_sort=df3f['Tên NVBH'].astype(str).str.strip().str.lower()
+        ).sort_values(
+            ['_nv_sort', 'Mã KH'], ascending=[True, True]
+        ).drop(columns=['_nv_sort']).reset_index(drop=True)
+
       st.markdown(render_display_detail_html(df3f), unsafe_allow_html=True)
       st.caption(f'Hiển thị: {len(df3f):,} / {len(df3):,} dòng')
 
