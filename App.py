@@ -16116,10 +16116,23 @@ if _nav == '📊 BÁO CÁO KPI':
           _mask = _mask | ((_pv >= 75) & (_pv < 100))
         df_show = df_show[_mask]
 
+      sort_nv_az = st.checkbox(
+          '🔤 Sort Tên NVBH A → Z',
+          value=False,
+          key='mbs_cat_sort_nv_az',
+      )
+
       if not df_show.empty:
-        df_show = df_show.sort_values(
-            ['Nhóm', 'Actual'], ascending=[True, False]
-        ).reset_index(drop=True)
+        if sort_nv_az and 'Tên NVBH' in df_show.columns:
+          df_show = df_show.assign(
+              _nv_sort=df_show['Tên NVBH'].astype(str).str.strip().str.lower()
+          ).sort_values(
+              ['_nv_sort', 'Nhóm', 'Actual'], ascending=[True, True, False]
+          ).drop(columns=['_nv_sort']).reset_index(drop=True)
+        else:
+          df_show = df_show.sort_values(
+              ['Nhóm', 'Actual'], ascending=[True, False]
+          ).reset_index(drop=True)
         df_show.insert(0, 'STT', range(1, len(df_show) + 1))
         def _fmt_num(x):
           try:
@@ -16408,10 +16421,23 @@ if _nav == '📊 BÁO CÁO KPI':
           _maskb = _maskb | ((_pvb >= 75) & (_pvb < 100))
         df_show = df_show[_maskb]
 
+      sort_nv_az_b = st.checkbox(
+          '🔤 Sort Tên NVBH A → Z',
+          value=False,
+          key='mbs_brand_sort_nv_az',
+      )
+
       if not df_show.empty:
-        df_show = df_show.sort_values(
-            ['Nhóm', 'Actual'], ascending=[True, False]
-        ).reset_index(drop=True)
+        if sort_nv_az_b and 'Tên NVBH' in df_show.columns:
+          df_show = df_show.assign(
+              _nv_sort=df_show['Tên NVBH'].astype(str).str.strip().str.lower()
+          ).sort_values(
+              ['_nv_sort', 'Nhóm', 'Actual'], ascending=[True, True, False]
+          ).drop(columns=['_nv_sort']).reset_index(drop=True)
+        else:
+          df_show = df_show.sort_values(
+              ['Nhóm', 'Actual'], ascending=[True, False]
+          ).reset_index(drop=True)
         df_show.insert(0, 'STT', range(1, len(df_show) + 1))
         def _fmt_num_b(x):
           try:
