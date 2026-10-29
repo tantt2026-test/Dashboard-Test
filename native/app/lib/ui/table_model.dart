@@ -227,8 +227,8 @@ class Layout {
   /// Kích thước cột/dòng.
   /// [zoom]: tỷ lệ chung của app; [avail]: bề ngang có sẵn (null = không co);
   /// [manual]: tỷ lệ thêm của bảng (toàn màn hình). Bảng hẹp → giãn cột cho vừa;
-  /// bảng rộng → co chữ (tối thiểu [minFit]) cho vừa, còn rộng nữa thì cuộn ngang.
-  void size({required double zoom, double? avail, double manual = 1, double minFit = 0.55}) {
+  /// bảng rộng → co chữ tối thiểu tới [minFit] (1 = giữ cỡ chữ, phần thừa cuộn ngang).
+  void size({required double zoom, double? avail, double manual = 1, double minFit = 1}) {
     double charW(bool bold) => (bold ? 7.4 : 7.0);
     double textW(String s, bool bold) {
       final longest = s.split('\n').fold<int>(0, (m, l) => math.max(m, l.characters.length));
@@ -239,6 +239,7 @@ class Layout {
     for (final p in placed.where((p) => p.cs == 1)) {
       final cap = p.head ? 140.0 : 260.0;
       base[p.col] = math.max(base[p.col], math.min(textW(p.c['x'] as String, p.c['b'] == 1 || p.head), cap));
+      if (p.c['bar'] != null) base[p.col] = math.max(base[p.col], 150.0); // thanh tiến độ
     }
     for (final p in placed.where((p) => p.cs > 1)) {
       final need = math.min(textW(p.c['x'] as String, true), 300.0);

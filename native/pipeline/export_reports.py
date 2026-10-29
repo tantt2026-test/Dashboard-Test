@@ -150,10 +150,15 @@ def main():
                                            'default_date': idx['default_date']})
             for e in errs[:20]:
                 print('  ⚠', e, file=sys.stderr)
+            if any('SELECT_MISS' in e for e in errs):
+                failed.append(f'kpi:{mk}:select')
 
     with open(os.path.join(out, 'manifest.json'), 'w', encoding='utf-8') as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=1)
     if failed and not manifest['months']:
+        sys.exit(1)
+    if any(f.endswith(':select') for f in failed):
+        print('✗ Có báo cáo bị chọn sai — dừng, không publish', file=sys.stderr)
         sys.exit(1)
 
 

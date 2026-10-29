@@ -58,6 +58,10 @@ def parse_style(s):
     for part in (s or '').split(';'):
         if ':' in part:
             k, v = part.split(':', 1)
+            if ':' in v:
+                # Khai báo sai cú pháp (vd "background-color:background-color:#fed7d7" trong
+                # App.py) — trình duyệt bỏ qua, nên app cũng bỏ qua để màu giống web
+                continue
             out[k.strip().lower()] = v.replace('!important', '').strip()
     return out
 
@@ -87,6 +91,13 @@ def clean_text(s):
     return re.sub(r'[ \t\r\f\v\n]+', ' ', s)
 
 
+def tidy(s):
+    """Bỏ khoảng trắng thừa khi ghép chữ từ nhiều thẻ: "( 38.6% )" → "(38.6%)"."""
+    s = re.sub(r'([(\[]) +', r'\1', s)
+    s = re.sub(r' +([)\],.;:%])', r'\1', s)
+    return s
+
+
 def md_runs(text):
     """Markdown đơn giản (**đậm**) → runs."""
     runs = []
@@ -94,6 +105,39 @@ def md_runs(text):
         if part:
             runs.append({'x': part, 'b': 1} if i % 2 else {'x': part})
     return runs
+
+
+def _pct(v):
+    m = re.match(r'\s*([-\d.]+)\s*%', v or '')
+    return float(m.group(1)) if m else None
+
+
+def progress_bar(td):
+    """Thanh tiến độ vẽ bằng div trong ô bảng (vd cột "TIẾN ĐỘ 88.9%" báo cáo Hiệu suất):
+    div có width:x% + màu nền = phần đạt; div position:absolute left:y% = vạch mốc."""
+    fill = mark = None
+    for d in td.find_all('div'):
+        st = parse_style(d.get('style'))
+        if 'absolute' in st.get('position', '') and _pct(st.get('left')) is not None:
+            mark = (_pct(st.get('left')), bg_of(st))
+        elif _pct(st.get('width')) is not None and bg_of(st):
+            fill = (_pct(st.get('width')), bg_of(st))
+    if fill is None:
+        return None
+    bar = {'p': round(max(0.0, min(fill[0], 100.0)), 2), 'c': fill[1]}
+    track = None
+    for d in td.find_all('div'):
+        st = parse_style(d.get('style'))
+        if d.find('div') and bg_of(st):
+            track = bg_of(st)
+            break
+    if track:
+        bar['t'] = track
+    if mark:
+        bar['m'] = mark[0]
+        if mark[1]:
+            bar['mc'] = mark[1]
+    return bar
 
 
 class _Para:
@@ -175,8 +219,12 @@ class Converter:
             return None
         if 'card' not in cls and len(kids) != 2:
             return None
-        lines = [clean_text(k.get_text()).strip() for k in kids]
-        if not lines[0] or not lines[1] or len(lines[1]) > 60:
+        def _txt(k):
+            for br in k.find_all('br'):
+                br.replace_with('\n')
+            return '\n'.join(tidy(clean_text(l).strip()) for l in k.get_text(' ').split('\n') if l.strip())
+        lines = [_txt(k) for k in kids]
+        if not lines[0] or not lines[1] or len(lines[1]) > 90:
             return None
         card = {'l': lines[0], 'v': lines[1]}
         if len(lines) > 2:
@@ -212,7 +260,7 @@ class Converter:
             for br in td.find_all('br'):
                 br.replace_with('\n')
             raw = td.get_text(' ')
-            c = {'x': '\n'.join(clean_text(l).strip() for l in raw.split('\n') if l.strip())}
+            c = {'x': '\n'.join(tidy(clean_text(l).strip()) for l in raw.split('\n') if l.strip())}
             cs, rs = int(td.get('colspan', 1) or 1), int(td.get('rowspan', 1) or 1)
             if cs > 1:
                 c['cs'] = cs
@@ -232,6 +280,9 @@ class Converter:
                 c['bg'] = bg
             if fg:
                 c['fg'] = fg
+            bar = progress_bar(td)
+            if bar:
+                c['bar'] = bar
             if is_bold(st) or td.find(['b', 'strong']) or in_head:
                 c['b'] = 1
             al = align_of(st, td)

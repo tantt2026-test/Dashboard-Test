@@ -173,14 +173,15 @@ Widget tableCell(Placed p, Layout l) {
           ? (bg.computeLuminance() < 0.35 ? Colors.white : const Color(0xFF1A202C))
           : ((p.head || p.total) ? Colors.white : const Color(0xFF1A202C)));
   final f = l.fontScale;
+  final bar = cell['bar'] as Map<String, dynamic>?;
   return Container(
-    padding: EdgeInsets.symmetric(horizontal: 5 * f, vertical: 3 * f),
+    padding: EdgeInsets.symmetric(horizontal: (bar != null ? 10 : 5) * f, vertical: 3 * f),
     alignment: Alignment.center,
     decoration: BoxDecoration(
       color: bg,
       border: Border.all(color: (p.head || p.total) ? Brand.border : Brand.cellBorder, width: 0.5),
     ),
-    child: Text(
+    child: bar != null ? ProgressBarCell(bar: bar, scale: f) : Text(
       cell['x'] as String,
       maxLines: 4,
       overflow: TextOverflow.ellipsis,
@@ -194,6 +195,47 @@ Widget tableCell(Placed p, Layout l) {
       ),
     ),
   );
+}
+
+/// Thanh tiến độ trong ô (cột "TIẾN ĐỘ" của App.py): phần đạt + vạch mốc Timegone.
+class ProgressBarCell extends StatelessWidget {
+  final Map<String, dynamic> bar;
+  final double scale;
+  const ProgressBarCell({super.key, required this.bar, this.scale = 1});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = ((bar['p'] as num?) ?? 0).toDouble().clamp(0, 100) / 100;
+    final m = (bar['m'] as num?)?.toDouble();
+    final h = 12.0 * scale * MediaQuery.textScalerOf(context).scale(1);
+    return LayoutBuilder(builder: (ctx, c) {
+      final w = c.maxWidth;
+      return SizedBox(
+        width: w,
+        height: h + 4,
+        child: Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, children: [
+          Container(
+            height: h,
+            decoration: BoxDecoration(
+                color: hexColor(bar['t']) ?? const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(h / 2)),
+          ),
+          Container(
+            width: w * p,
+            height: h,
+            decoration: BoxDecoration(
+                color: hexColor(bar['c']) ?? Brand.blue, borderRadius: BorderRadius.circular(h / 2)),
+          ),
+          if (m != null)
+            Positioned(
+              left: (w * m / 100).clamp(0, w - 2),
+              top: 0,
+              bottom: 0,
+              child: Container(width: 2, color: hexColor(bar['mc']) ?? Brand.navy),
+            ),
+        ]),
+      );
+    });
+  }
 }
 
 /// Lưới tĩnh (không tự cuộn dọc): vừa màn hình thì vẽ thẳng; rộng hơn thì giữ cột cố định
@@ -271,7 +313,7 @@ class FullscreenTable extends StatefulWidget {
 class _FullscreenTableState extends State<FullscreenTable> {
   late RowFilter _filter = widget.filter;
   double _manual = 1.0;
-  bool _fit = true;
+  bool _fit = false; // mặc định giữ cỡ chữ như bảng trong trang; chỉnh +/- cho vừa mắt
   final _v = ScrollController();
   final _h = ScrollController();
 

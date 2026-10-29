@@ -46,7 +46,10 @@ def _init(app_path):
 
 
 def _state(mk, day, nv, label=None):
-    s = {'report_month_key': mk, 'ddkd': [nv] if nv else [], 'main_nav_section': NAV_KPI}
+    # month_select_box = None: ô chọn tháng của App.py nhớ tháng của lần chạy trước → nếu không
+    # xoá, App.py tự đổi về tháng cũ (lỗi báo cáo 4-7 ra Turnover khi xuất tháng 9 rồi tháng 10)
+    s = {'report_month_key': mk, 'month_select_box': None, 'ddkd': [nv] if nv else [],
+         'main_nav_section': NAV_KPI}
     if day is not None:
         s['ngay'] = day
     if label is not None:
@@ -63,6 +66,8 @@ def _task(args):
     t0 = time.time()
     for code, label in reports:
         blocks, _ns, status = _app.run(_state(mk, day, nv, label))
+        if any(b['kind'] == 'widget_miss' and str(b.get('key', '')).startswith('kpi_') for b in blocks):
+            status = f'error: SELECT_MISS không chọn được báo cáo "{label}" (App.py hiện báo cáo khác)'
         try:
             items = report_doc.convert(blocks)
         except Exception as e:

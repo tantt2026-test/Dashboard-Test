@@ -229,6 +229,9 @@ def make_streamlit(rec):
         opts = _opt_list(options)
         if key is not None and key in ss and ss[key] in opts:
             return ss[key]
+        if key is not None and ss.get(key) is not None:
+            # giá trị đặt sẵn không có trong danh sách → App.py sẽ hiện mục mặc định
+            rec.add('widget_miss', key=key, want=str(ss[key]))
         val = opts[index] if (index is not None and opts) else None
         return _remember(key, val)
     st.selectbox = selectbox

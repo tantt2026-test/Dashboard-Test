@@ -172,15 +172,22 @@ class _Cards extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       fontSize: 12.5)),
               const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(card['v'] as String,
+              // số ngắn: to, tự co cho vừa thẻ; nội dung dài (vd "OFF: 458/1188 CH ... ON: ..."):
+              // cỡ vừa, xuống dòng — tránh chữ bị co quá nhỏ
+              () {
+                final v = card['v'] as String;
+                final color = hexColor(card['c']) ?? (card['ac'] != null ? const Color(0xFF1A202C) : Brand.cardText);
+                final long = v.length > 22 || v.contains('\n');
+                final text = Text(v,
+                    textAlign: TextAlign.center,
                     style: TextStyle(
-                        color: hexColor(card['c']) ?? (card['ac'] != null ? const Color(0xFF1A202C) : Brand.cardText),
+                        color: color,
                         fontWeight: FontWeight.w800,
-                        fontSize: 20,
-                        fontFeatures: const [FontFeature.tabularFigures()])),
-              ),
+                        fontSize: long ? 14 : 20,
+                        height: long ? 1.35 : null,
+                        fontFeatures: const [FontFeature.tabularFigures()]));
+                return long ? text : FittedBox(fit: BoxFit.scaleDown, child: text);
+              }(),
               for (final s in (card['s'] as List? ?? const []))
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
