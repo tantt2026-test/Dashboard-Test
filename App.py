@@ -15183,7 +15183,6 @@ with f1:
   st.markdown('<p class="filter-label">NGÀY</p>', unsafe_allow_html=True)
   report_date = st.date_input(
       '',
-      value=report_date,
       min_value=_month_start,
       max_value=_month_end,
       key='ngay',
@@ -16578,10 +16577,16 @@ if _nav == '📊 BÁO CÁO KPI':
     )
     thu_opts = ['2', '3', '4', '5', '6', '7', '25', '36', '47']
     valid_visit_thu = [t for t in default_visit_thu_list if t in thu_opts]
+    # Giá trị lấy từ session_state (tránh cảnh báo default + Session State)
+    if 'visit_thu_input' not in st.session_state:
+      st.session_state['visit_thu_input'] = valid_visit_thu
+    else:
+      st.session_state['visit_thu_input'] = [
+          t for t in st.session_state['visit_thu_input'] if t in thu_opts
+      ]
     f_thu_visit = st.multiselect(
         '',
         thu_opts,
-        default=valid_visit_thu,
         key='visit_thu_input',
         on_change=update_visit_params,
         label_visibility='collapsed',
