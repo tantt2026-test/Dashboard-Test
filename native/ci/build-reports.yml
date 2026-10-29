@@ -1,0 +1,64 @@
+# Workflow: build JSON cho app native (native/README.md)
+# Mỗi lần Onetech sync push data (hoặc sửa App.py) lên main:
+#   1. Chạy logic App.py → JSON (native/pipeline/export_reports.py)
+#   2. Đối chiếu số app (Dart) với Streamlit (Python) — lệch là DỪNG, không publish
+#   3. Publish JSON sang branch `reports` → app native đọc từ đó
+# Không đụng tới Streamlit Cloud (chỉ chạy theo branch main như cũ).
+name: Build native reports
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/**'
+      - 'App.py'
+      - 'native/**'
+      - '.github/workflows/build-reports.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-reports
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # Cùng requirements.txt với Streamlit Cloud → cùng phiên bản pandas
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Export JSON từ logic App.py
+        run: python native/pipeline/export_reports.py --app App.py --out _reports
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Đối chiếu số App (Dart) vs Streamlit (Python)
+        run: |
+          (cd native/app && flutter pub get)
+          python native/pipeline/parity_check.py --app App.py --json _reports \
+            --dart-app native/app --combos 5
+
+      - name: Publish → branch reports
+        working-directory: _reports
+        run: |
+          git init -q -b reports
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Reports từ ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" reports

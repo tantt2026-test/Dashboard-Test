@@ -1,0 +1,5 @@
+package com.tantan.kpi_native
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()

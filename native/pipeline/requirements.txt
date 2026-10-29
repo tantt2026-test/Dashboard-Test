@@ -1,0 +1,4 @@
+# Chạy local. Trên GitHub Action dùng requirements.txt của repo (cùng bản với Streamlit Cloud).
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
