@@ -1,0 +1,76 @@
+# Workflow: build JSON cho app native (native/README.md)
+# ƒê·∫∑t t·∫°i .github/workflows/build-reports.yml. M·ªói l·∫ßn Onetech sync push data / s·ª≠a App.py:
+#   L∆∞·ª£t 1 (nhanh): Turnover + 18 b√°o c√°o KPI ng√†y m·∫∑c ƒë·ªãnh ‚Üí ƒë·ªëi chi·∫øu s·ªë ‚Üí publish
+#   L∆∞·ª£t 2: c√°c ng√†y c≈© trong th√°ng ‚Üí publish l·∫°i
+# JSON n·∫±m ·ªü branch `reports`. Kh√¥ng ƒë·ª•ng t·ªõi Streamlit Cloud (ch·∫°y theo main nh∆∞ c≈©).
+name: Build native reports
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/**'
+      - 'App.py'
+      - 'native/pipeline/**'
+      - 'native/app/lib/logic/**'
+      - '.github/workflows/build-reports.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-reports
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # C√πng requirements.txt v·ªõi Streamlit Cloud ‚Üí c√πng phi√™n b·∫£n pandas/plotly/altair
+      - name: Install Python deps
+        run: pip install -r requirements.txt beautifulsoup4
+
+      - name: L·∫•y b·∫£n reports tr∆∞·ªõc (d√πng l·∫°i ng√†y/th√°ng kh√¥ng ƒë·ªïi)
+        run: git clone -q --depth 1 -b reports "https://github.com/${{ github.repository }}.git" _prev || mkdir -p _prev
+
+      - name: "L∆∞·ª£t 1: Turnover + KPI ng√†y m·∫∑c ƒë·ªãnh"
+        run: |
+          python native/pipeline/export_reports.py --app App.py --out _reports \
+            --kpi --kpi-mode default --prev _prev --workers 4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: ƒê·ªëi chi·∫øu s·ªë App (Dart) vs Streamlit (Python)
+        run: |
+          (cd native/app && flutter pub get)
+          python native/pipeline/parity_check.py --app App.py --json _reports \
+            --dart-app native/app --combos 5
+
+      - name: Publish l∆∞·ª£t 1
+        run: bash native/ci/publish.sh _reports "L∆∞·ª£t 1 t·ª´ ${GITHUB_SHA::7}"
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+
+      - name: "L∆∞·ª£t 2: c√°c ng√†y c≈© trong th√°ng"
+        run: |
+          python native/pipeline/export_reports.py --app App.py --out _reports \
+            --kpi --kpi-mode history --prev _reports --workers 4
+
+      - name: Publish l∆∞·ª£t 2
+        run: bash native/ci/publish.sh _reports "ƒê·∫ßy ƒë·ªß t·ª´ ${GITHUB_SHA::7}"
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
