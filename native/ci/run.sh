@@ -25,3 +25,11 @@ python $P/export_reports.py --app App.py --out _reports --kpi --kpi-mode history
 echo "::endgroup::"
 
 bash native/ci/publish.sh _reports "Đầy đủ từ ${GITHUB_SHA::7}"
+
+echo "::group::Lượt 3: tính sẵn tổ hợp bộ lọc kiểu tính lại (tối đa 45 phút)"
+# 3 đợt × 15 phút, mỗi đợt lưu ngay (bị huỷ giữa chừng vẫn giữ phần đã tính)
+for round in 1 2 3; do
+  python $P/precompute_filters.py --app App.py --reports _reports --out _filters --budget 900 || true
+  bash native/ci/filters_publish.sh _filters "Tính sẵn từ ${GITHUB_SHA::7} (đợt $round)" || true
+done
+echo "::endgroup::"

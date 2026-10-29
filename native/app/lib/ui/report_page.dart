@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
+import '../data/filter_cache.dart';
 import '../data/report_repository.dart';
 import '../logic/filter_engine.dart';
 import '../logic/turnover_logic.dart' show allNvLabel, isoDate;
@@ -66,6 +69,12 @@ class _KpiReportPageState extends State<KpiReportPage> {
   List<String> _nvs = []; // ĐDKD (chọn nhiều, giữ thứ tự)
   FilterValues _values = {};
   final Map<String, List<Map<String, dynamic>>> _variants = {};
+  // Bộ lọc kiểu "tính lại": kết quả App.py do GitHub Actions tính & lưu (branch filters)
+  static final _cache = FilterCache();
+  FilterJob? _job;
+  // Ghi nhớ kết quả lọc: chỉ tính lại khi đổi lựa chọn / dữ liệu (tránh treo máy khi vẽ lại)
+  String? _memoKey;
+  FilterResult? _memo;
   final Set<String> _loadingVariants = {};
   bool _loading = true;
   bool _offline = false;
@@ -211,6 +220,42 @@ class _KpiReportPageState extends State<KpiReportPage> {
     setState(() => _values = {..._values, key: v});
   }
 
+  /// Lựa chọn hiện tại có cần App.py tính lại không (app không tự tính chính xác được)?
+  bool _needServer(List<Map<String, dynamic>> widgets, String? variantNote) {
+    if (_nvs.length >= 2) return true;
+    if (variantNote != null) return true;
+    for (final w in widgets) {
+      final mode = (w['f'] as Map?)?['mode'];
+      if ((mode == 'partial' || mode == 'unsupported') && isActive(w, _values[w['key']])) return true;
+    }
+    return false;
+  }
+
+  /// Lấy kết quả App.py cho lựa chọn hiện tại (đã lưu sẵn trên GitHub, hoặc nhờ GitHub tính).
+  FilterJob? _requestGithub(List<Map<String, dynamic>> widgets) {
+    final idx = _idx!, doc = _doc!;
+    final sc = widget.manifest.sourceCommit;
+    if (sc == null) return null;
+    final name = idx.reports.where((r) => r.code == widget.code).map((r) => r.name).firstOrNull ?? doc.name;
+    final active = {for (final w in widgets) w['key']: w};
+    final req = {
+      'month_key': idx.monthKey,
+      'date': _docDate,
+      'code': widget.code,
+      'name': name,
+      'nav': _isTab ? name : null,
+      'ddkd': _nvs,
+      'values': {
+        for (final e in _values.entries)
+          if (active[e.key] != null && isActive(active[e.key]!, e.value)) e.key: e.value
+      },
+      'sc': sc,
+    };
+    return _cache.get(req, () {
+      if (mounted) setState(() {});
+    });
+  }
+
   /// Ô lọc chung: lấy cách áp (spec) của báo cáo này nếu có.
   List<Map<String, dynamic>> _mainWidgets() => [
         for (final d in _mainDefs)
@@ -226,10 +271,28 @@ class _KpiReportPageState extends State<KpiReportPage> {
     List<Map<String, dynamic>>? items;
     final notes = <String>[];
     var waitingVariant = false;
+    var fromServer = false;
     if (_doc != null) {
       final widgets = [...collectWidgets(_doc!.items), ..._mainWidgets()];
       final (file, note) = pickVariant(widgets, _values);
-      if (note != null) notes.add(note);
+      // Lựa chọn app không tự tính chính xác → kết quả App.py do GitHub tính & lưu (đúng như Streamlit)
+      final useServer = _needServer(widgets, note);
+      _job = useServer ? _requestGithub(widgets) : null;
+      final job = _job;
+      if (job?.items != null) {
+        items = job!.items;
+        fromServer = true;
+      }
+      if (job != null && job.items == null && job.error == null) {
+        notes.add(job.dispatched
+            ? 'GitHub đang tính lại theo bộ lọc bằng App.py… ${job.waitedSeconds}s (thường 1,5–3 phút; '
+                'xong sẽ tự hiện, lần sau mở tổ hợp này là có ngay)'
+            : 'Đang tìm kết quả đã tính sẵn cho bộ lọc này…');
+      }
+      if (job?.error != null) {
+        notes.add('Chưa lấy được kết quả tính lại (${job!.error}) — đang hiện kết quả lọc trên máy.');
+      }
+      if (note != null && !fromServer && !useServer) notes.add(note);
       var base = _doc!.items;
       if (file != null) {
         final v = _variants[file];
@@ -240,10 +303,17 @@ class _KpiReportPageState extends State<KpiReportPage> {
           base = v;
         }
       }
-      final res = applyFilters(base, widgets, _values,
-          onVariant: file != null && !waitingVariant, multiNv: _nvs.length >= 2 ? _nvs.toSet() : null);
-      items = res.items;
-      notes.addAll(res.notes);
+      if (!fromServer) {
+        final mk = '${identityHashCode(base)}|${jsonEncode(_values)}|${_nvs.join(',')}|$file|$waitingVariant';
+        if (mk != _memoKey) {
+          _memo = applyFilters(base, widgets, _values,
+              onVariant: file != null && !waitingVariant, multiNv: _nvs.length >= 2 ? _nvs.toSet() : null);
+          _memoKey = mk;
+        }
+        final res = _memo!;
+        items = res.items;
+        if (!useServer || job?.error != null) notes.addAll(res.notes);
+      }
     }
 
     return Scaffold(
@@ -264,7 +334,7 @@ class _KpiReportPageState extends State<KpiReportPage> {
           const ScaleButton(),
           IconButton(tooltip: 'Tải lại', onPressed: _loading ? null : _loadIndex, icon: const Icon(Icons.refresh)),
         ],
-        bottom: (_loading || waitingVariant)
+        bottom: (_loading || waitingVariant || (_job != null && _job!.items == null && _job!.error == null))
             ? const PreferredSize(
                 preferredSize: Size.fromHeight(3), child: LinearProgressIndicator(minHeight: 3, color: Brand.accent))
             : null,
@@ -278,7 +348,13 @@ class _KpiReportPageState extends State<KpiReportPage> {
             padding: EdgeInsets.symmetric(horizontal: wide ? 24 : 10, vertical: 12),
             children: [
               if (_idx != null) _mainBar(),
-              if (_nvs.length >= 2)
+              if (fromServer)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text('✓ Kết quả tính lại theo bộ lọc bằng App.py (giống Streamlit) — lưu sẵn trên GitHub',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF2F855A), fontWeight: FontWeight.w600)),
+                ),
+              if (_nvs.length >= 2 && !fromServer)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
                   child: Text('Nhiều ĐDKD: bảng lọc theo người, dòng Tổng tính lại theo các dòng còn lại; '
