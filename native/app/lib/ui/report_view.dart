@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'charts.dart';
+import 'filter_widgets.dart';
 import 'report_table.dart';
 import 'theme.dart';
 
@@ -125,6 +126,8 @@ class ReportItems extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: ReportTable(data: it, title: title),
         );
+      case 'filters':
+        return StreamlitFilterGroup(item: it);
       case 'bar':
         return Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: BarChartView(data: it));
       case 'pie':

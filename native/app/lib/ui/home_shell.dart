@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+
 import '../data/report_repository.dart';
 import 'report_page.dart';
 import 'theme.dart';
@@ -7,6 +8,9 @@ import 'turnover_page.dart';
 
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
+/// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
+const appVersion = '1.3.0';
+
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
   const HomeShell({super.key, required this.repo});
@@ -15,7 +19,27 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
+  int _refreshTick = 0;
+  DateTime _lastLoad = DateTime.now();
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Mở lại app / quay lại cửa sổ sau ≥ 5 phút → tự tải dữ liệu mới
+    if (state == AppLifecycleState.resumed && DateTime.now().difference(_lastLoad).inMinutes >= 5) {
+      _lastLoad = DateTime.now();
+      widget.repo.clearMemory();
+      setState(() => _refreshTick++);
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   final _scaffold = GlobalKey<ScaffoldState>();
   Manifest? _manifest;
   KpiIndex? _idx;
@@ -26,6 +50,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
@@ -71,13 +96,36 @@ class _HomeShellState extends State<HomeShell> {
           Expanded(
             child: ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
               if (reports.isEmpty) _tile('TURNOVER', '1. TURNOVER - Tổng doanh số bán ra'),
-              for (final r in reports) _tile(r.code, r.name),
+              _section('📊 BÁO CÁO KPI'),
+              for (final r in reports.where((r) => r.group == 'kpi')) _tile(r.code, r.name),
+              if (reports.any((r) => r.group == 'tab')) _section('CÁC TAB KHÁC'),
+              for (final r in reports.where((r) => r.group == 'tab')) _tile(r.code, r.name),
             ]),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+            child: Text(
+              'Phiên bản $appVersion'
+              '${_manifest?.generatedAt != null ? ' · dữ liệu ${_fmtTime(_manifest!.generatedAt!)}' : ''}',
+              style: const TextStyle(fontSize: 11, color: Brand.muted),
+            ),
           ),
         ]),
       ),
     );
   }
+
+  static String _fmtTime(DateTime t) {
+    final v = t.toUtc().add(const Duration(hours: 7));
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(v.day)}/${two(v.month)} ${two(v.hour)}:${two(v.minute)}';
+  }
+
+  Widget _section(String t) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Text(t, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Brand.muted)),
+      );
 
   Widget _tile(String code, String name) {
     final sel = code == _code;
@@ -103,10 +151,10 @@ class _HomeShellState extends State<HomeShell> {
 
     Widget page;
     if (_code == 'TURNOVER' || _manifest == null || _kpiMonth == null) {
-      page = TurnoverPage(repo: widget.repo, leading: menuButton);
+      page = TurnoverPage(key: ValueKey('to-$_refreshTick'), repo: widget.repo, leading: menuButton);
     } else {
       page = KpiReportPage(
-        key: ValueKey('kpi-$_kpiMonth'),
+        key: ValueKey('kpi-$_kpiMonth-$_refreshTick'),
         repo: widget.repo,
         manifest: _manifest!,
         code: _code,
@@ -126,8 +174,10 @@ class _HomeShellState extends State<HomeShell> {
     }
 
     if (wide) {
+      // Viền ngăn cách khung menu và khung báo cáo
       return Row(children: [
-        SizedBox(width: 280, child: Material(elevation: 1, child: _menu(permanent: true))),
+        SizedBox(width: 280, child: Material(elevation: 2, child: _menu(permanent: true))),
+        Container(width: 1.5, color: Brand.border.withValues(alpha: 0.55)),
         Expanded(child: page),
       ]);
     }

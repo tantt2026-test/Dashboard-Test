@@ -524,6 +524,15 @@ def dataframe_item(df):
         return []
 
 
+def strip_private(obj):
+    """Bỏ các khoá '_...' (giá trị gốc chỉ dùng khi chạy thử) trước khi ghi JSON."""
+    if isinstance(obj, dict):
+        return {k: strip_private(v) for k, v in obj.items() if not str(k).startswith('_')}
+    if isinstance(obj, list):
+        return [strip_private(x) for x in obj]
+    return obj
+
+
 def convert(blocks):
     """blocks (headless.Recorder) → (items, sections). Chỉ lấy phần sau thanh tab chính."""
     start = 0
@@ -531,25 +540,30 @@ def convert(blocks):
         if b['kind'] == 'nav':
             start = i + 1
     blocks = blocks[start:]
-    # Bỏ nhãn bộ lọc phụ: markdown ngắn ngay trước 1 widget, và dòng "Bộ lọc ..." ngay trước nhãn đó
+
     def _short(b):
         return b['kind'] == 'markdown' and len(b['body']) < 300 and '<table' not in b['body']
 
     def _plain(b):
-        return re.sub(r'<[^>]+>', ' ', b.get('body') or '').lower()
+        return clean_text(re.sub(r'<[^>]+>', ' ', b.get('body') or '')).strip()
+    # Nhãn ô lọc = markdown ngắn ngay trước widget (App.py vẽ nhãn bằng <p class=filter-label>);
+    # dòng "Bộ lọc ..." ngay trước nhãn = tiêu đề nhóm lọc. Đưa vào item widget, không in thành chữ.
     drop = set()
+    wlabel, wgroup = {}, {}
     for i, b in enumerate(blocks):
         if b['kind'] == 'widget' and i > 0 and _short(blocks[i - 1]):
             drop.add(i - 1)
-            if i > 1 and _short(blocks[i - 2]) and 'lọc' in _plain(blocks[i - 2]):
+            wlabel[i] = _plain(blocks[i - 1])
+            if i > 1 and _short(blocks[i - 2]) and 'lọc' in _plain(blocks[i - 2]).lower():
                 drop.add(i - 2)
+                wgroup[i] = _plain(blocks[i - 2])
     conv = Converter()
     for i, b in enumerate(blocks):
         if i in drop:
             continue
         k = b['kind']
-        if b.get('section') and '__popover__' in b['section']:
-            continue  # popover = bộ lọc phụ / nút tải, không phải nội dung
+        if b.get('section') and '__popover__' in b['section'] and k != 'widget':
+            continue  # popover: chỉ lấy ô lọc, bỏ nút tải / nội dung phụ
         if k == 'markdown':
             body = b['body']
             if b['html'] or '<' in body:
@@ -585,6 +599,19 @@ def convert(blocks):
         elif k == 'dataframe':
             for it in dataframe_item(b['data']):
                 conv.emit(it)
+        elif k == 'widget':
+            w = {'t': 'w', 'key': b.get('key'), 'kind': b.get('wkind'),
+                 'label': wlabel.get(i) or b.get('label') or '', 'value': b.get('value')}
+            for f in ('options', 'labels', 'placeholder', 'min_value', 'max_value', '_raw_options'):
+                if b.get(f) is not None:
+                    w[f] = b[f]
+            if i in wgroup:
+                w['group'] = wgroup[i]
+            conv.flush()
+            if conv.out and conv.out[-1]['t'] == 'filters' and not w.get('group'):
+                conv.out[-1]['w'].append(w)
+            else:
+                conv.out.append({'t': 'filters', 'title': w.pop('group', None), 'w': [w]})
         elif k == 'metric':
             conv.emit({'t': 'cards', 'it': [{'l': b['label'], 'v': b['value']}]})
     conv.flush()

@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/widgets.dart' show StringCharacters;
+import 'package:flutter/painting.dart';
 
 import 'text_norm.dart';
 
@@ -20,10 +20,10 @@ class TableModel {
       : head = [for (final r in d['h'] as List) (r as List).cast<Map<String, dynamic>>()],
         body = [for (final r in d['b'] as List) (r as List).cast<Map<String, dynamic>>()],
         fzWanted = (d['fz'] as int?) ?? 0 {
-    final totalRe = RegExp(r'TỔNG|TOTAL', caseSensitive: false);
+    final totalRe = RegExp(r'^(TỔNG|TOTAL)|\sTOTAL$', caseSensitive: false);
     isTotal = [
       for (final r in body)
-        r.take(3).any((c) => totalRe.hasMatch(c['x'] as String? ?? '')) ||
+        r.take(3).any((c) => totalRe.hasMatch((c['x'] as String? ?? '').trim())) ||
             (r.isNotEmpty && r.every((c) => (c['bg'] as String?)?.toLowerCase() == '#1a365d'))
     ];
     bodyHasRowspan = body.any((r) => r.any((c) => ((c['rs'] as int?) ?? 1) > 1));
@@ -229,20 +229,17 @@ class Layout {
   /// [manual]: tỷ lệ thêm của bảng (toàn màn hình). Bảng hẹp → giãn cột cho vừa;
   /// bảng rộng → co chữ tối thiểu tới [minFit] (1 = giữ cỡ chữ, phần thừa cuộn ngang).
   void size({required double zoom, double? avail, double manual = 1, double minFit = 1}) {
-    double charW(bool bold) => (bold ? 7.4 : 7.0);
-    double textW(String s, bool bold) {
-      final longest = s.split('\n').fold<int>(0, (m, l) => math.max(m, l.characters.length));
-      return longest * charW(bold) + 16;
-    }
-
-    final base = List<double>.filled(cols, 40.0);
+    // Đo độ rộng chữ THẬT (cùng font/cỡ/độ đậm với ô) → cột vừa khít, không xuống dòng sai
+    const padX = 14.0, padY = 8.0;
+    final base = List<double>.filled(cols, 36.0);
     for (final p in placed.where((p) => p.cs == 1)) {
-      final cap = p.head ? 140.0 : 260.0;
-      base[p.col] = math.max(base[p.col], math.min(textW(p.c['x'] as String, p.c['b'] == 1 || p.head), cap));
+      final cap = p.head ? 150.0 : 280.0;
+      final w = math.min(measureText(p.c['x'] as String, head: p.head, bold: _bold(p)) + padX, cap);
+      base[p.col] = math.max(base[p.col], w);
       if (p.c['bar'] != null) base[p.col] = math.max(base[p.col], 150.0); // thanh tiến độ
     }
     for (final p in placed.where((p) => p.cs > 1)) {
-      final need = math.min(textW(p.c['x'] as String, true), 300.0);
+      final need = math.min(measureText(p.c['x'] as String, head: p.head, bold: true) + padX, 320.0);
       var have = 0.0;
       for (var j = 0; j < p.cs; j++) {
         have += base[p.col + j];
@@ -267,18 +264,53 @@ class Layout {
     fontScale = f;
     colW = [for (final w in base) w * zoom * f * stretch];
 
-    rowH = List.filled(rows, 30.0 * zoom * f);
+    // Chiều cao dòng: số dòng chữ thật khi gói trong bề rộng cột (tối đa 4 dòng)
+    final lineH = 15.5;
+    rowH = List.filled(rows, (lineH + padY + 6) * zoom * f);
     for (final p in placed.where((p) => p.rs == 1)) {
-      var w = 0.0;
+      var inner = 0.0;
       for (var j = 0; j < p.cs; j++) {
-        w += colW[p.col + j];
+        inner += colW[p.col + j];
       }
+      inner = inner / (zoom * f) - padX; // đổi về cỡ gốc để so với độ rộng đo được
       var lines = 0;
       for (final l in (p.c['x'] as String).split('\n')) {
-        lines += math.max(1, ((l.characters.length * 6.3 * zoom * f + 10) / w).ceil());
+        final w = measureText(l, head: p.head, bold: _bold(p));
+        lines += math.max(1, (w / math.max(inner, 1) - 0.02).ceil());
       }
-      rowH[p.r] = math.max(rowH[p.r], (math.min(lines, 4) * 15.0 + 12) * zoom * f);
+      rowH[p.r] = math.max(rowH[p.r], (math.min(lines, 4) * lineH + padY + 6) * zoom * f);
     }
+  }
+
+  static bool _bold(Placed p) => p.head || p.total || p.c['b'] == 1;
+
+  static final Map<String, double> _measureCache = {};
+
+  /// Độ rộng (px, cỡ chữ gốc) của dòng chữ dài nhất — cùng style với tableCell().
+  static double measureText(String text, {required bool head, required bool bold}) {
+    final key = '${head ? 'h' : 'b'}${bold ? 1 : 0}|$text';
+    final hit = _measureCache[key];
+    if (hit != null) return hit;
+    var best = 0.0;
+    for (final line in text.split('\n')) {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: line,
+          style: TextStyle(
+            fontSize: head ? 11.5 : 12.5,
+            fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+            height: 1.2,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      best = math.max(best, tp.width);
+      tp.dispose();
+    }
+    if (_measureCache.length > 50000) _measureCache.clear();
+    return _measureCache[key] = best;
   }
 
   /// Số cột cố định vừa với màn hình: phần cố định không chiếm quá [maxShare] bề ngang

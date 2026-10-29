@@ -52,11 +52,6 @@ class _ReportTableState extends State<ReportTable> {
     }
   }
 
-  Future<void> _openFilter() async {
-    final f = await showTableFilter(context, _model, _filter);
-    if (f != null) setState(() => _filter = f);
-  }
-
   Future<void> _openFull() async {
     final f = await Navigator.of(context).push<RowFilter>(MaterialPageRoute(
       builder: (_) => FullscreenTable(
@@ -101,7 +96,7 @@ class _ReportTableState extends State<ReportTable> {
         _Toolbar(
           text: filtering ? 'Hiển thị $dataRows / $allData dòng' : '$allData dòng',
           filterCount: _filter.count,
-          onFilter: m.filterable ? _openFilter : null,
+          onFilter: null, // chỉ dùng đúng các ô lọc của Streamlit (nằm phía trên bảng)
           onFull: _openFull,
         ),
         DecoratedBox(
@@ -175,7 +170,7 @@ Widget tableCell(Placed p, Layout l) {
   final f = l.fontScale;
   final bar = cell['bar'] as Map<String, dynamic>?;
   return Container(
-    padding: EdgeInsets.symmetric(horizontal: (bar != null ? 10 : 5) * f, vertical: 3 * f),
+    padding: EdgeInsets.symmetric(horizontal: (bar != null ? 10 : 6) * f, vertical: 3 * f),
     alignment: Alignment.center,
     decoration: BoxDecoration(
       color: bg,

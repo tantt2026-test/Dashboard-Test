@@ -25,6 +25,10 @@ import unicodedata
 import warnings
 
 NAV_KPI = '📊 BÁO CÁO KPI'
+# Giai đoạn cuối: các tab còn lại của App.py (code app → tên tab trên Streamlit)
+TAB_CODES = {'🗺️ MCP VISIT': 'TAB_MCP', '📦 TRACKING MBS - CAT': 'TAB_CAT',
+             '🏷️ TRACKING MBS - BRAND': 'TAB_BRAND', '📋 DSKH_Combo OFF': 'TAB_OFF',
+             '📋 DSKH_Combo ON': 'TAB_ON'}
 _app = None  # HeadlessApp riêng mỗi tiến trình
 
 
@@ -45,40 +49,69 @@ def _init(app_path):
     print(f'  [worker {os.getpid()}] sẵn sàng', file=sys.stderr, flush=True)
 
 
-def _state(mk, day, nv, label=None):
+def _state(mk, day, nv, label=None, nav=NAV_KPI):
     # month_select_box = None: ô chọn tháng của App.py nhớ tháng của lần chạy trước → nếu không
     # xoá, App.py tự đổi về tháng cũ (lỗi báo cáo 4-7 ra Turnover khi xuất tháng 9 rồi tháng 10)
     s = {'report_month_key': mk, 'month_select_box': None, 'ddkd': [nv] if nv else [],
-         'main_nav_section': NAV_KPI}
+         'main_nav_section': nav}
     if day is not None:
         s['ngay'] = day
-    if label is not None:
+    if label is not None and nav == NAV_KPI:
         s[f'kpi_{mk}'] = label
     return s
 
 
+def _reset_widgets():
+    """Xoá giá trị các ô lọc phụ của lần chạy trước (giữ ô chính) → mỗi báo cáo bắt đầu mặc định."""
+    keep = {'report_month_key', 'month_select_box', 'ddkd', 'main_nav_section', 'ngay'}
+    for k in list(_app.rec.session_state):
+        if k not in keep and not str(k).startswith('kpi_') and not str(k).startswith('_'):
+            _app.rec.session_state.pop(k, None)
+
+
 def _task(args):
-    """1 tháng × 1 ngày × 1 bộ lọc → JSON của tất cả báo cáo KPI."""
+    """1 tháng × 1 ngày × 1 bộ lọc → JSON các báo cáo. probe=True (ngày mặc định, Tất cả):
+    chạy thử từng ô lọc (filters_probe) + xuất sẵn bản tính lại cho ô lọc kiểu tính lại."""
+    import filters_probe
     import report_doc
-    mk, iso, nv, reports, out_dir = args
+    mk, iso, nv, reports, out_dir, probe = args
     day = dt.date.fromisoformat(iso)
     written, errors = [], []
     t0 = time.time()
-    for code, label in reports:
-        blocks, _ns, status = _app.run(_state(mk, day, nv, label))
+    for code, label, nav in reports:
+        _reset_widgets()
+        st = _state(mk, day, nv, label, nav)
+        blocks, _ns, status = _app.run(st)
         if any(b['kind'] == 'widget_miss' and str(b.get('key', '')).startswith('kpi_') for b in blocks):
             status = f'error: SELECT_MISS không chọn được báo cáo "{label}" (App.py hiện báo cáo khác)'
+        base = f'{iso}__{slug(nv)}' if nv else iso
+        main = {}
         try:
             items = report_doc.convert(blocks)
+            filters_probe.annotate_totals(items)
+            if probe and not status.startswith('error'):
+                nvar = [0]
+
+                def variant_cb(key, opt, v_items, code=code):
+                    nvar[0] += 1
+                    fn = f'{base}__w{nvar[0]}.json'
+                    filters_probe.annotate_totals(v_items)
+                    with open(os.path.join(out_dir, code, fn), 'w', encoding='utf-8') as fh:
+                        json.dump({'items': report_doc.strip_private(v_items)}, fh,
+                                  ensure_ascii=False, separators=(',', ':'))
+                    return fn
+                os.makedirs(os.path.join(out_dir, code), exist_ok=True)
+                main = filters_probe.annotate(_app, st, items, blocks, variant_cb)
         except Exception as e:
             items, status = [], f'error: convert {type(e).__name__}: {e}'
         if status.startswith('error'):
             errors.append(f'{mk} {iso} {nv or "Tất cả"} {code}: {status}')
             items.append({'t': 'msg', 'lv': 'error', 'x': 'Báo cáo lỗi khi xuất: ' + status[7:]})
         doc = {'code': code, 'name': label, 'month_key': mk, 'date': iso,
-               'filter': [nv] if nv else [], 'items': items}
-        fn = f'{iso}__{slug(nv)}.json' if nv else f'{iso}.json'
-        path = os.path.join(out_dir, code, fn)
+               'filter': [nv] if nv else [], 'items': report_doc.strip_private(items)}
+        if main:
+            doc['main'] = report_doc.strip_private(main)
+        path = os.path.join(out_dir, code, base + '.json')
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w', encoding='utf-8') as fh:
             json.dump(doc, fh, ensure_ascii=False, separators=(',', ':'))
@@ -89,7 +122,7 @@ def _task(args):
 def month_fingerprint(repo, app_path, folder):
     h = hashlib.sha256()
     h.update(open(app_path, 'rb').read())
-    for f in ('headless.py', 'report_doc.py', 'export_kpi.py'):
+    for f in ('headless.py', 'report_doc.py', 'export_kpi.py', 'filters_probe.py'):
         h.update(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), f), 'rb').read())
     d = os.path.join(repo, 'data', folder)
     for root, _, files in sorted(os.walk(d)):
@@ -116,7 +149,11 @@ def plan_month(app_path, mk, now_utc):
         data_max = max(df['date'].dropna())
     last = min(end, max(default, data_max or start))
     dates = [start + dt.timedelta(days=i) for i in range((last - start).days + 1)]
-    reports = [(code, label) for label, code in ns['kpi_map'].items()]
+    reports = [(code, label, NAV_KPI) for label, code in ns['kpi_map'].items()]
+    # các tab còn lại (giai đoạn cuối): MCP VISIT, TRACKING MBS CAT/BRAND, DSKH Combo OFF/ON
+    for nav in ns.get('_nav_opts') or []:
+        if nav in TAB_CODES:
+            reports.append((TAB_CODES[nav], nav, nav))
     nv = list(ns.get('nv_list') or [])
     return {
         'month_key': mk, 'month_label': cfg['label'], 'year': y, 'month': m,
@@ -157,6 +194,16 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         pidx = json.load(open(os.path.join(prev_dir, 'index.json'), encoding='utf-8'))
     same = bool(pidx and pidx.get('fingerprint') == fp and pidx.get('default_date') == default)
 
+    # Tháng đã qua ở lượt nhanh: dùng lại bản cũ (dù App.py đổi) — lượt 2 mới tính lại
+    if past_month and mode == 'default' and pidx is not None and not same:
+        if os.path.abspath(prev_dir) != os.path.abspath(out_dir):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            shutil.copytree(prev_dir, out_dir)
+        pidx['complete'] = False
+        with open(os.path.join(out_dir, 'index.json'), 'w', encoding='utf-8') as fh:
+            json.dump(pidx, fh, ensure_ascii=False, indent=1)
+        print(f'↺ {mk}: tháng đã qua — tạm dùng bản trước, lượt 2 sẽ tính lại', file=sys.stderr)
+        return pidx, []
     if same and (past_month or pidx.get('complete')):
         if os.path.abspath(prev_dir) != os.path.abspath(out_dir):
             shutil.rmtree(out_dir, ignore_errors=True)
@@ -178,12 +225,18 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir, exist_ok=True)
 
+    kpi_reports = [r for r in plan['reports'] if r[2] == NAV_KPI]
     tasks = []
     if mode in ('default', 'full'):
-        tasks.append((mk, plan['default_date'], None, plan['reports'], out_dir))
-        tasks += [(mk, plan['default_date'], nv, plan['reports'], out_dir) for nv in plan['nv']]
+        # ngày mặc định, Tất cả: mỗi báo cáo/tab 1 tác vụ (có chạy thử ô lọc) → chạy song song
+        tasks += [(mk, plan['default_date'], None, [r], out_dir, True) for r in plan['reports']]
+        tasks += [(mk, plan['default_date'], nv, kpi_reports, out_dir, False) for nv in plan['nv']]
     if mode in ('history', 'full'):
-        tasks += [(mk, d, None, plan['reports'], out_dir) for d in reversed(others)]
+        tasks += [(mk, d, None, kpi_reports, out_dir, False) for d in reversed(others)]
+    if mode == 'history' and past_month:
+        # tháng đã qua được tính ở lượt 2 (ngày cuối tháng, có đo ô lọc)
+        tasks += [(mk, plan['default_date'], None, [r], out_dir, True) for r in plan['reports']]
+        tasks += [(mk, plan['default_date'], nv, kpi_reports, out_dir, False) for nv in plan['nv']]
 
     errors = []
     t0 = time.time()
@@ -214,7 +267,9 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         'dates': have,
         # các ngày cũ giữ lại ở lượt 'default' có thể là số cũ → chưa 'complete'
         'complete': mode in ('history', 'full') or past_month or not others,
-        'reports': [{'code': c, 'name': l} for c, l in plan['reports']],
+        'reports': [{'code': c, 'name': l, 'group': 'kpi' if n == NAV_KPI else 'tab'}
+                    for c, l, n in plan['reports']],
+        'tab_dates': [plan['default_date']],
         'nv_slugs': {nv: slug(nv) for nv in plan['nv']},
         'nv_dates': [plan['default_date']],
         'errors': errors,

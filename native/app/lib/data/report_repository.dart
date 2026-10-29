@@ -110,8 +110,8 @@ class ReportRepository {
 // ===================== Giai đoạn 2: báo cáo tab KPI =====================
 
 class KpiReportInfo {
-  final String code, name;
-  KpiReportInfo(this.code, this.name);
+  final String code, name, group; // group: 'kpi' (tab Báo cáo KPI) | 'tab' (tab khác)
+  KpiReportInfo(this.code, this.name, [this.group = 'kpi']);
 }
 
 /// `kpi/<Thang>/index.json`
@@ -120,6 +120,7 @@ class KpiIndex {
   final int year, month;
   final List<String> dates; // có bản "Tất cả ĐDKD"
   final List<String> nvDates; // có bản lọc từng ĐDKD
+  final List<String> tabDates; // các tab khác (MCP, Tracking...) chỉ có ngày mặc định
   final List<String> nv;
   final Map<String, String> nvSlugs;
   final List<KpiReportInfo> reports;
@@ -132,11 +133,12 @@ class KpiIndex {
         month = j['month'] as int,
         dates = [for (final d in j['dates'] as List) d as String],
         nvDates = [for (final d in (j['nv_dates'] ?? const []) as List) d as String],
+        tabDates = [for (final d in (j['tab_dates'] ?? const []) as List) d as String],
         nv = [for (final n in j['nv'] as List) n as String],
         nvSlugs = {for (final e in (j['nv_slugs'] as Map).entries) e.key as String: e.value as String},
         reports = [
           for (final r in j['reports'] as List)
-            KpiReportInfo((r as Map)['code'] as String, r['name'] as String)
+            KpiReportInfo((r as Map)['code'] as String, r['name'] as String, (r['group'] as String?) ?? 'kpi')
         ];
 }
 
@@ -145,18 +147,29 @@ class ReportDoc {
   final String code, name, date;
   final List<String> filter;
   final List<Map<String, dynamic>> items;
+  final Map<String, Map<String, dynamic>> main; // ô lọc chung (Thứ VT, Mã KH, Tên KH) + cách áp
   ReportDoc.fromJson(Map<String, dynamic> j)
       : code = j['code'] as String,
         name = j['name'] as String,
         date = j['date'] as String,
         filter = [for (final f in j['filter'] as List) f as String],
-        items = [for (final i in j['items'] as List) i as Map<String, dynamic>];
+        items = [for (final i in j['items'] as List) i as Map<String, dynamic>],
+        main = {
+          for (final e in ((j['main'] as Map?) ?? const {}).entries)
+            e.key as String: (e.value as Map).cast<String, dynamic>()
+        };
 }
 
 extension KpiRepository on ReportRepository {
   Future<Loaded<KpiIndex>> kpiIndex(String monthKey) async {
     final r = await _getPublic('kpi/$monthKey/index.json');
     return Loaded(KpiIndex.fromJson(jsonDecode(r.value) as Map<String, dynamic>), r.fromCache);
+  }
+
+  /// Bản App.py tính sẵn cho 1 giá trị ô lọc kiểu "tính lại".
+  Future<List<Map<String, dynamic>>> kpiVariant(KpiIndex idx, String code, String file) async {
+    final r = await _getPublic('kpi/${idx.monthKey}/$code/$file');
+    return [for (final i in (jsonDecode(r.value) as Map)['items'] as List) i as Map<String, dynamic>];
   }
 
   Future<Loaded<ReportDoc>> kpiDoc(KpiIndex idx, String code, String date, String? nv) async {

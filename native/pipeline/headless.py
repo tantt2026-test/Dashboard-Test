@@ -219,10 +219,31 @@ def make_streamlit(rec):
             ss[key] = val
         return val
 
-    def _widget(fn):
+    def _widget(fn, kind):
         def wrapped(*a, **k):
-            rec.add('widget', key=k.get('key'))
-            return fn(*a, **k)
+            label = a[0] if a else k.get('label', '')
+            opts = a[1] if len(a) > 1 else k.get('options')
+            val = fn(*a, **k)
+            info = {'key': k.get('key'), 'label': str(label), 'wkind': kind,
+                    'placeholder': k.get('placeholder'), 'help': k.get('help')}
+            if opts is not None and kind in ('selectbox', 'multiselect', 'radio', 'select_slider'):
+                try:
+                    fmt = k.get('format_func') or str
+                    info['options'] = [str(o) for o in _opt_list(opts)]
+                    info['_raw_options'] = _opt_list(opts)  # giá trị gốc (số/chữ) để chạy thử
+                    info['labels'] = [str(fmt(o)) for o in _opt_list(opts)]
+                except Exception:
+                    pass
+            for f in ('min_value', 'max_value', 'step'):
+                if f in k and k[f] is not None:
+                    info[f] = str(k[f])
+            try:
+                info['value'] = val if isinstance(val, (str, int, float, bool, type(None))) else \
+                    [str(v) for v in val] if isinstance(val, (list, tuple, set)) else str(val)
+            except Exception:
+                info['value'] = str(val)
+            rec.add('widget', **info)
+            return val
         return wrapped
 
     def selectbox(label='', options=(), index=0, *a, key=None, **k):
@@ -239,7 +260,11 @@ def make_streamlit(rec):
     def radio(label='', options=(), index=0, *a, key=None, **k):
         val = selectbox(label, options, index, key=key)
         # Mốc: nội dung báo cáo bắt đầu sau thanh chọn tab chính (key của App.py)
-        rec.add('nav' if key == 'main_nav_section' else 'widget', key=key, value=val)
+        if key == 'main_nav_section':
+            rec.add('nav', key=key, value=val)
+        else:
+            rec.add('widget', key=key, label=str(label), wkind='radio', value=val,
+                    options=[str(o) for o in _opt_list(options)], labels=[str(o) for o in _opt_list(options)])
         return val
     st.radio = radio
 
@@ -286,7 +311,7 @@ def make_streamlit(rec):
 
     for _w in ('selectbox', 'multiselect', 'text_input', 'text_area', 'checkbox', 'toggle',
                'number_input', 'slider', 'select_slider', 'date_input'):
-        setattr(st, _w, _widget(getattr(st, _w)))
+        setattr(st, _w, _widget(getattr(st, _w), _w))
 
     st.button = lambda *a, **k: False
     st.form_submit_button = lambda *a, **k: False
@@ -333,6 +358,9 @@ class HeadlessApp:
         return blocks, ns, status
 
     def _run_once(self):
+        # Tham số URL (st.query_params) App.py dùng để nhớ lựa chọn lọc → xoá mỗi lần chạy,
+        # nếu không lựa chọn của lần chạy trước "dính" sang lần sau (như mở link cũ)
+        self.rec.query_params.clear()
         self.rec.reset_run()
         saved = {k: sys.modules.get(k) for k in self.modules}
         sys.modules.update(self.modules)

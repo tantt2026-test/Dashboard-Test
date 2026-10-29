@@ -1,7 +1,6 @@
 # Workflow: build JSON cho app native (native/README.md)
-# Đặt tại .github/workflows/build-reports.yml. Mỗi lần Onetech sync push data / sửa App.py:
-#   Lượt 1 (nhanh): Turnover + 18 báo cáo KPI ngày mặc định → đối chiếu số → publish
-#   Lượt 2: các ngày cũ trong tháng → publish lại
+# Đặt tại .github/workflows/build-reports.yml. Các bước nằm trong native/ci/run.sh
+# (sửa quy trình chỉ cần sửa run.sh, không phải dán lại file này).
 # JSON nằm ở branch `reports`. Không đụng tới Streamlit Cloud (chạy theo main như cũ).
 name: Build native reports
 
@@ -13,6 +12,7 @@ on:
       - 'App.py'
       - 'native/pipeline/**'
       - 'native/app/lib/logic/**'
+      - 'native/ci/**'
       - '.github/workflows/build-reports.yml'
   workflow_dispatch:
 
@@ -26,7 +26,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -39,38 +39,13 @@ jobs:
       - name: Install Python deps
         run: pip install -r requirements.txt beautifulsoup4
 
-      - name: Lấy bản reports trước (dùng lại ngày/tháng không đổi)
-        run: git clone -q --depth 1 -b reports "https://github.com/${{ github.repository }}.git" _prev || mkdir -p _prev
-
-      - name: "Lượt 1: Turnover + KPI ngày mặc định"
-        run: |
-          python native/pipeline/export_reports.py --app App.py --out _reports \
-            --kpi --kpi-mode default --prev _prev --workers 4
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Đối chiếu số App (Dart) vs Streamlit (Python)
-        run: |
-          (cd native/app && flutter pub get)
-          python native/pipeline/parity_check.py --app App.py --json _reports \
-            --dart-app native/app --combos 5
-
-      - name: Publish lượt 1
-        run: bash native/ci/publish.sh _reports "Lượt 1 từ ${GITHUB_SHA::7}"
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-
-      - name: "Lượt 2: các ngày cũ trong tháng"
-        run: |
-          python native/pipeline/export_reports.py --app App.py --out _reports \
-            --kpi --kpi-mode history --prev _reports --workers 4
-
-      - name: Publish lượt 2
-        run: bash native/ci/publish.sh _reports "Đầy đủ từ ${GITHUB_SHA::7}"
+      - name: Xuất + đối chiếu + publish
+        run: bash native/ci/run.sh
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
