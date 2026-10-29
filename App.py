@@ -16054,12 +16054,13 @@ if _nav == '📊 BÁO CÁO KPI':
       if not nhom_selected:
         nhom_selected = [1, 2, 3, 4, 5, 6]
 
-      # Bộ lọc CAT + Đạt Nhiệm Vụ
+      # Bộ lọc CAT + Đạt Nhiệm Vụ + % TH
       cat_opts = sorted([
           str(x).strip() for x in df_detail.get('Member type', pd.Series(dtype=str)).dropna().unique()
           if str(x).strip() and str(x).strip().lower() not in ('nan', 'none')
       ]) if 'Member type' in df_detail.columns else []
-      fc_a, fc_b = st.columns(2)
+      _pct_th_opts = ['< 50%', '≥ 50% & < 75%', '≥ 75% & < 100%']
+      fc_a, fc_b, fc_c = st.columns(3)
       with fc_a:
         st.markdown(
             '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
@@ -16082,12 +16083,38 @@ if _nav == '📊 BÁO CÁO KPI':
             key='mbs_cat_mission_filter', placeholder='Tất cả',
             label_visibility='collapsed',
         )
+      with fc_c:
+        st.markdown(
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+            '📊 Lọc % TH</p>',
+            unsafe_allow_html=True,
+        )
+        pct_th_selected = st.multiselect(
+            '', options=_pct_th_opts, default=[],
+            key='mbs_cat_pct_th_filter', placeholder='Tất cả % TH',
+            label_visibility='collapsed',
+        )
 
       df_show = df_detail[df_detail['Nhóm'].isin(nhom_selected)].copy()
       if member_selected and 'Member type' in df_show.columns:
         df_show = df_show[df_show['Member type'].astype(str).str.strip().isin(member_selected)]
       if mission_selected and 'Đạt nhiệm vụ' in df_show.columns:
         df_show = df_show[df_show['Đạt nhiệm vụ'].astype(str).str.strip().isin(mission_selected)]
+      if pct_th_selected and '% TH' in df_show.columns:
+        def _pct_th_val(x):
+          try:
+            return float(str(x).replace('%', '').replace(',', '.').strip())
+          except Exception:
+            return None
+        _pv = df_show['% TH'].map(_pct_th_val)
+        _mask = pd.Series(False, index=df_show.index)
+        if '< 50%' in pct_th_selected:
+          _mask = _mask | (_pv < 50)
+        if '≥ 50% & < 75%' in pct_th_selected:
+          _mask = _mask | ((_pv >= 50) & (_pv < 75))
+        if '≥ 75% & < 100%' in pct_th_selected:
+          _mask = _mask | ((_pv >= 75) & (_pv < 100))
+        df_show = df_show[_mask]
 
       if not df_show.empty:
         df_show = df_show.sort_values(
@@ -16324,7 +16351,8 @@ if _nav == '📊 BÁO CÁO KPI':
           str(x).strip() for x in df_detail.get('Member type', pd.Series(dtype=str)).dropna().unique()
           if str(x).strip() and str(x).strip().lower() not in ('nan', 'none')
       ]) if 'Member type' in df_detail.columns else []
-      fb_a, fb_b = st.columns(2)
+      _pct_th_opts_b = ['< 50%', '≥ 50% & < 75%', '≥ 75% & < 100%']
+      fb_a, fb_b, fb_c = st.columns(3)
       with fb_a:
         st.markdown(
             '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
@@ -16347,12 +16375,38 @@ if _nav == '📊 BÁO CÁO KPI':
             key='mbs_brand_mission_filter', placeholder='Tất cả',
             label_visibility='collapsed',
         )
+      with fb_c:
+        st.markdown(
+            '<p class="filter-label" style="margin-bottom:2px;font-size:11px !important;">'
+            '📊 Lọc % TH</p>',
+            unsafe_allow_html=True,
+        )
+        pct_th_selected_b = st.multiselect(
+            '', options=_pct_th_opts_b, default=[],
+            key='mbs_brand_pct_th_filter', placeholder='Tất cả % TH',
+            label_visibility='collapsed',
+        )
 
       df_show = df_detail[df_detail['Nhóm'].isin(nhom_selected)].copy()
       if member_selected_b and 'Member type' in df_show.columns:
         df_show = df_show[df_show['Member type'].astype(str).str.strip().isin(member_selected_b)]
       if mission_selected_b and 'Đạt nhiệm vụ' in df_show.columns:
         df_show = df_show[df_show['Đạt nhiệm vụ'].astype(str).str.strip().isin(mission_selected_b)]
+      if pct_th_selected_b and '% TH' in df_show.columns:
+        def _pct_th_val_b(x):
+          try:
+            return float(str(x).replace('%', '').replace(',', '.').strip())
+          except Exception:
+            return None
+        _pvb = df_show['% TH'].map(_pct_th_val_b)
+        _maskb = pd.Series(False, index=df_show.index)
+        if '< 50%' in pct_th_selected_b:
+          _maskb = _maskb | (_pvb < 50)
+        if '≥ 50% & < 75%' in pct_th_selected_b:
+          _maskb = _maskb | ((_pvb >= 50) & (_pvb < 75))
+        if '≥ 75% & < 100%' in pct_th_selected_b:
+          _maskb = _maskb | ((_pvb >= 75) & (_pvb < 100))
+        df_show = df_show[_maskb]
 
       if not df_show.empty:
         df_show = df_show.sort_values(
