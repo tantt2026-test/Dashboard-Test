@@ -11,7 +11,7 @@ if git clone -q --depth 1 -b filters "$URL" "$W" 2>/dev/null; then :; else
 cd "$W"
 git config user.name  "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-for attempt in 1 2 3 4 5; do
+for attempt in $(seq 1 20); do
   cp -R "$SRC"/. ./
   CUR=$(ls -d "$SRC"/*/ 2>/dev/null | head -1 | xargs -n1 basename || true)
   if [ -n "$CUR" ]; then
@@ -27,6 +27,6 @@ for attempt in 1 2 3 4 5; do
   if git push -q origin filters; then echo "Đã lưu: $(git show --stat --oneline HEAD | tail -1)"; exit 0; fi
   # lượt khác vừa đẩy → lấy về rồi thử lại
   git fetch -q --depth 1 origin filters && git reset -q --hard origin/filters
-  sleep $((attempt * 3))
+  sleep $((RANDOM % 10 + attempt * 2))
 done
-echo "Không đẩy được sau 5 lần" >&2; exit 1
+echo "Không đẩy được sau 20 lần" >&2; exit 1

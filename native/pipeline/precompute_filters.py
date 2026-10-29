@@ -2,6 +2,8 @@
 
   python precompute_filters.py --app App.py --reports _reports --out _filters --budget 2700
   python precompute_filters.py --app App.py --req '<json>' --out _filters      (1 yêu cầu từ app)
+  python precompute_filters.py --app App.py --req '{"sc":..,"shard":[i,n],"budget":1320}' --out _filters
+      (1 phần của "tính tất cả" — plan_all.py; tool/precompute_all.sh trên máy chia phần + gọi lặp)
 
 Tính sẵn (ngày mặc định, Tất cả ĐDKD), cho mọi ô lọc mà app không tự tính được
 (calc / partial / unsupported):
@@ -37,7 +39,41 @@ def _write(out, sc, req, items, status):
     return k
 
 
+def run_shard(app_path, req, out):
+    """Phần i/n của danh sách plan_all (bỏ tổ hợp đã có ở branch filters), dừng khi hết ngân sách."""
+    import subprocess
+    import plan_all
+    t0 = time.time()
+    budget = float(req.get('budget') or 1320)
+    i, n = req['shard']
+    url = f"https://github.com/{os.environ.get('REPO', 'tantt2026-test/Dashboard-Test')}.git"
+    subprocess.run(['git', 'clone', '-q', '--depth', '1', '-b', 'reports', url, '_reports'], check=True)
+    sc, todo = plan_all.plan('_reports')
+    if sc != req['sc']:
+        print(f'Dữ liệu đã đổi ({sc[:7]} ≠ {req["sc"][:7]}) → bỏ', file=sys.stderr)
+        return
+    have = set()
+    if subprocess.run(['git', 'clone', '-q', '--depth', '1', '--no-checkout', '-b', 'filters', url, '_have']).returncode == 0:
+        ls = subprocess.run(['git', '-C', '_have', 'ls-tree', '-r', '--name-only', 'HEAD', sc[:12] + '/'],
+                            capture_output=True, text=True).stdout.split()
+        have = {os.path.basename(x)[:-5] for x in ls}
+    mine = [q for k, q in enumerate(todo) if k % n == i and run_request.key_of(q) not in have]
+    print(f'Phần {i}/{n}: {len(mine)} tổ hợp chưa có', file=sys.stderr)
+    app = HeadlessApp(app_path)
+    export_kpi._app = app
+    done = 0
+    for q in mine:
+        if time.time() - t0 > budget:
+            break
+        items, status = run_request.compute(app, export_kpi, report_doc, filters_probe, q, q['name'], q.get('nav'))
+        _write(out, sc, q, items, status)
+        done += 1
+    print(f'Phần {i}/{n}: xong {done}/{len(mine)} ({time.time() - t0:.0f}s)', file=sys.stderr)
+
+
 def run_one(app_path, req, out):
+    if 'shard' in req:
+        return run_shard(app_path, req, out)
     app = HeadlessApp(app_path)
     export_kpi._app = app
     t = time.time()
