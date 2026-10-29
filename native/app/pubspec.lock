@@ -221,6 +221,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.12"
+  two_dimensional_scrollables:
+    dependency: "direct main"
+    description:
+      name: two_dimensional_scrollables
+      sha256: "27ab607d5900b9907308367c76a62467c88b3ede3017fcbece3a2419dc51c3de"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.5"
   typed_data:
     dependency: transitive
     description:
@@ -255,4 +263,4 @@ packages:
     version: "1.1.2"
 sdks:
   dart: ">=3.13.7 <4.0.0"
-  flutter: ">=3.18.0-18.0.pre.54"
+  flutter: ">=3.41.0"

@@ -3,7 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'data/report_repository.dart';
 import 'ui/theme.dart';
-import 'ui/turnover_page.dart';
+import 'ui/home_shell.dart';
 
 void main() {
   runApp(const KpiApp());
@@ -32,7 +32,7 @@ class _KpiAppState extends State<KpiApp> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: TurnoverPage(repo: repo),
+      home: HomeShell(repo: repo),
     );
   }
 }

@@ -22,13 +22,18 @@ class Manifest {
   final DateTime? generatedAt;
   final String? sourceCommit;
   final List<MonthInfo> months;
-  Manifest(this.generatedAt, this.sourceCommit, this.months);
+  final List<MonthInfo> kpiMonths; // tháng có báo cáo tab KPI (giai đoạn 2)
+  Manifest(this.generatedAt, this.sourceCommit, this.months, this.kpiMonths);
 
   factory Manifest.fromJson(Map<String, dynamic> j) => Manifest(
         DateTime.tryParse((j['generated_at'] ?? '') as String),
         j['source_commit'] as String?,
         [
           for (final m in j['months'] as List)
+            MonthInfo((m as Map<String, dynamic>)['key'] as String, m['label'] as String)
+        ],
+        [
+          for (final m in (j['kpi_months'] ?? const []) as List)
             MonthInfo((m as Map<String, dynamic>)['key'] as String, m['label'] as String)
         ],
       );
@@ -60,6 +65,8 @@ class ReportRepository {
   }
 
   /// Tải từ GitHub; lỗi mạng → dùng bản đã lưu lần trước.
+  Future<Loaded<String>> _getPublic(String rel) => _get(rel);
+
   Future<Loaded<String>> _get(String rel) async {
     final cache = await _cacheFile(rel);
     try {
@@ -98,4 +105,63 @@ class ReportRepository {
   }
 
   void clearMemory() => _turnover.clear();
+}
+
+// ===================== Giai đoạn 2: báo cáo tab KPI =====================
+
+class KpiReportInfo {
+  final String code, name;
+  KpiReportInfo(this.code, this.name);
+}
+
+/// `kpi/<Thang>/index.json`
+class KpiIndex {
+  final String monthKey, monthLabel, defaultDate;
+  final int year, month;
+  final List<String> dates; // có bản "Tất cả ĐDKD"
+  final List<String> nvDates; // có bản lọc từng ĐDKD
+  final List<String> nv;
+  final Map<String, String> nvSlugs;
+  final List<KpiReportInfo> reports;
+
+  KpiIndex.fromJson(Map<String, dynamic> j)
+      : monthKey = j['month_key'] as String,
+        monthLabel = j['month_label'] as String,
+        defaultDate = j['default_date'] as String,
+        year = j['year'] as int,
+        month = j['month'] as int,
+        dates = [for (final d in j['dates'] as List) d as String],
+        nvDates = [for (final d in (j['nv_dates'] ?? const []) as List) d as String],
+        nv = [for (final n in j['nv'] as List) n as String],
+        nvSlugs = {for (final e in (j['nv_slugs'] as Map).entries) e.key as String: e.value as String},
+        reports = [
+          for (final r in j['reports'] as List)
+            KpiReportInfo((r as Map)['code'] as String, r['name'] as String)
+        ];
+}
+
+/// 1 báo cáo đã xuất: danh sách item (tiêu đề, bảng, thẻ, biểu đồ...).
+class ReportDoc {
+  final String code, name, date;
+  final List<String> filter;
+  final List<Map<String, dynamic>> items;
+  ReportDoc.fromJson(Map<String, dynamic> j)
+      : code = j['code'] as String,
+        name = j['name'] as String,
+        date = j['date'] as String,
+        filter = [for (final f in j['filter'] as List) f as String],
+        items = [for (final i in j['items'] as List) i as Map<String, dynamic>];
+}
+
+extension KpiRepository on ReportRepository {
+  Future<Loaded<KpiIndex>> kpiIndex(String monthKey) async {
+    final r = await _getPublic('kpi/$monthKey/index.json');
+    return Loaded(KpiIndex.fromJson(jsonDecode(r.value) as Map<String, dynamic>), r.fromCache);
+  }
+
+  Future<Loaded<ReportDoc>> kpiDoc(KpiIndex idx, String code, String date, String? nv) async {
+    final name = nv == null ? '$date.json' : '${date}__${idx.nvSlugs[nv]}.json';
+    final r = await _getPublic('kpi/${idx.monthKey}/$code/$name');
+    return Loaded(ReportDoc.fromJson(jsonDecode(r.value) as Map<String, dynamic>), r.fromCache);
+  }
 }

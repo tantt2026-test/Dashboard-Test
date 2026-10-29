@@ -94,10 +94,17 @@ def main():
     ap.add_argument('--app', required=True, help='đường dẫn App.py')
     ap.add_argument('--out', required=True)
     ap.add_argument('--months', nargs='*', help='mặc định: tất cả tháng trong MONTH_OPTIONS có thư mục data')
+    ap.add_argument('--kpi', action='store_true', help='xuất thêm toàn bộ báo cáo tab KPI (giai đoạn 2)')
+    ap.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2)))
+    ap.add_argument('--prev', help='thư mục output lần trước (dùng lại tháng/ngày không đổi)')
+    ap.add_argument('--kpi-mode', default='full', choices=['default', 'history', 'full'],
+                    help="default = chỉ ngày mặc định (publish nhanh); history = các ngày cũ")
     a = ap.parse_args()
 
+    # Đường dẫn tuyệt đối NGAY từ đầu: app_logic.load() đổi thư mục làm việc sang repo
     out = os.path.abspath(a.out)
     app = os.path.abspath(a.app)
+    a.prev = os.path.abspath(a.prev) if a.prev else None
     repo = os.path.dirname(app)
     ns = app_logic.load(app)
 
@@ -126,6 +133,23 @@ def main():
         manifest['months'].append({'key': mk, 'label': data['month_label'],
                                    'year': data['year'], 'month': data['month']})
         print(f'✓ {mk}: {len(data["nv"])} NV × {len(data["days"])} ngày', file=sys.stderr)
+
+    if a.kpi:
+        import export_kpi
+        manifest['reports'].append('kpi')
+        manifest['kpi_months'] = []
+        for mk in months:
+            try:
+                idx, errs = export_kpi.export_month(app, mk, out, a.workers, prev_root=a.prev,
+                                                    mode=a.kpi_mode)
+            except Exception as e:
+                print(f'✗ KPI {mk}: {e!r}', file=sys.stderr)
+                failed.append(f'kpi:{mk}')
+                continue
+            manifest['kpi_months'].append({'key': mk, 'label': idx['month_label'],
+                                           'default_date': idx['default_date']})
+            for e in errs[:20]:
+                print('  ⚠', e, file=sys.stderr)
 
     with open(os.path.join(out, 'manifest.json'), 'w', encoding='utf-8') as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=1)

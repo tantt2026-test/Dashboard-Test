@@ -8,7 +8,8 @@ import 'theme.dart';
 
 class TurnoverPage extends StatefulWidget {
   final ReportRepository repo;
-  const TurnoverPage({super.key, required this.repo});
+  final Widget? leading; // nút mở menu báo cáo
+  const TurnoverPage({super.key, required this.repo, this.leading});
 
   @override
   State<TurnoverPage> createState() => _TurnoverPageState();
@@ -154,10 +155,11 @@ class _TurnoverPageState extends State<TurnoverPage> {
     final upd = man?.generatedAt?.toUtc().add(const Duration(hours: 7));
     return Scaffold(
       appBar: AppBar(
+        leading: widget.leading,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('KPI Dashboard', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+            const Text('1. TURNOVER', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
             if (upd != null)
               Text(
                 'Cập nhật ${upd.day.toString().padLeft(2, '0')}/${upd.month.toString().padLeft(2, '0')} '

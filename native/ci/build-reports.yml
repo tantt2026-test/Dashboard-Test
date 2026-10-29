@@ -1,9 +1,8 @@
 # Workflow: build JSON cho app native (native/README.md)
-# Mỗi lần Onetech sync push data (hoặc sửa App.py) lên main:
-#   1. Chạy logic App.py → JSON (native/pipeline/export_reports.py)
-#   2. Đối chiếu số app (Dart) với Streamlit (Python) — lệch là DỪNG, không publish
-#   3. Publish JSON sang branch `reports` → app native đọc từ đó
-# Không đụng tới Streamlit Cloud (chỉ chạy theo branch main như cũ).
+# Đặt tại .github/workflows/build-reports.yml. Mỗi lần Onetech sync push data / sửa App.py:
+#   Lượt 1 (nhanh): Turnover + 18 báo cáo KPI ngày mặc định → đối chiếu số → publish
+#   Lượt 2: các ngày cũ trong tháng → publish lại
+# JSON nằm ở branch `reports`. Không đụng tới Streamlit Cloud (chạy theo main như cũ).
 name: Build native reports
 
 on:
@@ -12,7 +11,8 @@ on:
     paths:
       - 'data/**'
       - 'App.py'
-      - 'native/**'
+      - 'native/pipeline/**'
+      - 'native/app/lib/logic/**'
       - '.github/workflows/build-reports.yml'
   workflow_dispatch:
 
@@ -26,7 +26,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -35,12 +35,17 @@ jobs:
           python-version: '3.12'
           cache: pip
 
-      # Cùng requirements.txt với Streamlit Cloud → cùng phiên bản pandas
+      # Cùng requirements.txt với Streamlit Cloud → cùng phiên bản pandas/plotly/altair
       - name: Install Python deps
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt beautifulsoup4
 
-      - name: Export JSON từ logic App.py
-        run: python native/pipeline/export_reports.py --app App.py --out _reports
+      - name: Lấy bản reports trước (dùng lại ngày/tháng không đổi)
+        run: git clone -q --depth 1 -b reports "https://github.com/${{ github.repository }}.git" _prev || mkdir -p _prev
+
+      - name: "Lượt 1: Turnover + KPI ngày mặc định"
+        run: |
+          python native/pipeline/export_reports.py --app App.py --out _reports \
+            --kpi --kpi-mode default --prev _prev --workers 4
 
       - uses: subosito/flutter-action@v2
         with:
@@ -53,12 +58,19 @@ jobs:
           python native/pipeline/parity_check.py --app App.py --json _reports \
             --dart-app native/app --combos 5
 
-      - name: Publish → branch reports
-        working-directory: _reports
+      - name: Publish lượt 1
+        run: bash native/ci/publish.sh _reports "Lượt 1 từ ${GITHUB_SHA::7}"
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+
+      - name: "Lượt 2: các ngày cũ trong tháng"
         run: |
-          git init -q -b reports
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -q -m "Reports từ ${GITHUB_SHA::7}"
-          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" reports
+          python native/pipeline/export_reports.py --app App.py --out _reports \
+            --kpi --kpi-mode history --prev _reports --workers 4
+
+      - name: Publish lượt 2
+        run: bash native/ci/publish.sh _reports "Đầy đủ từ ${GITHUB_SHA::7}"
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
