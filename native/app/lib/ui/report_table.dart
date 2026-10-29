@@ -89,6 +89,7 @@ class _ReportTableState extends State<ReportTable> {
     final filtering = _filter.active || (page.active && m.filterable);
 
     return LayoutBuilder(builder: (ctx, c) {
+      Layout.baseStyle = DefaultTextStyle.of(context).style;
       final layout = Layout.place(m.head, [for (final i in shown) m.body[i]],
           totals: [for (final i in shown) m.isTotal[i]], fz: m.fzWanted)
         ..size(zoom: zoom, avail: c.maxWidth - 2);
@@ -158,15 +159,30 @@ class _Toolbar extends StatelessWidget {
   }
 }
 
-/// Ô bảng: màu như Streamlit, chữ căn giữa.
+// Nền mang nghĩa (theo CSS App.py): đỏ / cam / xanh / tím của cột %, mức VIP, chưa đạt...
+const _semanticBg = {
+  '#fed7d7', '#c6f6d5', '#e9d8fd', '#feebc8', '#fefcbf', '#fbd38d', '#9ae6b4', '#feb2b2',
+};
+
+/// Chữ màu mang nghĩa (đỏ/xanh/tím) giữ lại; màu chữ khác dùng màu chuẩn.
+Color? _semanticFg(Object? v) {
+  final c = (v as String?)?.toLowerCase();
+  const keep = {'#e53e3e', '#c53030', '#742a2a', '#22543d', '#38a169', '#2f855a', '#553c9a', '#805ad5', '#dd6b20'};
+  return c != null && keep.contains(c) ? hexColor(c) : null;
+}
+
+/// Ô bảng: chuẩn màu chung, chữ căn giữa.
 Widget tableCell(Placed p, Layout l) {
   final cell = p.c;
+  // Chuẩn màu chung cho MỌI bảng: tiêu đề navy chữ trắng, thân bảng sọc xanh nhạt/trắng,
+  // dòng Tổng navy; chỉ giữ màu mang nghĩa (đỏ/cam/xanh/tím của cột %, ô cảnh báo)
   final bgDefault = (p.head || p.total) ? Brand.navy : (p.bodyIndex.isEven ? Brand.zebra : Colors.white);
-  final bg = hexColor(cell['bg']) ?? bgDefault;
-  final fg = hexColor(cell['fg']) ??
-      ((cell['bg'] != null)
-          ? (bg.computeLuminance() < 0.35 ? Colors.white : const Color(0xFF1A202C))
-          : ((p.head || p.total) ? Colors.white : const Color(0xFF1A202C)));
+  final rawBg = (cell['bg'] as String?)?.toLowerCase();
+  final semantic = !p.head && rawBg != null && _semanticBg.contains(rawBg);
+  final bg = semantic ? hexColor(rawBg)! : bgDefault;
+  final fg = semantic
+      ? (hexColor(cell['fg']) ?? const Color(0xFF1A202C))
+      : ((p.head || p.total) ? Colors.white : (_semanticFg(cell['fg']) ?? const Color(0xFF1A202C)));
   final f = l.fontScale;
   final bar = cell['bar'] as Map<String, dynamic>?;
   return Container(
@@ -373,6 +389,7 @@ class _FullscreenTableState extends State<FullscreenTable> {
         ),
         body: SafeArea(
           child: LayoutBuilder(builder: (ctx, c) {
+            Layout.baseStyle = DefaultTextStyle.of(context).style;
             final l = Layout.place(m.head, [for (final i in vis) m.body[i]],
                 totals: [for (final i in vis) m.isTotal[i]], fz: m.fzWanted)
               ..size(zoom: zoom, avail: _fit ? c.maxWidth - 12 : null, manual: _manual, minFit: 0.4);

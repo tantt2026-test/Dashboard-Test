@@ -228,9 +228,13 @@ class Layout {
   /// [zoom]: tỷ lệ chung của app; [avail]: bề ngang có sẵn (null = không co);
   /// [manual]: tỷ lệ thêm của bảng (toàn màn hình). Bảng hẹp → giãn cột cho vừa;
   /// bảng rộng → co chữ tối thiểu tới [minFit] (1 = giữ cỡ chữ, phần thừa cuộn ngang).
+  /// Font thật của app (DefaultTextStyle) — đo bằng font khác (vd Roboto thay vì font hệ thống
+  /// macOS) làm cột hẹp hơn chữ → tràn ô. Gán trước khi gọi size().
+  static TextStyle baseStyle = const TextStyle();
+
   void size({required double zoom, double? avail, double manual = 1, double minFit = 1}) {
     // Đo độ rộng chữ THẬT (cùng font/cỡ/độ đậm với ô) → cột vừa khít, không xuống dòng sai
-    const padX = 14.0, padY = 8.0;
+    const padX = 22.0, padY = 8.0; // 2×6 padding ô + viền + khoảng an toàn
     final base = List<double>.filled(cols, 36.0);
     for (final p in placed.where((p) => p.cs == 1)) {
       final cap = p.head ? 150.0 : 280.0;
@@ -288,7 +292,7 @@ class Layout {
 
   /// Độ rộng (px, cỡ chữ gốc) của dòng chữ dài nhất — cùng style với tableCell().
   static double measureText(String text, {required bool head, required bool bold}) {
-    final key = '${head ? 'h' : 'b'}${bold ? 1 : 0}|$text';
+    final key = '${baseStyle.fontFamily}|${head ? 'h' : 'b'}${bold ? 1 : 0}|$text';
     final hit = _measureCache[key];
     if (hit != null) return hit;
     var best = 0.0;
@@ -296,17 +300,17 @@ class Layout {
       final tp = TextPainter(
         text: TextSpan(
           text: line,
-          style: TextStyle(
+          style: baseStyle.merge(TextStyle(
             fontSize: head ? 11.5 : 12.5,
             fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
             height: 1.2,
             fontFeatures: const [FontFeature.tabularFigures()],
-          ),
+          )),
         ),
         textDirection: TextDirection.ltr,
         maxLines: 1,
       )..layout();
-      best = math.max(best, tp.width);
+      best = math.max(best, tp.width * 1.04 + 1); // +4% phòng font hệ thống render rộng hơn
       tp.dispose();
     }
     if (_measureCache.length > 50000) _measureCache.clear();
