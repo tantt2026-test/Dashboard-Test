@@ -42,6 +42,7 @@ def _init(app_path):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from headless import HeadlessApp
     _app = HeadlessApp(app_path)
+    print(f'  [worker {os.getpid()}] sẵn sàng', file=sys.stderr, flush=True)
 
 
 def _state(mk, day, nv, label=None):
@@ -188,15 +189,12 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         print(f'  {mk} [{i}/{len(tasks)}] {iso} {nv or "Tất cả"}: {n} báo cáo, {sec:.0f}s', file=sys.stderr)
 
     if tasks:
-        # Tiến trình cha chạy ca đầu (nạp Excel + làm nóng cache của mọi báo cáo),
-        # rồi fork: tiến trình con kế thừa cache, không phải đọc lại data.
-        _log(1, _task(tasks[0]))
-        rest = tasks[1:]
-        if rest:
-            ctx = mp.get_context('fork' if sys.platform != 'win32' else 'spawn')
-            with ctx.Pool(min(workers, len(rest)), initializer=_init, initargs=(app_path,)) as pool:
-                for i, res in enumerate(pool.imap_unordered(_task, rest), 2):
-                    _log(i, res)
+        # 'spawn' (không dùng fork): pandas 3 dùng pyarrow có luồng chạy ngầm, fork tiến trình
+        # đang có luồng → tiến trình con treo (deadlock) trên Linux. Mỗi tiến trình con tự nạp data.
+        ctx = mp.get_context('spawn')
+        with ctx.Pool(min(workers, len(tasks)), initializer=_init, initargs=(app_path,)) as pool:
+            for i, res in enumerate(pool.imap_unordered(_task, tasks), 1):
+                _log(i, res)
     print(f'✓ {mk} ({mode}): {len(tasks)} biến thể × {len(plan["reports"])} báo cáo trong '
           f'{time.time() - t0:.0f}s', file=sys.stderr)
 
