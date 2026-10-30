@@ -87,17 +87,24 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       child: SafeArea(
         right: false,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // cao đúng bằng thanh tiêu đề trang (AppBar) bên phải → 2 dải xanh thẳng hàng
           Container(
             color: Brand.navy,
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
-            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('KPI Dashboard', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
-              SizedBox(height: 2),
-              Text('Team SS Trương Thanh Tân', style: TextStyle(color: Colors.white70, fontSize: 12)),
-            ]),
+            height: kToolbarHeight,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('KPI Dashboard',
+                      style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800, height: 1.15)),
+                  SizedBox(height: 2),
+                  Text('Team SS Trương Thanh Tân', style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.15)),
+                ]),
           ),
           Expanded(
-            child: ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
+            child: ListView(padding: const EdgeInsets.fromLTRB(10, 6, 10, 10), children: [
               if (reports.isEmpty) _tile('TURNOVER', '1. TURNOVER - Tổng doanh số bán ra'),
               _section('📊 BÁO CÁO KPI'),
               for (final r in reports.where((r) => r.group == 'kpi')) _tile(r.code, r.name),
@@ -126,24 +133,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Widget _section(String t) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-        child: Text(t, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Brand.muted)),
+        padding: const EdgeInsets.fromLTRB(6, 12, 6, 6),
+        child: Text(t, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Brand.blue)),
       );
 
-  Widget _tile(String code, String name) {
-    final sel = code == _code;
-    return ListTile(
-      dense: true,
-      selected: sel,
-      selectedTileColor: Brand.zebra,
-      selectedColor: Brand.navy,
-      title: Text(name,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 13, fontWeight: sel ? FontWeight.w800 : FontWeight.w500)),
-      onTap: () => _select(code),
-    );
-  }
+  Widget _tile(String code, String name) =>
+      _MenuTile(name: name, selected: code == _code, onTap: () => _select(code));
 
   @override
   Widget build(BuildContext context) {
@@ -188,6 +183,77 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       key: _scaffold,
       drawer: Drawer(width: 300, child: _menu(permanent: false)),
       body: page,
+    );
+  }
+}
+
+
+/// Mục KPI ở menu: thẻ trắng viền xanh; đang chọn = nền xanh chữ trắng;
+/// rê chuột → nảy lên (nhấc + phóng nhẹ + đổ bóng).
+class _MenuTile extends StatefulWidget {
+  final String name;
+  final bool selected;
+  final VoidCallback onTap;
+  const _MenuTile({required this.name, required this.selected, required this.onTap});
+
+  @override
+  State<_MenuTile> createState() => _MenuTileState();
+}
+
+class _MenuTileState extends State<_MenuTile> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final sel = widget.selected;
+    final up = _hover && !sel;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedScale(
+            scale: _hover ? 1.03 : 1,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutBack,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutBack,
+              transform: Matrix4.translationValues(0, _hover ? -3 : 0, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                gradient: sel
+                    ? const LinearGradient(colors: [Brand.navy, Brand.blue])
+                    : null,
+                color: sel ? null : (up ? Brand.cardBg : Colors.white),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: sel ? Brand.blue : (up ? Brand.border : Brand.cardBorder), width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Brand.blue.withValues(alpha: _hover ? 0.22 : (sel ? 0.18 : 0.06)),
+                    blurRadius: _hover ? 12 : 4,
+                    offset: Offset(0, _hover ? 5 : 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                widget.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.25,
+                  fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
+                  color: sel ? Colors.white : Brand.navy,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
