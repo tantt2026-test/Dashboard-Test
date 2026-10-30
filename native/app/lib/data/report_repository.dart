@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../logic/turnover_logic.dart';
+import 'local_engine.dart';
 
 /// JSON do GitHub Action xuất ra branch `reports` của repo Dashboard-Test.
 /// Build thử với server local:  --dart-define=DATA_BASE_URL=http://10.0.2.2:8000/
@@ -89,14 +90,34 @@ class ReportRepository {
     }
   }
 
+  /// commit dữ liệu của bản JSON GitHub đã xuất (manifest gốc, chưa tính phần Mac tự tính)
+  String? remoteSc;
+
+  /// App Mac: GitHub có data mới nhưng chưa xuất xong → dùng bản máy tự tính (LocalEngine.live*).
+  static LocalEngine get _live => LocalEngine.instance;
+  static bool _isLive(String monthKey) => _live.liveSc != null && _live.liveMonth == monthKey;
+
   Future<Loaded<Manifest>> manifest() async {
     final r = await _get('manifest.json');
-    return Loaded(Manifest.fromJson(jsonDecode(r.value) as Map<String, dynamic>), r.fromCache);
+    final j = jsonDecode(r.value) as Map<String, dynamic>;
+    // KPI_REMOTE_SC (chỉ để thử trên Mac): giả như GitHub mới xuất tới commit cũ → Mac tự tính
+    remoteSc = Platform.environment['KPI_REMOTE_SC'] ?? j['source_commit'] as String?;
+    if (_live.liveSc != null && _live.liveSc != remoteSc) {
+      j['source_commit'] = _live.liveSc;
+      if (_live.liveAt != null) j['generated_at'] = _live.liveAt!.toIso8601String();
+    }
+    return Loaded(Manifest.fromJson(j), r.fromCache);
   }
 
   Future<Loaded<TurnoverMonth>> turnover(String monthKey, {bool refresh = false}) async {
-    if (!refresh && _turnover.containsKey(monthKey)) {
-      return Loaded(_turnover[monthKey]!, false);
+    final key = _isLive(monthKey) ? '$monthKey@${_live.liveSc}' : monthKey;
+    if (!refresh && _turnover.containsKey(key)) {
+      return Loaded(_turnover[key]!, false);
+    }
+    if (_isLive(monthKey)) {
+      final m = TurnoverMonth.fromJson(await _live.turnover(_live.liveSc!, monthKey));
+      _turnover[key] = m;
+      return Loaded(m, false);
     }
     final r = await _get('turnover/$monthKey.json');
     final m = TurnoverMonth.fromJson(jsonDecode(r.value) as Map<String, dynamic>);
@@ -148,6 +169,8 @@ class ReportDoc {
   final List<String> filter;
   final List<Map<String, dynamic>> items;
   final Map<String, Map<String, dynamic>> main; // ô lọc chung (Thứ VT, Mã KH, Tên KH) + cách áp
+  /// true = Mac tự tính từ data mới (chưa có cách áp ô lọc đo sẵn → mọi ô lọc tính lại bằng App.py)
+  bool local = false;
   ReportDoc.fromJson(Map<String, dynamic> j)
       : code = j['code'] as String,
         name = j['name'] as String,
@@ -160,10 +183,23 @@ class ReportDoc {
         };
 }
 
+final Map<String, ReportDoc> _liveDocs = {};
+
 extension KpiRepository on ReportRepository {
   Future<Loaded<KpiIndex>> kpiIndex(String monthKey) async {
     final r = await _getPublic('kpi/$monthKey/index.json');
-    return Loaded(KpiIndex.fromJson(jsonDecode(r.value) as Map<String, dynamic>), r.fromCache);
+    final j = jsonDecode(r.value) as Map<String, dynamic>;
+    final p = ReportRepository._live.livePlan;
+    if (ReportRepository._isLive(monthKey) && p != null) {
+      j
+        ..['default_date'] = p['default_date']
+        ..['dates'] = p['dates']
+        ..['nv_dates'] = [p['default_date']]
+        ..['tab_dates'] = [p['default_date']]
+        ..['nv'] = p['nv']
+        ..['reports'] = p['reports'];
+    }
+    return Loaded(KpiIndex.fromJson(j), r.fromCache);
   }
 
   /// Bản App.py tính sẵn cho 1 giá trị ô lọc kiểu "tính lại".
@@ -173,6 +209,36 @@ extension KpiRepository on ReportRepository {
   }
 
   Future<Loaded<ReportDoc>> kpiDoc(KpiIndex idx, String code, String date, String? nv) async {
+    if (ReportRepository._isLive(idx.monthKey)) {
+      final live = ReportRepository._live;
+      final sc = live.liveSc!;
+      final k = '$sc|$code|$date|${nv ?? ''}';
+      final hit = _liveDocs[k];
+      if (hit != null) return Loaded(hit, false);
+      final rep = idx.reports.firstWhere((r) => r.code == code);
+      final items = await live.compute({
+        'month_key': idx.monthKey,
+        'date': date,
+        'code': code,
+        'name': rep.name,
+        'nav': rep.group == 'tab' ? rep.name : null,
+        'ddkd': nv == null ? <String>[] : [nv],
+        'values': <String, dynamic>{},
+        'sc': sc,
+      });
+      final doc = ReportDoc.fromJson({
+        'code': code,
+        'name': rep.name,
+        'date': date,
+        'filter': nv == null ? <String>[] : [nv],
+        'items': items,
+      })
+        ..local = true;
+      live.log('live doc', {'code': code, 'date': date, 'nv': nv, 'sc': sc}, items);
+      if (_liveDocs.length > 200) _liveDocs.clear();
+      _liveDocs[k] = doc;
+      return Loaded(doc, false);
+    }
     final name = nv == null ? '$date.json' : '${date}__${idx.nvSlugs[nv]}.json';
     final r = await _getPublic('kpi/${idx.monthKey}/$code/$name');
     return Loaded(ReportDoc.fromJson(jsonDecode(r.value) as Map<String, dynamic>), r.fromCache);

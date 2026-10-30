@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 
@@ -10,7 +12,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.5.0';
+const appVersion = '1.5.1';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -21,22 +23,54 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
-  int _refreshTick = 0;
+  final int _refreshTick = 0; // giữ trong khoá trang (tải lại nay giữ nguyên trang + bộ lọc)
   DateTime _lastLoad = DateTime.now();
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Mở lại app / quay lại cửa sổ sau ≥ 5 phút → tự tải dữ liệu mới
-    if (state == AppLifecycleState.resumed && DateTime.now().difference(_lastLoad).inMinutes >= 5) {
-      _lastLoad = DateTime.now();
-      widget.repo.clearMemory();
-      setState(() => _refreshTick++);
-      _load();
+    // Mở lại app / quay lại cửa sổ → kiểm tra data mới ngay (giữ nguyên ô đang lọc)
+    if (state == AppLifecycleState.resumed && DateTime.now().difference(_lastLoad).inSeconds >= 20) {
+      _checkNew();
+    }
+  }
+
+  Timer? _poll;
+  bool _polling = false;
+
+  /// Mỗi phút: GitHub đã xuất data mới chưa (mọi máy); app Mac còn xem main có data mới chưa
+  /// xuất xong → tự tính bằng App.py. Có bản mới → các trang tự tải lại, giữ bộ lọc.
+  Future<void> _checkNew() async {
+    if (_polling || _manifest == null) return;
+    _polling = true;
+    _lastLoad = DateTime.now();
+    try {
+      var man = (await widget.repo.manifest()).value;
+      final mk = man.kpiMonths.isEmpty ? null : man.kpiMonths.last.key;
+      if (mk != null && await LocalEngine.instance.checkLive(widget.repo.remoteSc, mk)) {
+        man = (await widget.repo.manifest()).value;
+      }
+      final old = _manifest;
+      if (old == null || (man.sourceCommit == old.sourceCommit && man.generatedAt == old.generatedAt)) return;
+      final months = man.kpiMonths;
+      final k = months.any((m) => m.key == _kpiMonth) ? _kpiMonth : (months.isEmpty ? null : months.last.key);
+      final idx = k == null ? null : (await widget.repo.kpiIndex(k)).value;
+      if (man.sourceCommit != null) LocalEngine.instance.warmUp(man.sourceCommit!);
+      if (!mounted) return;
+      setState(() {
+        _manifest = man;
+        _kpiMonth = k;
+        _idx = idx;
+      });
+    } catch (_) {
+      // mất mạng → thử lại phút sau
+    } finally {
+      _polling = false;
     }
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -52,7 +86,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _load();
+    _load().then((_) => _checkNew());
+    _poll = Timer.periodic(const Duration(minutes: 1), (_) => _checkNew());
   }
 
   Future<void> _load() async {
@@ -125,7 +160,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
             child: Text(
               'Phiên bản $appVersion'
-              '${_manifest?.generatedAt != null ? ' · dữ liệu ${_fmtTime(_manifest!.generatedAt!)}' : ''}',
+              '${_manifest?.generatedAt != null ? ' · dữ liệu ${_fmtTime(_manifest!.generatedAt!)}' : ''}'
+              '${LocalEngine.instance.liveSc != null && LocalEngine.instance.liveSc == _manifest?.sourceCommit ? ' (máy tự tính)' : ''}',
               style: const TextStyle(fontSize: 11, color: Brand.muted),
             ),
           ),
@@ -169,7 +205,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
     Widget page;
     if (_code == 'TURNOVER' || _manifest == null || _kpiMonth == null) {
-      page = TurnoverPage(key: _keyFor('to-$_refreshTick'), repo: widget.repo, leading: menuButton);
+      page = TurnoverPage(
+          key: _keyFor('to-$_refreshTick'),
+          repo: widget.repo,
+          leading: menuButton,
+          dataKey: '${_manifest?.sourceCommit}|${_manifest?.generatedAt}');
     } else {
       page = KpiReportPage(
         key: _keyFor('kpi-$_kpiMonth-$_refreshTick'),

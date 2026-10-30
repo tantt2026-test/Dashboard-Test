@@ -11,7 +11,8 @@ import 'theme.dart';
 class TurnoverPage extends StatefulWidget {
   final ReportRepository repo;
   final Widget? leading; // nút mở menu báo cáo
-  const TurnoverPage({super.key, required this.repo, this.leading});
+  final String? dataKey; // đổi khi có data mới → tải lại, giữ NV đang lọc
+  const TurnoverPage({super.key, required this.repo, this.leading, this.dataKey});
 
   @override
   State<TurnoverPage> createState() => _TurnoverPageState();
@@ -33,6 +34,12 @@ class _TurnoverPageState extends State<TurnoverPage> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(TurnoverPage old) {
+    super.didUpdateWidget(old);
+    if (old.dataKey != widget.dataKey && old.dataKey != null) _load(refresh: true);
+  }
+
   Future<void> _load({bool refresh = false}) async {
     setState(() {
       _loading = true;
@@ -45,12 +52,13 @@ class _TurnoverPageState extends State<TurnoverPage> {
       if (months.isEmpty) throw StateError('Chưa có dữ liệu tháng nào');
       final key = months.any((m) => m.key == _monthKey) ? _monthKey! : months.last.key;
       final tm = await widget.repo.turnover(key, refresh: true);
+      final wasDefault = _month == null || _date == defaultReportDate(_month!, DateTime.now().toUtc());
       setState(() {
         _manifest = man.value;
         _monthKey = key;
         _month = tm.value;
         _offline = man.fromCache || tm.fromCache;
-        if (_date == null || !tm.value.days.containsKey(_date)) {
+        if (wasDefault || _date == null || !tm.value.days.containsKey(_date)) {
           _date = defaultReportDate(tm.value, DateTime.now().toUtc());
         }
         _filter = _filter.where(tm.value.nv.contains).toList();

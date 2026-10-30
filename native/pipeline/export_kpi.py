@@ -116,7 +116,12 @@ def _task(args):
         with open(path, 'w', encoding='utf-8') as fh:
             json.dump(doc, fh, ensure_ascii=False, separators=(',', ':'))
         written.append(code)
-    return mk, iso, nv, len(written), errors, time.time() - t0
+    return mk, iso, nv, len(written), errors, time.time() - t0, _task_id(nv, reports, probe)
+
+
+def _task_id(nv, reports, probe):
+    """Tên tác vụ để ghi thời gian chạy (chia việc cho các máy song song ở lần sau)."""
+    return f'nv:{nv}' if nv else (reports[0][0] if probe and len(reports) == 1 else 'day')
 
 
 def month_fingerprint(repo, app_path, folder):
@@ -170,11 +175,28 @@ def _default_date(y, m, now_utc):
     return min(max(vn - dt.timedelta(days=1), start), end)
 
 
-def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, mode='full'):
+def _split(tasks, shard, weights):
+    """Chia tác vụ cho máy số i/n: tác vụ nặng trước, mỗi tác vụ vào máy đang nhẹ nhất
+    (thời gian lấy từ lần chạy trước; chưa có thì coi như 60s)."""
+    i, n = shard
+    load = [0.0] * n
+    mine = []
+    order = sorted(tasks, key=lambda t: -weights.get(_task_id(t[2], t[3], t[5]), 60.0))
+    for t in order:
+        k = min(range(n), key=lambda j: load[j])
+        load[k] += weights.get(_task_id(t[2], t[3], t[5]), 60.0)
+        if k == i:
+            mine.append(t)
+    return mine
+
+
+def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, mode='full', shard=None):
     """mode:
       'default' — chỉ ngày mặc định (Tất cả + từng ĐDKD); các ngày khác giữ từ lần trước
       'history' — các ngày còn lại của tháng (Tất cả), dùng sau khi đã publish 'default'
       'full'    — cả hai
+    shard=(i, n): chỉ tính phần việc của máy i trong n máy chạy song song (lượt 'default');
+      không chép bản cũ vào — merge_shards.py ghép bản cũ + phần của các máy.
     Tháng đã qua: chỉ ngày cuối tháng. Tháng không đổi (fingerprint) → dùng lại bản trước."""
     now_utc = now_utc or dt.datetime.utcnow()
     repo = os.path.dirname(os.path.abspath(app_path))
@@ -218,7 +240,7 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
 
     # Giữ các file ngày cũ từ lần trước (sẽ ghi đè phần tính lại)
     if prev_dir and os.path.isdir(prev_dir) and os.path.abspath(prev_dir) != os.path.abspath(out_dir) \
-            and mode == 'default':
+            and mode == 'default' and shard is None:
         shutil.rmtree(out_dir, ignore_errors=True)
         shutil.copytree(prev_dir, out_dir)
     elif mode != 'history':
@@ -238,12 +260,23 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         tasks += [(mk, plan['default_date'], None, [r], out_dir, True) for r in plan['reports']]
         tasks += [(mk, plan['default_date'], nv, kpi_reports, out_dir, False) for nv in plan['nv']]
 
+    weights = {}
+    for d in (prev_dir, out_dir):
+        try:
+            weights.update(json.load(open(os.path.join(d, 'timing.json'), encoding='utf-8')))
+        except Exception:
+            pass
+    if shard is not None:
+        tasks = _split(tasks, shard, weights)
     errors = []
     t0 = time.time()
+    timing = {}
 
     def _log(i, res):
-        m, iso, nv, n, errs, sec = res
+        m, iso, nv, n, errs, sec, tid = res
         errors.extend(errs)
+        if tid != 'day':
+            timing[tid] = round(sec, 1)
         print(f'  {mk} [{i}/{len(tasks)}] {iso} {nv or "Tất cả"}: {n} báo cáo, {sec:.0f}s', file=sys.stderr)
 
     if tasks:
@@ -260,8 +293,12 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
     have = sorted(d for d in plan['dates'] if os.path.isfile(os.path.join(out_dir, 'TURNOVER', f'{d}.json')))
     if past_month:
         have = [plan['default_date']]
+    if timing:
+        with open(os.path.join(out_dir, 'timing.json'), 'w', encoding='utf-8') as fh:
+            json.dump({**weights, **timing}, fh, ensure_ascii=False, indent=0)
     index = {
         'schema': 1, 'fingerprint': fp,
+        'plan_dates': [] if past_month else plan['dates'],  # merge_shards.py tính lại 'dates'
         **{k: plan[k] for k in ('month_key', 'month_label', 'year', 'month',
                                 'default_date', 'data_max_date', 'nv')},
         'dates': have,

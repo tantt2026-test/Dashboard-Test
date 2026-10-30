@@ -99,6 +99,7 @@ def main():
     ap.add_argument('--prev', help='thư mục output lần trước (dùng lại tháng/ngày không đổi)')
     ap.add_argument('--kpi-mode', default='full', choices=['default', 'history', 'full'],
                     help="default = chỉ ngày mặc định (publish nhanh); history = các ngày cũ")
+    ap.add_argument('--shard', help='i/n: máy thứ i trong n máy chạy song song (lượt default)')
     a = ap.parse_args()
 
     # Đường dẫn tuyệt đối NGAY từ đầu: app_logic.load() đổi thư mục làm việc sang repo
@@ -141,7 +142,8 @@ def main():
         for mk in months:
             try:
                 idx, errs = export_kpi.export_month(app, mk, out, a.workers, prev_root=a.prev,
-                                                    mode=a.kpi_mode)
+                                                    mode=a.kpi_mode,
+                                                    shard=tuple(map(int, a.shard.split('/'))) if a.shard else None)
             except Exception as e:
                 print(f'✗ KPI {mk}: {e!r}', file=sys.stderr)
                 failed.append(f'kpi:{mk}')

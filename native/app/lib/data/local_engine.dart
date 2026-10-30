@@ -185,15 +185,88 @@ class LocalEngine {
     } catch (_) {}
   }
 
-  /// Tính 1 yêu cầu bộ lọc (như GitHub filter-run) → items.
-  Future<List<Map<String, dynamic>>> compute(Map<String, dynamic> req) async {
-    final root = await snapshot(req['sc'] as String);
+  Future<Map<String, dynamic>> _call(String sc, Map<String, dynamic> msg) async {
+    final root = await snapshot(sc);
     await _ensureProc();
     final id = ++_nextId;
     final c = _wait[id] = Completer<Map<String, dynamic>>();
-    _proc!.stdin.writeln(jsonEncode({'id': id, 'root': root, 'req': req}));
+    _proc!.stdin.writeln(jsonEncode({...msg, 'id': id, 'root': root}));
     final res = await c.future.timeout(const Duration(minutes: 5));
     if (res['error'] != null) throw StateError('${res['error']}');
+    return res;
+  }
+
+  /// Tính 1 yêu cầu bộ lọc (như GitHub filter-run) → items.
+  Future<List<Map<String, dynamic>>> compute(Map<String, dynamic> req) async {
+    final res = await _call(req['sc'] as String, {'req': req});
     return [for (final i in res['items'] as List) (i as Map).cast<String, dynamic>()];
+  }
+
+  /// Danh sách báo cáo / ngày / ĐDKD của tháng (như `kpi/<Thang>/index.json`).
+  Future<Map<String, dynamic>> plan(String sc, String monthKey) async =>
+      ((await _call(sc, {'op': 'plan', 'month_key': monthKey}))['plan'] as Map).cast<String, dynamic>();
+
+  /// Số liệu Turnover cả tháng (như `turnover/<Thang>.json`).
+  Future<Map<String, dynamic>> turnover(String sc, String monthKey) async =>
+      ((await _call(sc, {'op': 'turnover', 'month_key': monthKey}))['turnover'] as Map).cast<String, dynamic>();
+
+  // ---------- Data mới trên GitHub chưa xuất xong JSON → Mac tự tính ----------
+
+  /// Commit dữ liệu Mac đang tự tính (null = dùng bản GitHub đã xuất).
+  String? liveSc;
+  DateTime? liveAt;
+  String? liveMonth;
+  Map<String, dynamic>? livePlan;
+  String? _lastHead;
+  bool _checking = false;
+
+  /// Kiểm tra main trên GitHub: có commit đổi data/App.py mới hơn bản đã xuất ([remoteSc])
+  /// → tải về + lấy danh sách báo cáo của tháng [monthKey]. Trả về true nếu đổi trạng thái.
+  Future<bool> checkLive(String? remoteSc, String monthKey) async {
+    if (!available || _checking) return false;
+    _checking = true;
+    try {
+      final res = await _client
+          .get(Uri.parse('https://api.github.com/repos/$ghRepo/commits/main'), headers: _headers)
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode != 200) return false;
+      final j = jsonDecode(res.body) as Map;
+      final head = j['sha'] as String;
+      if (head == remoteSc) {
+        // GitHub đã xuất xong bản mới nhất → bỏ bản tự tính
+        final had = liveSc != null;
+        liveSc = null;
+        livePlan = null;
+        liveMonth = null;
+        liveAt = null;
+        _lastHead = head;
+        return had;
+      }
+      if (head == _lastHead && (liveSc == null || liveMonth == monthKey)) return false;
+      if (remoteSc != null) {
+        final cmp = await _client
+            .get(Uri.parse('https://api.github.com/repos/$ghRepo/compare/$remoteSc...$head'), headers: _headers)
+            .timeout(const Duration(seconds: 20));
+        if (cmp.statusCode != 200) return false;
+        final files = [for (final f in ((jsonDecode(cmp.body) as Map)['files'] as List? ?? const [])) '${(f as Map)['filename']}'];
+        if (!files.any((f) => f == 'App.py' || f.startsWith('data/'))) {
+          _lastHead = head;
+          return false; // chỉ đổi code app, data như cũ
+        }
+      }
+      final plan = await this.plan(head, monthKey);
+      liveSc = head;
+      liveMonth = monthKey;
+      livePlan = plan;
+      liveAt = DateTime.tryParse('${((j['commit'] as Map)['committer'] as Map)['date']}');
+      _lastHead = head;
+      log('live $head', {'month_key': monthKey}, null);
+      return true;
+    } catch (e) {
+      log('live lỗi $e', {'month_key': monthKey}, null);
+      return false;
+    } finally {
+      _checking = false;
+    }
   }
 }

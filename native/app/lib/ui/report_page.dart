@@ -95,6 +95,10 @@ class _KpiReportPageState extends State<KpiReportPage> {
     if (old.monthKey != widget.monthKey) {
       _date = null;
       _loadIndex();
+    } else if (old.manifest.sourceCommit != widget.manifest.sourceCommit ||
+        old.manifest.generatedAt != widget.manifest.generatedAt) {
+      // có data mới → tải lại, giữ nguyên các ô đang lọc
+      _loadIndex();
     } else if (old.code != widget.code) {
       _values = {};
       _variants.clear();
@@ -108,10 +112,11 @@ class _KpiReportPageState extends State<KpiReportPage> {
       _error = null;
     });
     try {
+      final wasDefault = _idx == null || _date == _idx!.defaultDate;
       final r = await widget.repo.kpiIndex(widget.monthKey);
       _idx = r.value;
       _offline = r.fromCache;
-      if (_date == null || !_idx!.dates.contains(_date)) _date = _idx!.defaultDate;
+      if (wasDefault || _date == null || !_idx!.dates.contains(_date)) _date = _idx!.defaultDate;
       _nvs = _nvs.where(_idx!.nv.contains).toList();
       await _loadDoc();
     } catch (e) {
@@ -224,6 +229,8 @@ class _KpiReportPageState extends State<KpiReportPage> {
   bool _needServer(List<Map<String, dynamic>> widgets, String? variantNote) {
     if (_nvs.length >= 2) return true;
     if (variantNote != null) return true;
+    // bản Mac tự tính từ data mới: chưa đo cách áp ô lọc → lọc gì cũng tính lại bằng App.py
+    if (_doc?.local == true && widgets.any((w) => isActive(w, _values[w['key']]))) return true;
     for (final w in widgets) {
       final mode = (w['f'] as Map?)?['mode'];
       if ((mode == 'partial' || mode == 'unsupported') && isActive(w, _values[w['key']])) return true;

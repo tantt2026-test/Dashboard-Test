@@ -31,7 +31,7 @@ APP="build/macos/Build/Products/Release/KPI Dashboard.app"
 R="$APP/Contents/Resources/py"
 rm -rf "$R"; mkdir -p "$R/engine"
 cp -R "$STAGE/python" "$R/python"
-cp "$ROOT"/native/pipeline/{local_engine,headless,report_doc,export_kpi,filters_probe,run_request}.py "$R/engine/"
+cp "$ROOT"/native/pipeline/{local_engine,headless,report_doc,export_kpi,filters_probe,run_request,app_logic,export_reports}.py "$R/engine/"
 # thêm file vào Resources → ký lại (ad-hoc), giữ nguyên entitlements của app (sandbox + mạng)
 codesign --force -s - --entitlements "$ROOT/native/app/macos/Runner/Release.entitlements" "$APP"
 codesign --verify --strict "$APP"
