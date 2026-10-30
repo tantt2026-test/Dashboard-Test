@@ -2196,6 +2196,13 @@ def process_brand_sales(df_rpt, df_brand):
     if pd.isna(sku_str):
       return 'Khác'
     s = str(sku_str).lower()
+    # Wake up xét trước: 'Wake up 247' = Nước tăng lực; 'Wake up' = Cà phê Wake up Sài Gòn
+    # (nếu không, chữ 'Sài Gòn' bị luật Vinacafe bên dưới bắt nhầm)
+    if 'wake up' in s or 'wake-up' in s or 'wakeup' in s:
+      want = 'wake up 247' if '247' in s else 'wake up'
+      for b in brands_list:
+        if str(b).strip().lower() == want:
+          return b
     sorted_brands = sorted(brands_list, key=len, reverse=True)
     for b in sorted_brands:
       b_clean = str(b).lower()
