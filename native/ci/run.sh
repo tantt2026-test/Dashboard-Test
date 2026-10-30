@@ -4,6 +4,10 @@
 set -euo pipefail
 P=native/pipeline
 
+# STAGE=first: chỉ ghép + publish lượt 1 (workflow cài Flutter sau bước này); STAGE=rest: phần còn lại.
+# Không đặt STAGE: chạy hết (workflow cũ).
+STAGE=${STAGE:-all}
+if [ "$STAGE" != rest ]; then
 echo "::group::Lấy bản reports trước"
 git clone -q --depth 1 -b reports "https://github.com/${REPO}.git" _prev || mkdir -p _prev
 echo "::endgroup::"
@@ -20,6 +24,8 @@ echo "::endgroup::"
 # Đưa data mới lên cho app NGAY, đối chiếu chạy sau: lệch thì job báo đỏ (để sửa) nhưng không
 # giữ data cũ lại cả buổi
 bash native/ci/publish.sh _reports "Lượt 1 từ ${GITHUB_SHA::7}"
+fi
+[ "$STAGE" = first ] && exit 0
 
 echo "::group::Đối chiếu số Turnover + bộ lọc (App vs App.py)"
 PARITY=0

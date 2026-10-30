@@ -66,12 +66,19 @@ jobs:
         with:
           pattern: shard-*
           path: _shards
+      - name: Ghép 4 máy + đưa data lên cho app
+        run: bash native/ci/run.sh
+        env:
+          STAGE: first
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Ghép + publish + đối chiếu + lượt 2, 3
+      - name: Đối chiếu + lượt 2, 3
         run: bash native/ci/run.sh
         env:
+          STAGE: rest
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
