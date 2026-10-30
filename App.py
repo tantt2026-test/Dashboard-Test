@@ -6,6 +6,18 @@ import re
 import difflib
 import numpy as np
 import pandas as pd
+
+# Sắp xếp ổn định (giá trị bằng nhau giữ thứ tự gốc): mặc định pandas dùng quicksort không ổn định,
+# thứ tự các dòng bằng nhau khác nhau giữa máy Linux (Streamlit Cloud, GitHub) và Mac → cố định lại.
+if not getattr(pd.DataFrame.sort_values, '_stable', False):
+  def _stable_sort(fn):
+    def sort_values(self, *a, **k):
+      k.setdefault('kind', 'stable')
+      return fn(self, *a, **k)
+    sort_values._stable = True
+    return sort_values
+  pd.DataFrame.sort_values = _stable_sort(pd.DataFrame.sort_values)
+  pd.Series.sort_values = _stable_sort(pd.Series.sort_values)
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -17477,9 +17489,9 @@ if _nav == '📊 BÁO CÁO KPI':
         if f_nv3:
           df3f = df3f[df3f['Tên NVBH'].isin(f_nv3)]
         if f_ma3:
-          df3f = df3f[df3f['Mã KH'].astype(str).str.contains(f_ma3.strip(), case=False, na=False)]
+          df3f = df3f[df3f['Mã KH'].astype(str).str.contains(f_ma3.strip(), case=False, na=False, regex=False)]
         if f_ten3:
-          df3f = df3f[df3f['Tên KH'].astype(str).str.contains(f_ten3.strip(), case=False, na=False)]
+          df3f = df3f[df3f['Tên KH'].astype(str).str.contains(f_ten3.strip(), case=False, na=False, regex=False)]
         if f_thu3:
           df3f = df3f[df3f['Thứ VT'].astype(str).isin([str(x) for x in f_thu3])]
         if f_anh3:
@@ -17865,11 +17877,11 @@ if _nav == '📊 BÁO CÁO KPI':
           _q = str(f_ma_t).strip()
           view = view[
               view['Mã KH'].astype(str).str.replace(r'\.0$', '', regex=True)
-              .str.contains(_q, case=False, na=False)
+              .str.contains(_q, case=False, na=False, regex=False)
           ]
         if f_ten_t and str(f_ten_t).strip():
           _q = str(f_ten_t).strip()
-          view = view[view['Tên KH'].astype(str).str.contains(_q, case=False, na=False)]
+          view = view[view['Tên KH'].astype(str).str.contains(_q, case=False, na=False, regex=False)]
         if f_l1_t:
           view = view[view['L1'].astype(str).isin([str(x) for x in f_l1_t])]
         if f_thu_t:
@@ -19385,9 +19397,9 @@ if _nav == '🗺️ MCP VISIT':
       if f_nv and d_nv and d_nv in dfx.columns:
         dfx = dfx[dfx[d_nv].astype(str).isin(f_nv)]
       if f_ma and d_ma and d_ma in dfx.columns:
-        dfx = dfx[dfx[d_ma].astype(str).str.contains(f_ma, case=False, na=False)]
+        dfx = dfx[dfx[d_ma].astype(str).str.contains(f_ma, case=False, na=False, regex=False)]
       if f_ten and d_ten and d_ten in dfx.columns:
-        dfx = dfx[dfx[d_ten].astype(str).str.contains(f_ten, case=False, na=False)]
+        dfx = dfx[dfx[d_ten].astype(str).str.contains(f_ten, case=False, na=False, regex=False)]
       if f_vip and d_vip and d_vip in dfx.columns:
         dfx = dfx[dfx[d_vip].astype(str).isin(f_vip)]
       if f_l1 and col_l1 and col_l1 in dfx.columns:
@@ -19917,11 +19929,11 @@ if _nav == '📦 TRACKING MBS - CAT':
       df_f = df_f[df_f[col_nv].astype(str).isin(f_nv)]
     if f_ma and col_ma:
       df_f = df_f[
-          df_f[col_ma].astype(str).str.contains(f_ma, case=False, na=False)
+          df_f[col_ma].astype(str).str.contains(f_ma, case=False, na=False, regex=False)
       ]
     if f_ten and col_ten:
       df_f = df_f[
-          df_f[col_ten].astype(str).str.contains(f_ten, case=False, na=False)
+          df_f[col_ten].astype(str).str.contains(f_ten, case=False, na=False, regex=False)
       ]
     df_f = filter_by_thu_multi(df_f, col_thu, f_thu)
     df_cat_summary = build_mbs_data_summary(df_f, 'CAT')
@@ -20077,11 +20089,11 @@ if _nav == '🏷️ TRACKING MBS - BRAND':
       df_f = df_f[df_f[col_nv].astype(str).isin(f_nv)]
     if f_ma and col_ma:
       df_f = df_f[
-          df_f[col_ma].astype(str).str.contains(f_ma, case=False, na=False)
+          df_f[col_ma].astype(str).str.contains(f_ma, case=False, na=False, regex=False)
       ]
     if f_ten and col_ten:
       df_f = df_f[
-          df_f[col_ten].astype(str).str.contains(f_ten, case=False, na=False)
+          df_f[col_ten].astype(str).str.contains(f_ten, case=False, na=False, regex=False)
       ]
     df_f = filter_by_thu_multi(df_f, col_thu, f_thu)
     df_brand_summary = build_mbs_data_summary(df_f, 'BRAND')
@@ -20240,13 +20252,13 @@ if _nav == '📋 DSKH_Combo OFF':
       df_off_f = df_off_f[
           df_off_f[col_ma_off]
           .astype(str)
-          .str.contains(f_off_ma, case=False, na=False)
+          .str.contains(f_off_ma, case=False, na=False, regex=False)
       ]
     if f_off_ten and col_ten_off:
       df_off_f = df_off_f[
           df_off_f[col_ten_off]
           .astype(str)
-          .str.contains(f_off_ten, case=False, na=False)
+          .str.contains(f_off_ten, case=False, na=False, regex=False)
       ]
     df_off_f = filter_by_thu_multi(df_off_f, col_thu_off, f_off_thu)
 
@@ -20395,13 +20407,13 @@ if _nav == '📋 DSKH_Combo ON':
       df_on_f = df_on_f[
           df_on_f[col_ma_on]
           .astype(str)
-          .str.contains(f_on_ma, case=False, na=False)
+          .str.contains(f_on_ma, case=False, na=False, regex=False)
       ]
     if f_on_ten and col_ten_on:
       df_on_f = df_on_f[
           df_on_f[col_ten_on]
           .astype(str)
-          .str.contains(f_on_ten, case=False, na=False)
+          .str.contains(f_on_ten, case=False, na=False, regex=False)
       ]
     df_on_f = filter_by_thu_multi(df_on_f, col_thu_on, f_on_thu)
 

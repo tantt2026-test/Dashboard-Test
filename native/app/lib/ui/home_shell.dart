@@ -108,7 +108,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               if (reports.isEmpty) _tile('TURNOVER', '1. TURNOVER - Tổng doanh số bán ra'),
               _section('📊 BÁO CÁO KPI'),
               for (final r in reports.where((r) => r.group == 'kpi')) _tile(r.code, r.name),
-              if (reports.any((r) => r.group == 'tab')) _section('CÁC TAB KHÁC'),
+              if (reports.any((r) => r.group == 'tab')) ...[
+                // đường kẻ cam ngăn phần báo cáo KPI với các tab khác
+                Container(
+                  height: 2.5,
+                  margin: const EdgeInsets.fromLTRB(4, 14, 4, 2),
+                  decoration: BoxDecoration(color: const Color(0xFFED8936), borderRadius: BorderRadius.circular(2)),
+                ),
+                _section('CÁC TAB KHÁC'),
+              ],
               for (final r in reports.where((r) => r.group == 'tab')) _tile(r.code, r.name),
             ]),
           ),
