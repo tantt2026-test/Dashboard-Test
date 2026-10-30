@@ -2198,7 +2198,8 @@ def process_brand_sales(df_rpt, df_brand):
     s = str(sku_str).lower()
     # Wake up xét trước: 'Wake up 247' = Nước tăng lực; 'Wake up' = Cà phê Wake up Sài Gòn
     # (nếu không, chữ 'Sài Gòn' bị luật Vinacafe bên dưới bắt nhầm)
-    if 'wake up' in s or 'wake-up' in s or 'wakeup' in s:
+    # Cà phê Phil cũng thuộc nhãn Wake up (chung với Cà phê Wake up Sài Gòn), dù tên có chữ Vinacafe
+    if 'wake up' in s or 'wake-up' in s or 'wakeup' in s or 'phil' in s:
       want = 'wake up 247' if '247' in s else 'wake up'
       for b in brands_list:
         if str(b).strip().lower() == want:
@@ -2211,7 +2212,6 @@ def process_brand_sales(df_rpt, df_brand):
       if b_clean == 'vinacafe' and (
           'vinacafé' in s
           or 'vinacafe' in s
-          or 'phil' in s
           or 'sài gòn' in s
           or 'sai gon' in s
       ):
