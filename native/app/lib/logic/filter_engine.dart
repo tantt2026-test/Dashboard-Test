@@ -160,7 +160,14 @@ FilterResult applyFilters(
   Set<String>? multiNv, // ĐDKD chọn nhiều → lọc dòng theo cột tên NV
 }) {
   final notes = <String>[];
-  final items = (jsonDecode(jsonEncode(base)) as List).cast<Map<String, dynamic>>();
+  var items = (jsonDecode(jsonEncode(base)) as List).cast<Map<String, dynamic>>();
+  // Ô chọn chỉ số hiển thị: bỏ thẻ / nhóm cột / cột biểu đồ trước, rồi mới lọc dòng
+  for (final w in widgets) {
+    if ((w['f'] as Map?)?['mode'] == 'subset' && isActive(w, values[w['key']])) {
+      items = applySubset(items, [for (final o in (w['options'] as List)) '$o'],
+          [for (final o in (values[w['key']] as List)) '$o']);
+    }
+  }
   indexItems(items);
 
   final rowRules = <_RowRule>[];
@@ -556,5 +563,136 @@ List<Map<String, dynamic>> collectWidgets(List<Map<String, dynamic>> items) {
     }
   }
   walk(items);
+  return out;
+}
+
+bool _subsetHit(Object? label, List<String> unsel) {
+  final s = '${label ?? ''}'.trim();
+  return unsel.any((o) => s == o || s.startsWith('$o ') || s.startsWith('$o('));
+}
+
+/// Vị trí cột (c0, c1) của từng ô theo dòng, tính rowspan/colspan.
+List<List<(int, int)>> _place(List<List> rows) {
+  final occ = <(int, int)>{};
+  final out = <List<(int, int)>>[];
+  for (var r = 0; r < rows.length; r++) {
+    var c = 0;
+    final pos = <(int, int)>[];
+    for (final cell in rows[r].cast<Map>()) {
+      while (occ.contains((r, c))) {
+        c++;
+      }
+      final cs = (cell['cs'] as num?)?.toInt() ?? 1, rs = (cell['rs'] as num?)?.toInt() ?? 1;
+      for (var dr = 0; dr < rs; dr++) {
+        for (var dc = 0; dc < cs; dc++) {
+          occ.add((r + dr, c + dc));
+        }
+      }
+      pos.add((c, c + cs));
+      c += cs;
+    }
+    out.add(pos);
+  }
+  return out;
+}
+
+/// Ô 'chọn chỉ số hiển thị' (mode subset) — y hệt pipeline/filters_probe.py apply_subset
+/// (đã kiểm chứng bằng App.py): bỏ thẻ / nhóm cột bảng / cột biểu đồ của chỉ số không chọn.
+List<Map<String, dynamic>> applySubset(List<Map<String, dynamic>> items, List<String> opts, List<String> sel) {
+  final unsel = [for (final o in opts) if (!sel.contains(o)) o];
+  if (sel.isEmpty || unsel.isEmpty) return items;
+  final out = <Map<String, dynamic>>[];
+  for (var it in items) {
+    switch (it['t']) {
+      case 'cards':
+        it = {...it, 'it': [for (final c in (it['it'] as List).cast<Map>()) if (!_subsetHit(c['l'], unsel)) c]};
+        if ((it['it'] as List).isEmpty) continue;
+        break;
+      case 'tbl':
+        final head = (it['h'] as List?)?.cast<List>();
+        if (head == null || head.isEmpty) break;
+        final ph = _place(head);
+        final drop = <int>{};
+        final row0 = head.first.cast<Map>();
+        for (var i = 0; i < row0.length; i++) {
+          if (_subsetHit(row0[i]['x'], unsel)) {
+            for (var c = ph.first[i].$1; c < ph.first[i].$2; c++) {
+              drop.add(c);
+            }
+          }
+        }
+        if (drop.isEmpty) break;
+        List<List> cut(List<List> rows) {
+          final pos = _place(rows);
+          return [
+            for (var r = 0; r < rows.length; r++)
+              [
+                for (var i = 0; i < rows[r].length; i++)
+                  if (() {
+                    final (c0, c1) = pos[r][i];
+                    var keep = 0;
+                    for (var c = c0; c < c1; c++) {
+                      if (!drop.contains(c)) keep++;
+                    }
+                    return keep;
+                  }() case final keep when keep > 0)
+                    keep == pos[r][i].$2 - pos[r][i].$1 ? rows[r][i] : {...(rows[r][i] as Map), 'cs': keep}
+              ]
+          ];
+        }
+        var ncol = 0;
+        for (final p in ph) {
+          if (p.isNotEmpty && p.last.$2 > ncol) ncol = p.last.$2;
+        }
+        final remap = <int, int>{};
+        for (var c = 0; c < ncol; c++) {
+          if (!drop.contains(c)) remap[c] = remap.length;
+        }
+        it = {...it, 'h': cut(head), 'b': cut((it['b'] as List).cast<List>())};
+        final tot = (it['tot'] as Map?)?.cast<String, dynamic>();
+        if (tot != null) {
+          final nt = <String, dynamic>{};
+          tot.forEach((k, f0) {
+            final f = Map<String, dynamic>.from(f0 as Map);
+            final refs = [int.parse(k), for (final x in ['a', 'b']) if (f[x] != null) (f[x] as num).toInt()];
+            if (refs.every(remap.containsKey)) {
+              for (final x in ['a', 'b']) {
+                if (f[x] != null) f[x] = remap[(f[x] as num).toInt()];
+              }
+              nt['${remap[int.parse(k)]}'] = f;
+            }
+          });
+          it['tot'] = nt;
+        }
+        break;
+      case 'bar':
+        it = {
+          ...it,
+          'tr': [
+            for (final tr in (it['tr'] as List).cast<Map>())
+              () {
+                final cats = (tr['h'] == true || tr['h'] == 1) ? tr['y'] : tr['x'];
+                if (cats is! List) return tr;
+                final n = cats.length;
+                final keep = [for (var i = 0; i < n; i++) if (!_subsetHit(cats[i], unsel)) i];
+                return {
+                  for (final e in tr.entries)
+                    e.key: (e.value is List && (e.value as List).length == n)
+                        // màu theo vị trí cột (bảng màu lặp lại từ đầu) → giữ màu đầu danh sách
+                        ? (e.key == 'color'
+                            ? (e.value as List).sublist(0, keep.length)
+                            : [for (final i in keep) (e.value as List)[i]])
+                        : e.value
+                };
+              }()
+          ]
+        };
+        break;
+      case 'box':
+        it = {...it, 'ch': applySubset((it['ch'] as List).cast<Map<String, dynamic>>(), opts, sel)};
+        break;
+    }
+    out.add(it);
+  }
   return out;
 }

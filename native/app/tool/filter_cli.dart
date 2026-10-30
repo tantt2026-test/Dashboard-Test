@@ -54,9 +54,15 @@ void main() {
       final dir = File(c['doc'] as String).parent.path;
       base = ((jsonDecode(File('$dir/$file').readAsStringSync()) as Map)['items'] as List).cast<Map<String, dynamic>>();
     }
-    final res = applyFilters(base, widgets, values, onVariant: file != null);
+    final nvs = (c['nvs'] as List?)?.map((e) => '$e').toSet();
+    final res = applyFilters(base, widgets, values, onVariant: file != null, multiNv: nvs);
     final allNotes = [?note, ...res.notes];
-    out.add({'note': allNotes.isEmpty ? null : allNotes.join(' | '), 'variant': file, ...summarize(res.items)});
+    out.add({
+      'note': allNotes.isEmpty ? null : allNotes.join(' | '),
+      'variant': file,
+      ...summarize(res.items),
+      if (c['full'] == true) 'items': [for (final i in res.items) if (i['t'] != 'filters') i],
+    });
   }
   stdout.write(jsonEncode(out));
 }

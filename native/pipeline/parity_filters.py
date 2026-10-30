@@ -94,7 +94,7 @@ def main():
         doc = json.load(open(path, encoding='utf-8'))
         widgets = [w for it in fp._walk(doc['items']) if it['t'] == 'filters' for w in it['w']]
         widgets += list((doc.get('main') or {}).values())
-        usable = [w for w in widgets if (w.get('f') or {}).get('mode') in ('select', 'eq', 'cols', 'contains', 'date', 'calc')]
+        usable = [w for w in widgets if (w.get('f') or {}).get('mode') in ('select', 'eq', 'cols', 'contains', 'date', 'calc', 'subset')]
         if not usable:
             continue
         export_kpi._reset_widgets()
@@ -108,6 +108,9 @@ def main():
             f, kind = w['f'], w['kind']
             opts = w.get('options') or []
             if f['mode'] == 'cols':
+                k = rnd.randint(1, max(1, len(opts) - 1))
+                return sorted(rnd.sample(opts, k), key=opts.index)
+            if f['mode'] == 'subset':
                 k = rnd.randint(1, max(1, len(opts) - 1))
                 return sorted(rnd.sample(opts, k), key=opts.index)
             if f['mode'] in ('select', 'eq'):

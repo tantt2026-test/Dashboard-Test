@@ -194,6 +194,108 @@ class Snapshot:
 WHY = []
 
 
+def _subset_hit(label, unsel):
+    s = str(label).strip()
+    return any(s == o or s.startswith(o + ' ') or s.startswith(o + '(') for o in unsel)
+
+
+def _place(rows):
+    """Vị trí cột của từng ô (tính rowspan/colspan) → [[(c0, c1), ...] theo dòng]."""
+    occ, out = {}, []
+    for r, row in enumerate(rows):
+        c, pos = 0, []
+        for cell in row:
+            while occ.get((r, c)):
+                c += 1
+            cs, rs = int(cell.get('cs') or 1), int(cell.get('rs') or 1)
+            for dr in range(rs):
+                for dc in range(cs):
+                    occ[(r + dr, c + dc)] = True
+            pos.append((c, c + cs))
+            c += cs
+        out.append(pos)
+    return out
+
+
+def _plain(items):
+    def clean(x):
+        if isinstance(x, dict):
+            return {k: clean(v) for k, v in x.items() if k != 'tot'}
+        if isinstance(x, list):
+            return [clean(v) for v in x]
+        return x
+    return json.dumps(clean(items), ensure_ascii=False, sort_keys=True)
+
+
+def apply_subset(items, opts, sel):
+    """Ô 'chọn chỉ số hiển thị' (mode subset): bỏ thẻ / nhóm cột bảng / cột biểu đồ của chỉ số
+    không chọn. Chọn rỗng = tất cả (như App.py). Dart: filter_engine.dart applySubset."""
+    unsel = [o for o in opts if o not in set(sel)]
+    if not sel or not unsel:
+        return items
+    out = []
+    for it in items:
+        t = it.get('t')
+        if t == 'cards':
+            it = {**it, 'it': [c for c in it['it'] if not _subset_hit(c.get('l'), unsel)]}
+            if not it['it']:
+                continue
+        elif t == 'tbl' and it.get('h'):
+            ph = _place(it['h'])
+            drop = set()
+            for row, pos in zip(it['h'], ph):
+                for cell, (c0, c1) in zip(row, pos):
+                    if row is it['h'][0] and _subset_hit(cell.get('x', ''), unsel):
+                        drop.update(range(c0, c1))
+            if drop:
+                def cut(rows):
+                    res = []
+                    for row, pos in zip(rows, _place(rows)):
+                        nr = []
+                        for cell, (c0, c1) in zip(row, pos):
+                            keep = sum(1 for c in range(c0, c1) if c not in drop)
+                            if keep == 0:
+                                continue
+                            if keep != c1 - c0:
+                                cell = {**cell, 'cs': keep}
+                            nr.append(cell)
+                        res.append(nr)
+                    return res
+                ncol = max((p[-1][1] for p in ph if p), default=0)
+                remap = {}
+                for c in range(ncol):
+                    if c not in drop:
+                        remap[c] = len(remap)
+                it = {**it, 'h': cut(it['h']), 'b': cut(it['b'])}
+                if it.get('tot'):
+                    tot = {}
+                    for k, f in it['tot'].items():
+                        refs = [int(k)] + [f[x] for x in ('a', 'b') if x in f]
+                        if all(r in remap for r in refs):
+                            f = dict(f)
+                            for x in ('a', 'b'):
+                                if x in f:
+                                    f[x] = remap[f[x]]
+                            tot[str(remap[int(k)])] = f
+                    it['tot'] = tot
+        elif t == 'bar':
+            trs = []
+            for tr in it['tr']:
+                cats = tr.get('y') if tr.get('h') else tr.get('x')
+                if isinstance(cats, list):
+                    n = len(cats)
+                    keep = [i for i, c in enumerate(cats) if not _subset_hit(c, unsel)]
+                    # màu theo vị trí cột (bảng màu lặp lại từ đầu) → giữ màu đầu danh sách
+                    tr = {k: ((v[:len(keep)] if k == 'color' else [v[i] for i in keep])
+                              if isinstance(v, list) and len(v) == n else v) for k, v in tr.items()}
+                trs.append(tr)
+            it = {**it, 'tr': trs}
+        elif t == 'box':
+            it = {**it, 'ch': apply_subset(it['ch'], opts, sel)}
+        out.append(it)
+    return out
+
+
 def _no(reason):
     WHY.append(reason)
     return None
@@ -446,6 +548,10 @@ class Prober:
                 same += 1
         if same == min(2, len(opts)) and not dflt:
             return {'mode': 'none'}
+        # Ô chọn chỉ số hiển thị (mặc định chọn hết): chỉ bỏ thẻ / nhóm cột / cột biểu đồ
+        sub = self._subset(w, default, R)
+        if sub:
+            return sub
         # Ô ẩn/hiện cột (lựa chọn = tên cột): chọn 1 cột → bảng còn cột đó + các cột cố định
         cols_spec = self._cols(w, default, R)
         if cols_spec:
@@ -500,6 +606,19 @@ class Prober:
             return None
         spec = {'mode': 'eq', 'targets': [{'t': ti, 'col': c} for ti, c in targets]}
         return spec if pure else {'mode': 'partial', 'inner': spec}
+
+    def _subset(self, w, default, R):
+        """Mặc định chọn hết; chọn bớt → App.py chỉ bỏ phần của chỉ số không chọn (kiểm chứng 3 tổ hợp)."""
+        key, opts = w['key'], w.get('options') or []
+        if len(opts) < 2 or set(w.get('value') or []) != set(opts):
+            return None
+        tests = [[opts[0]], [opts[-1]], [o for i, o in enumerate(opts) if i % 2]]
+        base = _strip_filters(default.items)
+        for sel in tests:
+            v, _ = self.snap({key: [R[o] for o in sel]})
+            if _plain(apply_subset(base, opts, sel)) != _plain(_strip_filters(v.items)):
+                return None
+        return {'mode': 'subset'}
 
     def _cols(self, w, default, R):
         """Ô chọn cột hiển thị: lựa chọn trùng tên cột bảng; chọn 1 cột → còn cột đó + cột cố định."""

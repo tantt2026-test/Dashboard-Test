@@ -284,7 +284,10 @@ class _KpiReportPageState extends State<KpiReportPage> {
         fromServer = true;
       }
       if (job != null && job.items == null && job.error == null) {
-        notes.add(job.dispatched
+        notes.add(job.local
+            ? 'Máy đang tính lại bằng App.py… ${job.waitedSeconds}s (lần đầu sau mỗi lần sync phải tải data về máy, '
+                'lâu hơn chút; sau đó chỉ vài giây)'
+            : job.dispatched
             ? 'GitHub đang tính lại theo bộ lọc bằng App.py… ${job.waitedSeconds}s (thường 1,5–3 phút; '
                 'xong sẽ tự hiện, lần sau mở tổ hợp này là có ngay)'
             : 'Đang tìm kết quả đã tính sẵn cho bộ lọc này…');

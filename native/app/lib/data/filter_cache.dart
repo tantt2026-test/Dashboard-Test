@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
+import 'local_engine.dart';
+
 /// Kết quả bộ lọc kiểu "tính lại" do GitHub Actions chạy App.py rồi lưu ở branch `filters`:
 ///   `<source_commit[:12]>/<mã tổ hợp>.json`   (pipeline/run_request.py tính mã y hệt)
 /// Chưa có → kích hoạt workflow filter-run.yml (token giới hạn: Actions R/W + Contents R),
@@ -49,6 +51,7 @@ class FilterJob {
   List<Map<String, dynamic>>? items;
   String? error;
   bool dispatched = false;
+  bool local = false; // app Mac tự tính bằng App.py trên máy
   FilterJob(this.key);
   int get waitedSeconds => DateTime.now().difference(started).inSeconds;
 }
@@ -98,6 +101,18 @@ class FilterCache {
     final job = FilterJob(key);
     _jobs[key] = job;
     () async {
+      // App Mac: tự chạy App.py trên máy (vài giây); lỗi thì quay về GitHub như điện thoại
+      if (LocalEngine.instance.available) {
+        job.local = true;
+        onUpdate();
+        try {
+          job.items = await LocalEngine.instance.compute(req);
+          onUpdate();
+          return;
+        } catch (e) {
+          job.local = false;
+        }
+      }
       try {
         final sc = req['sc'] as String;
         var items = await _read(sc, key);
