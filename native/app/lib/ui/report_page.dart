@@ -239,8 +239,9 @@ class _KpiReportPageState extends State<KpiReportPage> {
     if (_nvs.length >= 2) return true;
     if (variantNote != null) return true;
     if (_staleDay) return true;
-    // bản Mac tự tính từ data mới: chưa đo cách áp ô lọc → lọc gì cũng tính lại bằng App.py
-    if (_doc?.local == true && widgets.any((w) => isActive(w, _values[w['key']]))) return true;
+    // ô lọc chưa có cách áp đo sẵn (ngày khác ngày mặc định, bản lọc 1 ĐDKD, bản Mac tự tính)
+    // → tính lại bằng App.py
+    if (widgets.any((w) => w['f'] == null && isActive(w, _values[w['key']]))) return true;
     for (final w in widgets) {
       final mode = (w['f'] as Map?)?['mode'];
       if ((mode == 'partial' || mode == 'unsupported') && isActive(w, _values[w['key']])) return true;
