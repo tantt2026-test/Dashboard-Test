@@ -37,20 +37,62 @@ class _SessionState(dict):
         self.pop(k, None)
 
 
-def _cache_key(args, kwargs):
-    def norm(v):
+_hash_memo = {}  # id(obj) → (weakref, mã nội dung): đỡ băm lại bảng lớn khi còn sống
+
+
+def _content_hash(v):
+    """Mã theo NỘI DUNG (như st.cache_data băm tham số), không theo id() — id được Python dùng lại
+    sau khi bảng cũ bị giải phóng → trả nhầm kết quả của bảng khác khi chạy nền lâu."""
+    import hashlib
+    import pickle
+    import weakref
+    import pandas as pd
+    import numpy as np
+    hit = _hash_memo.get(id(v))
+    if hit is not None and hit[0]() is v:
+        return hit[1]
+    h = hashlib.sha1()
+    try:
+        if isinstance(v, (pd.DataFrame, pd.Series)):
+            h.update(repr((type(v).__name__, v.shape, list(map(str, getattr(v, 'columns', [v.name]))),
+                           [str(t) for t in (v.dtypes if isinstance(v, pd.DataFrame) else [v.dtype])])).encode())
+            h.update(pd.util.hash_pandas_object(v, index=True).values.tobytes())
+        elif isinstance(v, np.ndarray):
+            h.update(repr((v.dtype, v.shape)).encode())
+            h.update(np.ascontiguousarray(v).tobytes())
+        else:
+            h.update(pickle.dumps(v, protocol=4))
+    except Exception:
         try:
-            hash(v)
-            return v
-        except TypeError:
-            if isinstance(v, (list, tuple)):
-                return tuple(norm(x) for x in v)
-            if isinstance(v, dict):
-                return tuple(sorted((k, norm(x)) for k, x in v.items()))
-            if isinstance(v, set):
-                return tuple(sorted(map(repr, v)))
-            return ('id', id(v))
-    return (tuple(norm(a) for a in args), tuple(sorted((k, norm(v)) for k, v in kwargs.items())))
+            h.update(pickle.dumps(v, protocol=4))
+        except Exception:
+            return ('id', id(v))  # không băm được (hiếm) → như cũ
+    d = ('h', h.hexdigest())
+    try:
+        _hash_memo[id(v)] = (weakref.ref(v), d)
+    except TypeError:
+        pass
+    return d
+
+
+def _cache_key(args, kwargs):
+    """Băm tham số theo nội dung như Streamlit (kể cả tham số tên '_...' như _month_key — an toàn
+    hơn khi 1 tiến trình chạy nhiều tháng; App.py vẫn tự xoá cache khi đổi tháng)."""
+    return (tuple(_norm(a) for a in args), tuple(sorted((k, _norm(v)) for k, v in kwargs.items())))
+
+
+def _norm(v):
+    try:
+        hash(v)
+        return v
+    except TypeError:
+        if isinstance(v, (list, tuple)):
+            return tuple(_norm(x) for x in v)
+        if isinstance(v, dict):
+            return tuple(sorted((k, _norm(x)) for k, x in v.items()))
+        if isinstance(v, set):
+            return tuple(sorted(map(repr, v)))
+        return _content_hash(v)
 
 
 class Recorder:
