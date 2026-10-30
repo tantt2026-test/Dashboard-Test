@@ -724,12 +724,27 @@ def load_combo_data():
   return df_off, df_on
 
 
+def _clean_mbs_df(df):
+  """File Export MBS có dòng trống + dòng 'Bộ lọc được áp dụng...' ở cuối → Outlet Code/Thứ
+  thành số thực (2019545.0) và không khớp RPT/MCP. Bỏ dòng không có Outlet Code, ép về số nguyên."""
+  c_ma = find_col(df, ['Outlet Code', 'Outlet_code', 'Mã CH'])
+  if not c_ma:
+    return df
+  df = df[df[c_ma].notna() & (df[c_ma].astype(str).str.strip() != '')].copy()
+  for c in [c_ma, find_col(df, ['Thứ'])]:
+    if c:
+      num = pd.to_numeric(df[c], errors='coerce')
+      if num.notna().all() and (num % 1 == 0).all():
+        df[c] = num.astype('int64')
+  return df.reset_index(drop=True)
+
+
 @st.cache_data(ttl=600)
 def load_cat_data():
   for path in [CAT_PATH, os.path.join(get_data_dir(), 'Data_Cat.xlsx')]:
     if os.path.exists(path):
       try:
-        return pd.read_excel(path)
+        return _clean_mbs_df(pd.read_excel(path))
       except:
         pass
   return pd.DataFrame()
@@ -740,7 +755,7 @@ def load_brand_data():
   for path in [BRAND_PATH, os.path.join(get_data_dir(), 'Data_Brand.xlsx')]:
     if os.path.exists(path):
       try:
-        return pd.read_excel(path)
+        return _clean_mbs_df(pd.read_excel(path))
       except:
         pass
   return pd.DataFrame()
