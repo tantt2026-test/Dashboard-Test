@@ -205,8 +205,9 @@ TurnoverReport buildTurnover(TurnoverMonth month, String isoDate, List<String> f
     isTotal: true,
   );
 
-  // Nhận xét: sort % giảm dần (pandas giữ thứ tự gốc khi bằng nhau), top/bottom 3.
-  final byPct = stableSorted<TurnoverRow>(rows, (a, b) => b.pct.compareTo(a.pct));
+  // Nhận xét: sort theo % đã làm tròn (như App.py đọc lại cột '% MTD'), giảm dần, bằng nhau giữ thứ tự gốc.
+  double shown(TurnoverRow r) => double.tryParse(r.pctLabel.replaceAll('%', '')) ?? r.pct;
+  final byPct = stableSorted<TurnoverRow>(rows, (a, b) => shown(b).compareTo(shown(a)));
   final top3 = byPct.take(3).toList();
   final bottom3 = byPct.length <= 3 ? byPct.reversed.toList() : byPct.sublist(byPct.length - 3).reversed.toList();
   String fmt(List<TurnoverRow> l) => l.map((r) => '${r.name} (${r.pctLabel})').join(', ');

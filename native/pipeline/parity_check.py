@@ -39,7 +39,7 @@ def py_notes(rep):
     total_row = rep.iloc[-1]
     df_eval = rep.iloc[:-1].copy()
     df_eval['_pct_val'] = df_eval['% MTD'].str.replace('%', '').astype(float)
-    s = df_eval.sort_values(by='_pct_val', ascending=False)
+    s = df_eval.sort_values(by='_pct_val', ascending=False, kind='stable')
     top3 = ', '.join(f"{r['Tên NVBH']} ({r['% MTD']})" for _, r in s.head(3).iterrows())
     bottom3 = ', '.join(f"{r['Tên NVBH']} ({r['% MTD']})" for _, r in s.tail(3).iloc[::-1].iterrows())
     return top3, bottom3, float(total_row['Doanh Số MTD']), float(total_row['Thực Hiện Ngày']), total_row['% MTD']

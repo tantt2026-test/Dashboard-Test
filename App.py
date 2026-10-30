@@ -16739,7 +16739,7 @@ if _nav == '📊 BÁO CÁO KPI':
     df_eval['_pct_val'] = (
         df_eval['% MTD'].str.replace('%', '').astype(float)
     )
-    df_sorted_pct = df_eval.sort_values(by='_pct_val', ascending=False)
+    df_sorted_pct = df_eval.sort_values(by='_pct_val', ascending=False, kind='stable')
     top3 = df_sorted_pct.head(3)
     bottom3 = df_sorted_pct.tail(3).iloc[::-1]
 
@@ -18224,7 +18224,7 @@ if _nav == '📊 BÁO CÁO KPI':
         df_eval[_pc].astype(str).str.replace('%', '').astype(float)
     )
 
-    df_sorted_pct = df_eval.sort_values(by='_pct_val', ascending=False)
+    df_sorted_pct = df_eval.sort_values(by='_pct_val', ascending=False, kind='stable')
     top3 = df_sorted_pct.head(3)
     bottom3 = df_sorted_pct.tail(3).iloc[::-1]
 
