@@ -259,8 +259,12 @@ class Converter:
             # chỉ xuống dòng ở <br>, giống trình duyệt
             for br in td.find_all('br'):
                 br.replace_with('\n')
+            # chỉ gọn khoảng trắng khi chữ ghép từ nhiều thẻ; ô chữ thuần giữ y nguyên như trình duyệt
+            # (vd tên KH "Anh Hùng ( Trái Cây )" → ô tìm Tên KH khớp đúng như App.py)
+            nested = td.find(lambda t: t.name != 'br') is not None
             raw = td.get_text(' ')
-            c = {'x': '\n'.join(tidy(clean_text(l).strip()) for l in raw.split('\n') if l.strip())}
+            fix = tidy if nested else (lambda x: x)
+            c = {'x': '\n'.join(fix(clean_text(l).strip()) for l in raw.split('\n') if l.strip())}
             cs, rs = int(td.get('colspan', 1) or 1), int(td.get('rowspan', 1) or 1)
             if cs > 1:
                 c['cs'] = cs

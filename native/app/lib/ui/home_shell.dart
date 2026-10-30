@@ -148,6 +148,18 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Widget _tile(String code, String name) =>
       _MenuTile(name: name, selected: code == _code, onTap: () => _select(code));
 
+  // Khoá toàn cục cho trang báo cáo: kéo cửa sổ qua mốc 1000px (menu cố định ↔ menu kéo ra) chỉ
+  // chuyển trang sang khung mới, không tạo lại → giữ nguyên các ô đang lọc.
+  String? _pageId;
+  GlobalKey _pageKey = GlobalKey();
+  Key _keyFor(String id) {
+    if (id != _pageId) {
+      _pageId = id;
+      _pageKey = GlobalKey();
+    }
+    return _pageKey;
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 1000;
@@ -157,10 +169,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
     Widget page;
     if (_code == 'TURNOVER' || _manifest == null || _kpiMonth == null) {
-      page = TurnoverPage(key: ValueKey('to-$_refreshTick'), repo: widget.repo, leading: menuButton);
+      page = TurnoverPage(key: _keyFor('to-$_refreshTick'), repo: widget.repo, leading: menuButton);
     } else {
       page = KpiReportPage(
-        key: ValueKey('kpi-$_kpiMonth-$_refreshTick'),
+        key: _keyFor('kpi-$_kpiMonth-$_refreshTick'),
         repo: widget.repo,
         manifest: _manifest!,
         code: _code,
