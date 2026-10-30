@@ -697,6 +697,10 @@ class Prober:
                     f2 = _find_col(default, v2, lambda x, a=probe, b=other: a.lower() in x.lower() or b.lower() in x.lower())
                     multi = bool(f2)
                 spec = {'mode': 'contains', 'multi': multi, 'targets': [{'t': t_, 'col': c} for t_, c in found]}
+                # App.py có bỏ dấu cách đầu/cuối chữ gõ không? (vd "anh " ở tab Combo OFF: không bỏ)
+                vt, _ = self.snap({key: f' {probe} '})
+                if vt.plain != v.plain:
+                    spec['raw'] = True
                 if not _only_targets_changed(default, v, found):
                     # App.py lọc dữ liệu gốc rồi tính lại báo cáo (vd ô Mã KH/Tên KH chung)
                     return {'mode': 'partial', 'inner': spec}

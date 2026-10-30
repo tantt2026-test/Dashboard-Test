@@ -253,9 +253,11 @@ FilterResult applyFilters(
         }
         break;
       case 'contains':
-        final raw = '$v'.trim();
+        // raw: App.py tìm nguyên chữ gõ, không bỏ dấu cách đầu/cuối (filters_probe dò từng ô)
+        final keep = f['raw'] == true;
+        final raw = keep ? '$v' : '$v'.trim();
         final terms = (f['multi'] == true ? raw.split(',') : [raw])
-            .map((e) => e.trim().toLowerCase())
+            .map((e) => (keep ? e : e.trim()).toLowerCase())
             .where((e) => e.isNotEmpty)
             .toList();
         if (terms.isEmpty) break;
