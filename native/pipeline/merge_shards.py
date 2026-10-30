@@ -55,6 +55,8 @@ def main():
         if idx.get('plan_dates'):
             idx['dates'] = [d for d in idx['plan_dates']
                             if os.path.isfile(os.path.join(out_dir, 'TURNOVER', f'{d}.json'))]
+            fresh = {idx.get('default_date'), idx.get('data_max_date')}
+            idx['stale_dates'] = [d for d in idx['dates'] if d not in fresh] if not idx.get('complete') else []
         idx['errors'] = [e for i in idxs for e in (i.get('errors') or [])]
         timing = {}
         for sd in shards:

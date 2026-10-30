@@ -135,6 +135,16 @@ class _KpiReportPageState extends State<KpiReportPage> {
     return _date!;
   }
 
+  /// Ngày đang chọn chưa có bản tính sẵn theo data mới nhất (ngày còn số cũ, hoặc chưa tính)
+  /// → hiện khung báo cáo của ngày gần nhất, số do App.py tính lại cho đúng ngày đó.
+  bool get _staleDay {
+    final idx = _idx!;
+    if (_isTab || _exactNv != null) return false;
+    return idx.staleDates.contains(_date) || !idx.dates.contains(_date);
+  }
+
+  String get _fileDate => _staleDay && !_idx!.dates.contains(_date) ? _idx!.defaultDate : _docDate;
+
   Future<void> _loadDoc() async {
     final idx = _idx;
     if (idx == null) return;
@@ -143,7 +153,7 @@ class _KpiReportPageState extends State<KpiReportPage> {
       _error = null;
     });
     try {
-      final r = await widget.repo.kpiDoc(idx, widget.code, _docDate, _isTab ? null : _exactNv);
+      final r = await widget.repo.kpiDoc(idx, widget.code, _fileDate, _isTab ? null : _exactNv);
       if (!mounted) return;
       setState(() {
         _doc = r.value;
@@ -202,13 +212,12 @@ class _KpiReportPageState extends State<KpiReportPage> {
       if (ok != true || !mounted) return;
       _nvs = [];
     }
-    final dates = idx.dates.map(DateTime.parse).toList();
+    // chọn được cả tháng như Streamlit; ngày chưa tính sẵn thì App.py tính lại
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.parse(_date!),
-      firstDate: dates.first,
-      lastDate: dates.last,
-      selectableDayPredicate: (d) => idx.dates.contains(isoDate(d)),
+      firstDate: DateTime(idx.year, idx.month, 1),
+      lastDate: DateTime(idx.year, idx.month + 1, 0),
       helpText: 'NGÀY',
     );
     if (picked != null) _date = isoDate(picked);
@@ -229,6 +238,7 @@ class _KpiReportPageState extends State<KpiReportPage> {
   bool _needServer(List<Map<String, dynamic>> widgets, String? variantNote) {
     if (_nvs.length >= 2) return true;
     if (variantNote != null) return true;
+    if (_staleDay) return true;
     // bản Mac tự tính từ data mới: chưa đo cách áp ô lọc → lọc gì cũng tính lại bằng App.py
     if (_doc?.local == true && widgets.any((w) => isActive(w, _values[w['key']]))) return true;
     for (final w in widgets) {
@@ -323,6 +333,8 @@ class _KpiReportPageState extends State<KpiReportPage> {
         final res = _memo!;
         items = res.items;
         if (!useServer || job?.error != null) notes.addAll(res.notes);
+        // ngày chưa có số theo data mới: không hiện số cũ trong lúc chờ tính lại
+        if (_staleDay) items = const [];
       }
     }
 

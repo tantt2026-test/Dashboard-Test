@@ -253,6 +253,10 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         # ngày mặc định, Tất cả: mỗi báo cáo/tab 1 tác vụ (có chạy thử ô lọc) → chạy song song
         tasks += [(mk, plan['default_date'], None, [r], out_dir, True) for r in plan['reports']]
         tasks += [(mk, plan['default_date'], nv, kpi_reports, out_dir, False) for nv in plan['nv']]
+        # ngày T (ngày mới nhất có data): data đổi mỗi lần sync → tính luôn ở lượt nhanh
+        if mode == 'default' and plan['data_max_date'] and plan['data_max_date'] > plan['default_date'] \
+                and plan['data_max_date'] in plan['dates']:
+            tasks.append((mk, plan['data_max_date'], None, kpi_reports, out_dir, False))
     if mode in ('history', 'full'):
         tasks += [(mk, d, None, kpi_reports, out_dir, False) for d in reversed(others)]
     if mode == 'history' and past_month:
@@ -304,6 +308,9 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         'dates': have,
         # các ngày cũ giữ lại ở lượt 'default' có thể là số cũ → chưa 'complete'
         'complete': mode in ('history', 'full') or past_month or not others,
+        # ngày còn số của lần sync trước (lượt 2 tính lại) → app tự tính lại khi chọn ngày đó
+        'stale_dates': [] if mode in ('history', 'full') or past_month else
+        [d for d in have if d not in (plan['default_date'], plan['data_max_date'])],
         'reports': [{'code': c, 'name': l, 'group': 'kpi' if n == NAV_KPI else 'tab'}
                     for c, l, n in plan['reports']],
         'tab_dates': [plan['default_date']],

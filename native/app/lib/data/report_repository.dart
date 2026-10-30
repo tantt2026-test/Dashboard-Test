@@ -143,6 +143,7 @@ class KpiIndex {
   final List<String> nvDates; // có bản lọc từng ĐDKD
   final List<String> tabDates; // các tab khác (MCP, Tracking...) chỉ có ngày mặc định
   final List<String> nv;
+  final Set<String> staleDates; // còn số của lần sync trước (GitHub đang tính lại) → app tự tính
   final Map<String, String> nvSlugs;
   final List<KpiReportInfo> reports;
 
@@ -156,6 +157,7 @@ class KpiIndex {
         nvDates = [for (final d in (j['nv_dates'] ?? const []) as List) d as String],
         tabDates = [for (final d in (j['tab_dates'] ?? const []) as List) d as String],
         nv = [for (final n in j['nv'] as List) n as String],
+        staleDates = {for (final d in (j['stale_dates'] ?? const []) as List) d as String},
         nvSlugs = {for (final e in (j['nv_slugs'] as Map).entries) e.key as String: e.value as String},
         reports = [
           for (final r in j['reports'] as List)
@@ -197,6 +199,7 @@ extension KpiRepository on ReportRepository {
         ..['nv_dates'] = [p['default_date']]
         ..['tab_dates'] = [p['default_date']]
         ..['nv'] = p['nv']
+        ..['stale_dates'] = <String>[]
         ..['reports'] = p['reports'];
     }
     return Loaded(KpiIndex.fromJson(j), r.fromCache);
