@@ -8,6 +8,7 @@ Một module `streamlit` giả:
   - st.cache_data nhớ kết quả thật giữa các lần chạy (đọc Excel 1 lần / tháng).
 Nhờ vậy số liệu, format và màu lấy thẳng từ App.py, không viết lại logic báo cáo.
 """
+import copy
 import datetime as dt
 import os
 import sys
@@ -121,7 +122,7 @@ def make_streamlit(rec):
     st.query_params = rec.query_params
 
     # ---- cache ----
-    def cache_data(*dargs, **dkw):
+    def cache_data(*dargs, _copy=True, **dkw):
         def wrap(fn):
             name = getattr(fn, '__qualname__', fn.__name__)
 
@@ -129,7 +130,14 @@ def make_streamlit(rec):
                 key = (name, _cache_key(a, k))
                 if key not in rec.memo:
                     rec.memo[key] = fn(*a, **k)
-                return rec.memo[key]
+                if not _copy:
+                    return rec.memo[key]
+                # như st.cache_data: mỗi lần trả về BẢN SAO → App.py lỡ sửa thẳng vào bảng
+                # cũng không ảnh hưởng lần chạy / báo cáo sau
+                try:
+                    return copy.deepcopy(rec.memo[key])
+                except Exception:
+                    return rec.memo[key]
 
             def clear(*a, **k):
                 for kk in [kk for kk in rec.memo if kk[0] == name]:
@@ -142,7 +150,7 @@ def make_streamlit(rec):
             return wrap(dargs[0])
         return wrap
     st.cache_data = cache_data
-    st.cache_resource = cache_data
+    st.cache_resource = lambda *a, **k: cache_data(*a, _copy=False, **k)  # resource: dùng chung, không sao chép
     cache_data.clear = lambda: rec.memo.clear()
 
     def fragment(*a, **k):

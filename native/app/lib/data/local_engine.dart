@@ -166,6 +166,25 @@ class LocalEngine {
         _proc = p;
       }();
 
+  /// Nhật ký bộ lọc (Application Support/KPI Dashboard/filter.log, giữ ~1 MB gần nhất):
+  /// yêu cầu, nơi tính, và dòng đầu + dòng tổng bảng đầu tiên → dò khi số khác Streamlit.
+  void log(String what, Map<String, dynamic> req, List<Map<String, dynamic>>? items) {
+    if (!Platform.isMacOS) return;
+    try {
+      String brief = '';
+      if (items != null) {
+        final t = items.where((i) => i['t'] == 'tbl').firstOrNull;
+        final b = (t?['b'] as List?) ?? const [];
+        String row(Object? r) => [for (final c in (r as List).take(6)) (c as Map)['x']].join(' | ');
+        if (b.isNotEmpty) brief = ' ⇒ ${row(b.first)} … ${row(b.last)}';
+      }
+      final f = File('$_home/filter.log')..parent.createSync(recursive: true);
+      if (f.existsSync() && f.lengthSync() > 1 << 20) f.writeAsStringSync('');
+      f.writeAsStringSync('${DateTime.now().toIso8601String().substring(0, 19)} [$what] ${jsonEncode(req)}$brief\n',
+          mode: FileMode.append);
+    } catch (_) {}
+  }
+
   /// Tính 1 yêu cầu bộ lọc (như GitHub filter-run) → items.
   Future<List<Map<String, dynamic>>> compute(Map<String, dynamic> req) async {
     final root = await snapshot(req['sc'] as String);

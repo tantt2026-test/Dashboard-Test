@@ -107,9 +107,11 @@ class FilterCache {
         onUpdate();
         try {
           job.items = await LocalEngine.instance.compute(req);
+          LocalEngine.instance.log('local ok', req, job.items);
           onUpdate();
           return;
         } catch (e) {
+          LocalEngine.instance.log('local lỗi: $e', req, null);
           job.local = false;
         }
       }
@@ -131,7 +133,9 @@ class FilterCache {
           if (items == null) throw TimeoutException('GitHub chưa tính xong sau 8 phút');
         }
         job.items = items;
+        LocalEngine.instance.log(job.dispatched ? 'github tính' : 'github có sẵn', req, items);
       } catch (e) {
+        LocalEngine.instance.log('github lỗi: $e', req, null);
         job.error = '$e';
       }
       onUpdate();
