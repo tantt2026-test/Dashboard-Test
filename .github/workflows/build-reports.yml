@@ -1,7 +1,8 @@
 # Workflow: build JSON cho app native (native/README.md)
-# ƒê·∫∑t t·∫°i .github/workflows/build-reports.yml. C√°c b∆∞·ªõc n·∫±m trong native/ci/run.sh
-# (s·ª≠a quy tr√¨nh ch·ªâ c·∫ßn s·ª≠a run.sh, kh√¥ng ph·∫£i d√°n l·∫°i file n√†y).
-# JSON n·∫±m ·ªü branch `reports`. Kh√¥ng ƒë·ª•ng t·ªõi Streamlit Cloud (ch·∫°y theo main nh∆∞ c≈©).
+# Bản gốc của .github/workflows/build-reports.yml (token của máy không có quyền sửa workflow →
+# dán file này vào GitHub web). Các bước nằm trong native/ci/*.sh — sửa quy trình không cần dán lại.
+# Lượt 1 chia cho 4 máy chạy song song (shard.sh) → job publish ghép lại, đưa lên app ngay,
+# rồi mới đối chiếu + lượt 2 + lượt 3 (run.sh). JSON nằm ở branch `reports`.
 name: Build native reports
 
 on:
@@ -24,28 +25,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
+      # Cùng requirements.txt với Streamlit Cloud → cùng phiên bản pandas/plotly/altair
+      - run: pip install -r requirements.txt beautifulsoup4
+      - name: Lượt 1 (phần của máy ${{ matrix.shard }})
+        run: bash native/ci/shard.sh ${{ matrix.shard }} 4
+        env:
+          REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.shard }}
+          path: _shard
+          retention-days: 1
 
-      # C√πng requirements.txt v·ªõi Streamlit Cloud ‚Üí c√πng phi√™n b·∫£n pandas/plotly/altair
+  build:
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
       - name: Install Python deps
         run: pip install -r requirements.txt beautifulsoup4
-
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*
+          path: _shards
+      - name: Ghép 4 máy + đưa data lên cho app
+        run: bash native/ci/run.sh
+        env:
+          STAGE: first
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Xu·∫•t + ƒë·ªëi chi·∫øu + publish
+      - name: Đối chiếu + lượt 2, 3
         run: bash native/ci/run.sh
         env:
+          STAGE: rest
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
