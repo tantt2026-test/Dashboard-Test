@@ -293,8 +293,14 @@ class _KpiReportPageState extends State<KpiReportPage> {
     if (_doc != null) {
       final widgets = [...collectWidgets(_doc!.items), ..._mainWidgets()];
       final (file, note) = pickVariant(widgets, _values);
+      // Bản tính sẵn (ô "tính lại", vd Sort A→Z): chỉ đổi thứ tự dòng → các ô lọc khác áp lên được;
+      // đổi cả số mà còn ô lọc khác đang chọn → App.py tính đủ tổ hợp
+      final loaded = file == null ? null : _variants[file];
+      final reorderOnly = loaded != null && sameRowsAs(_doc!.items, loaded);
+      final otherActive = widgets.any((w) =>
+          (w['f'] as Map?)?['mode'] != 'calc' && (w['f'] as Map?)?['mode'] != 'cols' && isActive(w, _values[w['key']]));
       // Lựa chọn app không tự tính chính xác → kết quả App.py do GitHub tính & lưu (đúng như Streamlit)
-      final useServer = _needServer(widgets, note);
+      final useServer = _needServer(widgets, note) || (loaded != null && !reorderOnly && otherActive);
       _job = useServer ? _requestGithub(widgets) : null;
       final job = _job;
       if (job?.items != null) {
@@ -325,10 +331,11 @@ class _KpiReportPageState extends State<KpiReportPage> {
         }
       }
       if (!fromServer) {
-        final mk = '${identityHashCode(base)}|${jsonEncode(_values)}|${_nvs.join(',')}|$file|$waitingVariant';
+        final mk = '${identityHashCode(base)}|${jsonEncode(_values)}|${_nvs.join(',')}|$file|$waitingVariant|$reorderOnly';
         if (mk != _memoKey) {
           _memo = applyFilters(base, widgets, _values,
-              onVariant: file != null && !waitingVariant, multiNv: _nvs.length >= 2 ? _nvs.toSet() : null);
+              onVariant: file != null && !waitingVariant && !reorderOnly,
+              multiNv: _nvs.length >= 2 ? _nvs.toSet() : null);
           _memoKey = mk;
         }
         final res = _memo!;

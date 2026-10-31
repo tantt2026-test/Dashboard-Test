@@ -55,8 +55,13 @@ void main() {
       base = ((jsonDecode(File('$dir/$file').readAsStringSync()) as Map)['items'] as List).cast<Map<String, dynamic>>();
     }
     final nvs = (c['nvs'] as List?)?.map((e) => '$e').toSet();
-    final res = applyFilters(base, widgets, values, onVariant: file != null, multiNv: nvs);
-    final allNotes = [?note, ...res.notes];
+    // giống report_page: bản tính sẵn chỉ đổi thứ tự dòng → mặt nạ dòng vẫn áp; đổi số mà còn
+    // ô lọc khác → app nhờ App.py (báo 'note')
+    final reorderOnly = file != null && sameRowsAs(items, base);
+    final otherActive = widgets.any((w) =>
+        (w['f'] as Map?)?['mode'] != 'calc' && (w['f'] as Map?)?['mode'] != 'cols' && isActive(w, values[w['key']]));
+    final res = applyFilters(base, widgets, values, onVariant: file != null && !reorderOnly, multiNv: nvs);
+    final allNotes = [?note, if (file != null && !reorderOnly && otherActive) 'cần App.py tính tổ hợp', ...res.notes];
     out.add({
       'note': allNotes.isEmpty ? null : allNotes.join(' | '),
       'variant': file,

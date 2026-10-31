@@ -12,7 +12,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.5.4';
+const appVersion = '1.5.5';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;

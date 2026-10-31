@@ -151,6 +151,12 @@ def main():
             if len(non_calc) >= 2:
                 ws = rnd.sample(non_calc, 2)
                 cases.append({w['key']: gen(w) for w in ws})
+        # ô "tính lại" (vd Sort A→Z) + 1 ô lọc khác: các ô phải phối hợp với nhau
+        calcs = [w for w in usable if w['f']['mode'] == 'calc']
+        for w in calcs:
+            if non_calc:
+                o = rnd.choice(non_calc)
+                cases.append({w['key']: gen(w), o['key']: gen(o)})
         byk = {w['key']: w for w in usable}
         import time
         t_rep = time.time()

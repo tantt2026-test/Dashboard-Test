@@ -75,6 +75,32 @@ final _totalRe = RegExp(r'^(TỔNG|TOTAL)|\sTOTAL$', caseSensitive: false);
 /// (không nhầm tên CH như "Cửa Hàng Tổng Hợp") — giống filters_probe.is_total.
 bool isTotalRow(List<String> cells) => cells.take(3).any((c) => _totalRe.hasMatch(c.trim()));
 
+/// Bản tính sẵn chỉ đổi THỨ TỰ dòng so với bản gốc (vd Sort Tên NVBH A→Z): cùng bảng, cùng cột,
+/// cùng tập dòng → mặt nạ dòng đo trên bản gốc vẫn áp được (các ô lọc phối hợp với nhau).
+bool sameRowsAs(List<Map<String, dynamic>> base, List<Map<String, dynamic>> variant) {
+  List<Map<String, dynamic>> tbls(List<Map<String, dynamic>> l) => [
+        for (final it in l)
+          if (it['t'] == 'tbl') it else if (it['t'] == 'box') ...tbls((it['ch'] as List).cast<Map<String, dynamic>>())
+      ];
+  Set<String> keys(Map<String, dynamic> t) {
+    final names = colPaths(t);
+    final skip = {for (var i = 0; i < names.length; i++) if (names[i].trim().toUpperCase() == 'STT') i};
+    return {
+      for (final r in (t['b'] as List).cast<List>())
+        rowKey([for (final (i, c) in bodyCells(r).indexed) if (!skip.contains(i)) c])
+    };
+  }
+
+  final a = tbls(base), b = tbls(variant);
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (jsonEncode(colPaths(a[i])) != jsonEncode(colPaths(b[i]))) return false;
+    final ka = keys(a[i]), kb = keys(b[i]);
+    if (ka.length != kb.length || !ka.containsAll(kb)) return false;
+  }
+  return true;
+}
+
 /// Ghi chỉ số duyệt (giống _walk của Python: item, rồi con của box) vào '_i', bảng thứ mấy vào '_ti'.
 void indexItems(List<Map<String, dynamic>> items) {
   var i = 0, ti = 0;
