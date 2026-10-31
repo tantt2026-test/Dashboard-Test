@@ -1,8 +1,10 @@
 # Workflow: build JSON cho app native (native/README.md)
 # Bản gốc của .github/workflows/build-reports.yml (token của máy không có quyền sửa workflow →
 # dán file này vào GitHub web). Các bước nằm trong native/ci/*.sh — sửa quy trình không cần dán lại.
-# Lượt 1 chia cho 4 máy chạy song song (shard.sh) → job publish ghép lại, đưa lên app ngay,
-# rồi mới đối chiếu + lượt 2 + lượt 3 (run.sh). JSON nằm ở branch `reports`.
+#   shard ×4  : lượt 1 chia 4 máy (3 báo cáo nặng nhất chỉ xuất số)      ┐ chạy cùng lúc
+#   probe ×3  : mỗi máy dò ô lọc 1 báo cáo nặng                           ┘
+#   publish   : ghép 4 máy → đưa data lên app NGAY
+#   rest      : ghép dò ô lọc → publish lại, đối chiếu, lượt 2, lượt 3
 name: Build native reports
 
 on:
@@ -43,6 +45,7 @@ jobs:
       - name: Lượt 1 (phần của máy ${{ matrix.shard }})
         run: bash native/ci/shard.sh ${{ matrix.shard }} 4
         env:
+          PROBE_JOBS: '1'
           REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v4
         with:
@@ -50,18 +53,41 @@ jobs:
           path: _shard
           retention-days: 1
 
-  build:
-    needs: shard
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        k: [0, 1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-      - name: Install Python deps
-        run: pip install -r requirements.txt beautifulsoup4
+      - run: pip install -r requirements.txt beautifulsoup4
+      - name: Dò ô lọc báo cáo nặng số ${{ matrix.k }}
+        run: bash native/ci/probe.sh ${{ matrix.k }}
+        env:
+          REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.k }}
+          path: _probe
+          retention-days: 1
+
+  publish:
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt beautifulsoup4
       - uses: actions/download-artifact@v4
         with:
           pattern: shard-*
@@ -70,6 +96,39 @@ jobs:
         run: bash native/ci/run.sh
         env:
           STAGE: first
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pass1
+          path: _reports
+          retention-days: 1
+
+  rest:
+    needs: [publish, probe]
+    if: ${{ always() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt beautifulsoup4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pass1
+          path: _reports
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: probe-*
+          path: _probes
+      - name: Ghép dò ô lọc báo cáo nặng + publish lại
+        run: bash native/ci/run.sh
+        env:
+          STAGE: probes
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
       - uses: subosito/flutter-action@v2
