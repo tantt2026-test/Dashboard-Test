@@ -106,7 +106,9 @@ jobs:
 
   rest:
     needs: [publish, probe]
-    if: ${{ always() && needs.publish.result == 'success' }}
+    # !cancelled(): vẫn chạy khi máy dò lỗi, nhưng DỪNG khi có data mới (always() thì GitHub không huỷ
+    # được → lượt mới phải xếp hàng chờ lượt 2, 3 của lượt cũ chạy xong)
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
