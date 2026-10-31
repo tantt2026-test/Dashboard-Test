@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../logic/turnover_logic.dart';
+import 'filter_cache.dart' show ghRepo, ghToken;
 import 'local_engine.dart';
 
 /// JSON do GitHub Action xuất ra branch `reports` của repo Dashboard-Test.
@@ -68,13 +69,33 @@ class ReportRepository {
   /// Tải từ GitHub; lỗi mạng → dùng bản đã lưu lần trước.
   Future<Loaded<String>> _getPublic(String rel) => _get(rel);
 
+  /// Mã commit hiện tại của branch `reports`: tải file theo đúng mã này (raw theo commit không bị
+  /// CDN giữ bản cũ) → manifest, index, báo cáo luôn cùng 1 lần xuất, không nhảy cũ ↔ mới.
+  String? _ref;
+
+  Future<void> _refreshRef() async {
+    if (!dataBaseUrl.endsWith('/reports/')) return; // server thử nghiệm
+    try {
+      final res = await _client.get(Uri.parse('https://api.github.com/repos/$ghRepo/git/ref/heads/reports'), headers: {
+        'Accept': 'application/vnd.github+json',
+        if (ghToken.isNotEmpty) 'Authorization': 'Bearer $ghToken',
+      }).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) _ref = ((jsonDecode(res.body) as Map)['object'] as Map)['sha'] as String;
+    } catch (_) {
+      // mất mạng / hết lượt API → dùng mã cũ (hoặc tên branch)
+    }
+  }
+
   Future<Loaded<String>> _get(String rel) async {
     final cache = await _cacheFile(rel);
     try {
-      // ?v= tránh CDN của raw.githubusercontent giữ bản cũ quá lâu
-      final v = DateTime.now().millisecondsSinceEpoch ~/ 60000;
+      final ref = _ref;
+      // ?v= tránh CDN giữ bản cũ khi chưa lấy được mã commit
+      final url = ref != null
+          ? '${dataBaseUrl.substring(0, dataBaseUrl.length - 'reports/'.length)}$ref/$rel'
+          : '$dataBaseUrl$rel?v=${DateTime.now().millisecondsSinceEpoch ~/ 60000}';
       final res = await _client
-          .get(Uri.parse('$dataBaseUrl$rel?v=$v'))
+          .get(Uri.parse(url))
           .timeout(const Duration(seconds: 20));
       if (res.statusCode != 200) {
         throw HttpException('HTTP ${res.statusCode}');
@@ -98,6 +119,7 @@ class ReportRepository {
   static bool _isLive(String monthKey) => _live.liveSc != null && _live.liveMonth == monthKey;
 
   Future<Loaded<Manifest>> manifest() async {
+    await _refreshRef();
     final r = await _get('manifest.json');
     final j = jsonDecode(r.value) as Map<String, dynamic>;
     // KPI_REMOTE_SC (chỉ để thử trên Mac): giả như GitHub mới xuất tới commit cũ → Mac tự tính

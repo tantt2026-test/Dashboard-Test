@@ -153,6 +153,7 @@ class LocalEngine {
         });
         p.stderr.drain<void>();
         p.exitCode.then((code) {
+          log('python dừng (mã $code)', const {}, null);
           _proc = null;
           _starting = null;
           _buf = '';

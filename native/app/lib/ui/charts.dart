@@ -170,88 +170,318 @@ class BarChartView extends StatelessWidget {
       ]);
 }
 
-/// Biểu đồ tròn / donut.
-class PieChartView extends StatelessWidget {
+/// Biểu đồ tròn / donut — vẽ y như go.Pie của Plotly trên Streamlit (render_mbs_pie_chart):
+/// sort giảm dần, lát đầu bắt đầu ở 12 giờ (theo chiều kim đồng hồ), các lát sau đi ngược chiều;
+/// textinfo 'percent+label' nằm ngoài, % 3 chữ số có nghĩa ("33%", "2.91%"); viền trắng 1px;
+/// chú thích nằm ngang bên dưới (bấm để ẩn/hiện lát); rê chuột / chạm lát → khung hover.
+class PieChartView extends StatefulWidget {
   final Map<String, dynamic> data;
   const PieChartView({super.key, required this.data});
 
   @override
+  State<PieChartView> createState() => _PieChartViewState();
+}
+
+/// % kiểu Plotly (d3 '.3~p'): 3 chữ số có nghĩa, bỏ số 0 thừa.
+String plotlyPct(double frac) {
+  final p = frac * 100;
+  if (p == 0) return '0%';
+  var s = p.toStringAsPrecision(3);
+  if (s.contains('e')) s = p.toStringAsFixed(2);
+  if (s.contains('.')) s = s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  return '$s%';
+}
+
+class _Slice {
+  final int i; // vị trí gốc
+  final String label;
+  final double value;
+  final Color color;
+  _Slice(this.i, this.label, this.value, this.color);
+}
+
+class _PieChartViewState extends State<PieChartView> {
+  final Set<String> _hidden = {};
+  Offset? _hoverPos;
+  int? _hoverSlice;
+
+  static const _labelColor = Color(0xFF808495); // chữ ngoài lát (theme Streamlit)
+  static const _textColor = Color(0xFF31333F); // chú thích
+
+  @override
   Widget build(BuildContext context) {
-    final t = (data['tr'] as List).first as Map<String, dynamic>;
+    final t = (widget.data['tr'] as List).first as Map<String, dynamic>;
     final labels = [for (final l in t['labels'] as List) '$l'];
     final values = [for (final v in t['values'] as List) v is num ? v.toDouble() : 0.0];
     final cols = t['colors'] as List?;
-    final colors = [
+    final all = <_Slice>[
       for (var i = 0; i < labels.length; i++)
-        (cols != null && i < cols.length ? hexColor(cols[i]) : null) ?? _palette[i % _palette.length]
+        _Slice(i, labels[i], i < values.length ? values[i] : 0,
+            (cols != null && i < cols.length ? hexColor(cols[i]) : null) ?? _palette[i % _palette.length])
     ];
-    final total = values.fold<double>(0, (a, b) => a + b);
+    // Plotly sort=True: giảm dần theo giá trị (bằng nhau giữ thứ tự gốc)
+    if (t['sort'] != false) {
+      all.sort((a, b) => b.value != a.value ? b.value.compareTo(a.value) : a.i.compareTo(b.i));
+    }
+    final shown = [for (final s in all) if (!_hidden.contains(s.label) && s.value > 0) s];
     final hole = ((t['hole'] as num?) ?? 0).toDouble();
+    final info = '${t['textinfo'] ?? 'percent+label'}';
+    final outside = '${t['textposition'] ?? 'outside'}' == 'outside';
+    final hover = t['hovertemplate'] as String?;
 
-    final pie = SizedBox(
-      width: 170,
-      height: 170,
-      child: CustomPaint(painter: _PiePainter(values, colors, hole), child: Center(
-        child: hole > 0
-            ? Text(_fmt(total), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Brand.navy))
-            : null,
-      )),
-    );
-    final legend = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      for (var i = 0; i < labels.length; i++)
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(children: [
-            Container(width: 10, height: 10, decoration: BoxDecoration(color: colors[i], shape: BoxShape.circle)),
-            const SizedBox(width: 6),
-            Expanded(child: Text(labels[i], style: const TextStyle(fontSize: 12))),
-            Text('${_fmt(values[i])} · ${total > 0 ? (values[i] / total * 100).toStringAsFixed(1) : '0'}%',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-          ]),
+    final chart = LayoutBuilder(builder: (ctx, c) {
+      final size = Size(c.maxWidth, 300);
+      final geo = _PieGeo(shown, size, hole, info, outside, DefaultTextStyle.of(ctx).style.fontFamily);
+      String? tip;
+      if (_hoverSlice != null && _hoverSlice! < shown.length) {
+        final s = shown[_hoverSlice!];
+        final pct = plotlyPct(s.value / geo.total);
+        tip = (hover ?? '%{label}<br>%{value} (%{percent})')
+            .replaceAll(RegExp(r'<extra>.*?</extra>'), '')
+            .replaceAll('%{label}', s.label)
+            .replaceAll('%{value}', _fmt(s.value))
+            .replaceAll('%{percent}', pct)
+            .replaceAll('<br>', '\n');
+      }
+      void track(Offset p) {
+        final k = geo.hit(p);
+        if (k != _hoverSlice || (k != null && p != _hoverPos)) {
+          setState(() {
+            _hoverSlice = k;
+            _hoverPos = p;
+          });
+        }
+      }
+
+      return MouseRegion(
+        onHover: (e) => track(e.localPosition),
+        onExit: (_) => setState(() => _hoverSlice = null),
+        child: GestureDetector(
+          onTapDown: (d) => track(d.localPosition),
+          child: SizedBox(
+            width: size.width,
+            height: size.height,
+            child: Stack(clipBehavior: Clip.none, children: [
+              CustomPaint(size: size, painter: _PiePainter(geo)),
+              if (tip != null && _hoverPos != null)
+                Positioned(
+                  left: (_hoverPos!.dx + 12).clamp(0, math.max(0, size.width - 220)).toDouble(),
+                  top: (_hoverPos!.dy - 10).clamp(0, size.height - 40).toDouble(),
+                  child: IgnorePointer(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: shown[_hoverSlice!].color,
+                        borderRadius: BorderRadius.circular(3),
+                        border: Border.all(color: Colors.white),
+                      ),
+                      child: Text(tip, style: const TextStyle(color: Colors.white, fontSize: 12.5, height: 1.3)),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
         ),
-    ]);
+      );
+    });
+
+    // Chú thích ngang (orientation='h'), canh giữa, các cột thẳng hàng như Plotly
+    final legend = LayoutBuilder(builder: (ctx, c) {
+      final style = TextStyle(fontSize: 11, color: _textColor, fontFamily: DefaultTextStyle.of(ctx).style.fontFamily);
+      double tw(String s) => (TextPainter(text: TextSpan(text: s, style: style), textDirection: TextDirection.ltr)
+            ..layout())
+          .width;
+      // mỗi ô = chữ dài nhất + ô màu + khoảng cách, chia đều thành cột như legend ngang của Plotly
+      final itemW = math.min(c.maxWidth, all.map((s) => tw(s.label)).fold<double>(0, math.max) + 30);
+      return Wrap(alignment: WrapAlignment.center, runSpacing: 4, children: [
+        for (final s in all)
+          InkWell(
+            onTap: () => setState(() {
+              _hoverSlice = null;
+              _hidden.contains(s.label) ? _hidden.remove(s.label) : _hidden.add(s.label);
+            }),
+            child: SizedBox(
+              width: itemW,
+              child: Opacity(
+                opacity: _hidden.contains(s.label) ? 0.5 : 1,
+                child: Row(children: [
+                  Container(width: 13, height: 13, color: s.color),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(s.label, style: style, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                ]),
+              ),
+            ),
+          ),
+      ]);
+    });
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
       decoration: _frame,
       child: Column(children: [
-        _title(data['title'] as String?),
-        LayoutBuilder(builder: (ctx, c) => c.maxWidth > 560
-            ? Row(children: [pie, const SizedBox(width: 20), Expanded(child: legend)])
-            : Column(children: [pie, const SizedBox(height: 12), legend])),
+        if ((widget.data['title'] as String?)?.isNotEmpty == true)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(widget.data['title'] as String,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF1A365D), fontSize: 14)),
+          ),
+        chart,
+        const SizedBox(height: 6),
+        legend,
       ]),
     );
   }
 }
 
-class _PiePainter extends CustomPainter {
-  final List<double> values;
-  final List<Color> colors;
+/// Hình học của donut: góc từng lát + vị trí nhãn ngoài (né chồng chữ như Plotly).
+class _PieGeo {
+  final List<_Slice> slices;
+  final Size size;
   final double hole;
-  _PiePainter(this.values, this.colors, this.hole);
+  final String info;
+  final bool outside;
+  late final double total;
+  late final Offset center;
+  late final double r;
+  final List<(double, double)> arcs = []; // (bắt đầu, độ quét) — radian, chiều kim đồng hồ dương
+  final List<(TextPainter, Offset, Offset, Offset)> labels = []; // chữ, góc trên-trái, điểm mép lát, điểm gãy
+
+  final String? font;
+
+  _PieGeo(this.slices, this.size, this.hole, this.info, this.outside, this.font) {
+    final style = TextStyle(fontSize: 12, color: _PieChartViewState._labelColor, height: 1.2, fontFamily: font);
+    total = slices.fold<double>(0, (a, s) => a + s.value);
+    center = size.center(Offset.zero);
+    // chữ từng lát
+    final texts = <TextPainter>[];
+    for (final s in slices) {
+      final parts = <String>[
+        if (info.contains('label')) s.label,
+        if (info.contains('value')) _fmt(s.value),
+        if (info.contains('percent')) plotlyPct(total > 0 ? s.value / total : 0),
+      ];
+      texts.add(TextPainter(
+          text: TextSpan(text: parts.join('\n'), style: style),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr)
+        ..layout(maxWidth: math.max(90, size.width * 0.36)));
+    }
+    final maxW = texts.fold<double>(0, (a, t) => math.max(a, t.width));
+    final byW = outside ? (size.width - 2 * maxW - 40) / 2 : size.width / 2 - 10;
+    r = math.max(50, math.min(size.height / 2 - 34, byW));
+    if (total <= 0) return;
+    // Plotly: lát đầu từ 12 giờ theo chiều kim đồng hồ, các lát sau nối tiếp ngược chiều từ 12 giờ
+    const top = -math.pi / 2;
+    var ccw = top;
+    for (var k = 0; k < slices.length; k++) {
+      final sweep = slices[k].value / total * 2 * math.pi;
+      if (k == 0) {
+        arcs.add((top, sweep));
+      } else {
+        ccw -= sweep;
+        arcs.add((ccw, sweep));
+      }
+    }
+    if (!outside) {
+      for (var k = 0; k < slices.length; k++) {
+        final mid = arcs[k].$1 + arcs[k].$2 / 2;
+        final rr = r * (1 + hole) / 2;
+        final p = center + Offset(math.cos(mid), math.sin(mid)) * rr;
+        labels.add((texts[k], p - Offset(texts[k].width / 2, texts[k].height / 2), p, p));
+      }
+      return;
+    }
+    // nhãn ngoài: đặt ở góc giữa lát, mỗi bên (trái/phải) đẩy xuống cho khỏi chồng nhau
+    final items = <(int, double, Offset)>[]; // k, góc giữa, điểm neo
+    for (var k = 0; k < slices.length; k++) {
+      final mid = arcs[k].$1 + arcs[k].$2 / 2;
+      items.add((k, mid, center + Offset(math.cos(mid), math.sin(mid)) * (r + 14)));
+    }
+    final placed = List<Offset?>.filled(slices.length, null);
+    for (final right in [true, false]) {
+      final side = items.where((e) => (math.cos(e.$2) >= 0) == right).toList()
+        ..sort((a, b) => a.$3.dy.compareTo(b.$3.dy));
+      var lastBottom = -double.infinity;
+      for (final e in side) {
+        final tp = texts[e.$1];
+        var y = e.$3.dy - tp.height / 2;
+        if (y < lastBottom + 2) y = lastBottom + 2;
+        lastBottom = y + tp.height;
+        final x = right ? e.$3.dx : e.$3.dx - tp.width;
+        placed[e.$1] = Offset(x, y);
+      }
+      // tràn đáy → kéo cả cụm lên
+      final overflow = lastBottom - size.height;
+      if (overflow > 0) {
+        for (final e in side) {
+          placed[e.$1] = placed[e.$1]! - Offset(0, overflow);
+        }
+      }
+    }
+    for (var k = 0; k < slices.length; k++) {
+      final mid = items[k].$2;
+      final edge = center + Offset(math.cos(mid), math.sin(mid)) * r;
+      final tp = texts[k];
+      final pos = placed[k]!;
+      final right = math.cos(mid) >= 0;
+      final elbow = Offset(right ? pos.dx - 2 : pos.dx + tp.width + 2, pos.dy + tp.height / 2);
+      labels.add((tp, pos, edge, elbow));
+    }
+  }
+
+  int? hit(Offset p) {
+    final d = p - center;
+    final dist = d.distance;
+    if (dist > r || dist < r * hole || total <= 0) return null;
+    final a = math.atan2(d.dy, d.dx);
+    for (var k = 0; k < arcs.length; k++) {
+      var x = a - arcs[k].$1;
+      while (x < 0) {
+        x += 2 * math.pi;
+      }
+      while (x >= 2 * math.pi) {
+        x -= 2 * math.pi;
+      }
+      if (x <= arcs[k].$2) return k;
+    }
+    return null;
+  }
+}
+
+class _PiePainter extends CustomPainter {
+  final _PieGeo g;
+  _PiePainter(this.g);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final total = values.fold<double>(0, (a, b) => a + b);
-    if (total <= 0) return;
-    final r = math.min(size.width, size.height) / 2;
-    final rect = Rect.fromCircle(center: size.center(Offset.zero), radius: r);
-    var start = -math.pi / 2;
-    for (var i = 0; i < values.length; i++) {
-      final sweep = values[i] / total * 2 * math.pi;
-      canvas.drawArc(rect, start, sweep, true, Paint()..color = colors[i]);
+    if (g.total <= 0) return;
+    final rect = Rect.fromCircle(center: g.center, radius: g.r);
+    for (var k = 0; k < g.arcs.length; k++) {
+      final (start, sweep) = g.arcs[k];
+      canvas.drawArc(rect, start, sweep, true, Paint()..color = g.slices[k].color);
+    }
+    for (var k = 0; k < g.arcs.length; k++) {
+      final (start, sweep) = g.arcs[k];
       canvas.drawArc(rect, start, sweep, true,
           Paint()
             ..color = Colors.white
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5);
-      start += sweep;
+            ..strokeWidth = 1);
     }
-    if (hole > 0) {
-      canvas.drawCircle(size.center(Offset.zero), r * hole, Paint()..color = Colors.white);
+    if (g.hole > 0) canvas.drawCircle(g.center, g.r * g.hole, Paint()..color = Colors.white);
+    final line = Paint()
+      ..color = _PieChartViewState._labelColor
+      ..strokeWidth = 1;
+    for (final (tp, pos, edge, elbow) in g.labels) {
+      // đường dẫn khi chữ bị đẩy xa khỏi lát (như Plotly)
+      if (g.outside && (elbow - edge).distance > 18) {
+        canvas.drawLine(edge, elbow, line);
+      }
+      tp.paint(canvas, pos);
     }
   }
 
   @override
-  bool shouldRepaint(_PiePainter old) => old.values != values;
+  bool shouldRepaint(_PiePainter old) => true;
 }

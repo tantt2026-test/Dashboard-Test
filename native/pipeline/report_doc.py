@@ -491,7 +491,12 @@ def plotly_item(fig):
             traces.append({'labels': [_plain(x) for x in _lst(t.get('labels')) or []],
                            'values': _lst(t.get('values')) or [],
                            'colors': _lst(m.get('colors')) or None,
-                           'hole': t.get('hole') or 0})
+                           'hole': t.get('hole') or 0,
+                           # cách Plotly hiện chữ / hover / thứ tự lát → app vẽ y như Streamlit
+                           'textinfo': t.get('textinfo') or 'percent',
+                           'textposition': t.get('textposition') or 'auto',
+                           'hovertemplate': t.get('hovertemplate'),
+                           'sort': t.get('sort') is not False})
         elif typ == 'bar':
             m = t.get('marker') or {}
             col = m.get('color')
