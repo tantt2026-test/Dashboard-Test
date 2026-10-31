@@ -1,0 +1,174 @@
+{
+ "schema": 1,
+ "fingerprint": "344efb7785261f02",
+ "plan_dates": [],
+ "month_key": "Thang09",
+ "month_label": "Tháng 09/2026",
+ "year": 2026,
+ "month": 9,
+ "default_date": "2026-09-30",
+ "data_max_date": "2026-09-30",
+ "nv": [
+  "Danh Hồng Oanh",
+  "Huỳnh Tấn Lý",
+  "Hàng Thanh Lộc",
+  "Lê Thị Thơm",
+  "Mai Thanh Tâm",
+  "Mai Thị Linh",
+  "Nguyễn Hoàng Bích Thủy",
+  "Nguyễn Thị Bích Trâm",
+  "Nguyễn Trần Bảo Long",
+  "Nguyễn Văn Đình Chương",
+  "Ngô Nguyễn Cao Kỳ",
+  "Trương Hoàng Giang",
+  "Trần Minh Thành",
+  "Trần Tấn Tài",
+  "Đoàn Thị Phượng Liên"
+ ],
+ "dates": [
+  "2026-09-30"
+ ],
+ "complete": true,
+ "stale_dates": [],
+ "reports": [
+  {
+   "code": "TURNOVER",
+   "name": "1. TURNOVER - Tổng doanh số bán ra",
+   "group": "kpi"
+  },
+  {
+   "code": "PC_BT",
+   "name": "2. PC_BT - Đơn hàng ≥4 line MOQ (L1 OFF)",
+   "group": "kpi"
+  },
+  {
+   "code": "LPPC",
+   "name": "3. LPPC - Bình quân line/PC (trừ Meat & Beer)",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_ALL",
+   "name": "4. ASO_ALL - Kênh OFF",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_FOCUS",
+   "name": "5. ASO Chanté - Trận Xanh (Total nhãn Chanté)",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_FOCUS_2",
+   "name": "6. ASO Omachi Trộn - Trận Vàng",
+   "group": "kpi"
+  },
+  {
+   "code": "PC_ON",
+   "name": "7. ASO Tea - Kênh ON (≥12 chai/CH)",
+   "group": "kpi"
+  },
+  {
+   "code": "LPPC_MEAT",
+   "name": "8. LPPC_Meat - Bình quân line/PC (Processed Meats)",
+   "group": "kpi"
+  },
+  {
+   "code": "COMBO",
+   "name": "9. BÁO CÁO ĐH COMBO",
+   "group": "kpi"
+  },
+  {
+   "code": "SUMMARY",
+   "name": "10. BÁO CÁO TỔNG HỢP",
+   "group": "kpi"
+  },
+  {
+   "code": "VISIT",
+   "name": "11. BÁO CÁO LỊCH VIẾNG THĂM",
+   "group": "kpi"
+  },
+  {
+   "code": "MBS_CAT",
+   "name": "12. BÁO CÁO MBS CAT",
+   "group": "kpi"
+  },
+  {
+   "code": "MBS_BRAND",
+   "name": "13. BÁO CÁO MBS BRAND",
+   "group": "kpi"
+  },
+  {
+   "code": "PERFORMANCE",
+   "name": "14. BÁO CÁO HIỆU SUẤT BÁN HÀNG",
+   "group": "kpi"
+  },
+  {
+   "code": "DISPLAY",
+   "name": "15. BÁO CÁO TRƯNG BÀY",
+   "group": "kpi"
+  },
+  {
+   "code": "TEA_BATTLE",
+   "name": "16. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON T10",
+   "group": "kpi"
+  },
+  {
+   "code": "PERF_CAT",
+   "name": "17. BÁO CÁO PERFORMANCE",
+   "group": "kpi"
+  },
+  {
+   "code": "WEEKLY_PREVIEW",
+   "name": "18. WEEKLY PREVIEW - MCP / ASO / %COV",
+   "group": "kpi"
+  },
+  {
+   "code": "TAB_MCP",
+   "name": "🗺️ MCP VISIT",
+   "group": "tab"
+  },
+  {
+   "code": "TAB_CAT",
+   "name": "📦 TRACKING MBS - CAT",
+   "group": "tab"
+  },
+  {
+   "code": "TAB_BRAND",
+   "name": "🏷️ TRACKING MBS - BRAND",
+   "group": "tab"
+  },
+  {
+   "code": "TAB_OFF",
+   "name": "📋 DSKH_Combo OFF",
+   "group": "tab"
+  },
+  {
+   "code": "TAB_ON",
+   "name": "📋 DSKH_Combo ON",
+   "group": "tab"
+  }
+ ],
+ "tab_dates": [
+  "2026-09-30"
+ ],
+ "nv_slugs": {
+  "Danh Hồng Oanh": "danh-hong-oanh",
+  "Huỳnh Tấn Lý": "huynh-tan-ly",
+  "Hàng Thanh Lộc": "hang-thanh-loc",
+  "Lê Thị Thơm": "le-thi-thom",
+  "Mai Thanh Tâm": "mai-thanh-tam",
+  "Mai Thị Linh": "mai-thi-linh",
+  "Nguyễn Hoàng Bích Thủy": "nguyen-hoang-bich-thuy",
+  "Nguyễn Thị Bích Trâm": "nguyen-thi-bich-tram",
+  "Nguyễn Trần Bảo Long": "nguyen-tran-bao-long",
+  "Nguyễn Văn Đình Chương": "nguyen-van-dinh-chuong",
+  "Ngô Nguyễn Cao Kỳ": "ngo-nguyen-cao-ky",
+  "Trương Hoàng Giang": "truong-hoang-giang",
+  "Trần Minh Thành": "tran-minh-thanh",
+  "Trần Tấn Tài": "tran-tan-tai",
+  "Đoàn Thị Phượng Liên": "doan-thi-phuong-lien"
+ },
+ "nv_dates": [
+  "2026-09-30"
+ ],
+ "errors": []
+}

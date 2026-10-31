@@ -1,0 +1,35 @@
+{
+ "schema": 1,
+ "generated_at": "2026-10-31T22:01:09+07:00",
+ "source_commit": "dfc730f9b5c214b606567eb9f84c4143f2a591ef",
+ "months": [
+  {
+   "key": "Thang09",
+   "label": "Tháng 09/2026",
+   "year": 2026,
+   "month": 9
+  },
+  {
+   "key": "Thang10",
+   "label": "Tháng 10/2026",
+   "year": 2026,
+   "month": 10
+  }
+ ],
+ "reports": [
+  "turnover",
+  "kpi"
+ ],
+ "kpi_months": [
+  {
+   "key": "Thang09",
+   "label": "Tháng 09/2026",
+   "default_date": "2026-09-30"
+  },
+  {
+   "key": "Thang10",
+   "label": "Tháng 10/2026",
+   "default_date": "2026-10-30"
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+{"code":"DISPLAY","name":"15. BÁO CÁO TRƯNG BÀY","month_key":"Thang09","date":"2026-09-30","filter":["Hàng Thanh Lộc"],"items":[{"t":"h","lv":3,"r":[{"x":"15. BÁO CÁO TRƯNG BÀY","b":1,"c":"#1a365d"}],"al":"c"},{"t":"msg","lv":"warning","x":"⚠️ Chưa có file DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH.xlsx trong thư mục `data/`. Upload lên GitHub rồi Xóa Cache & Reload."}]}
