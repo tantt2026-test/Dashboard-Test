@@ -100,6 +100,8 @@ def main():
     ap.add_argument('--kpi-mode', default='full', choices=['default', 'history', 'full'],
                     help="default = chỉ ngày mặc định (publish nhanh); history = các ngày cũ")
     ap.add_argument('--shard', help='i/n: máy thứ i trong n máy chạy song song (lượt default)')
+    ap.add_argument('--skip-probe', default='', help='mã báo cáo (phẩy) chỉ xuất số, không dò ô lọc')
+    ap.add_argument('--only-probe', default='', help='mã báo cáo (phẩy): chỉ dò ô lọc các báo cáo này')
     a = ap.parse_args()
 
     # Đường dẫn tuyệt đối NGAY từ đầu: app_logic.load() đổi thư mục làm việc sang repo
@@ -143,7 +145,9 @@ def main():
             try:
                 idx, errs = export_kpi.export_month(app, mk, out, a.workers, prev_root=a.prev,
                                                     mode=a.kpi_mode,
-                                                    shard=tuple(map(int, a.shard.split('/'))) if a.shard else None)
+                                                    shard=tuple(map(int, a.shard.split('/'))) if a.shard else None,
+                                                    skip_probe={x for x in a.skip_probe.split(',') if x},
+                                                    only_probe={x for x in a.only_probe.split(',') if x})
             except Exception as e:
                 print(f'✗ KPI {mk}: {e!r}', file=sys.stderr)
                 failed.append(f'kpi:{mk}')

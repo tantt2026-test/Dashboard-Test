@@ -340,6 +340,8 @@ def _subselection(d: Snapshot, v: Snapshot):
             vcells = body_cells(vt_)
             if any(not is_total(vcells[v.rows[vi].index(k)]) for k in extra):
                 return _no('dòng mới')
+            if not _totals_reproducible(dt_, vt_):
+                return _no('dòng tổng app không tính lại được')
         mask['rows'].append(sorted(set(v.rows[vi]) & set(d.rows[ti])))
     if v.cards != d.cards:
         if not set(v.cards) <= set(d.cards):
@@ -418,9 +420,37 @@ def _only_targets_changed(d, v, targets):
     al = align(d, v)
     for ti, vi in enumerate(al):
         if ti in tset:
+            if vi is not None and not _totals_reproducible(d.tbls[ti], v.tbls[vi]):
+                return False
             continue
         if vi is None or v.rows[vi] != d.rows[ti] or v.cols[vi] != d.cols[ti]:
             return False
+    return True
+
+
+def _totals_reproducible(dt, vt):
+    """Bảng bị lọc: app tính lại dòng Tổng theo công thức đo trên bảng gốc ('tot'); cột nào
+    không có công thức thì app để trống. App.py vẫn hiện số ở cột đó → app không lọc tại chỗ được
+    (vd MCP VISIT lọc NV: cột MTD của TỔNG CỘNG không phải tổng các dòng)."""
+    vcells = body_cells(vt)
+    tots = [r for r in vcells if is_total(r)]
+    if not tots:
+        return True
+    f = total_formulas(dt) or {}
+    data = [r for r in vcells if not is_total(r)]
+    for c, x in enumerate(tots[-1]):
+        if not re.search(r'\d', x) or is_total([x]):
+            continue
+        spec = f.get(str(c))
+        if spec is None:
+            return False
+        if spec['op'] == 'sum':
+            style = (spec['t'], spec['d'])
+            vals = [_num(r[c] if c < len(r) else '', style)[0] for r in data]
+            total, _ = _num(x, style)
+            ssum = sum(v for v in vals if v is not None)
+            if total is None or abs(round(ssum, spec['n']) - total) > 0.5 * 10 ** -spec['n'] + 1e-9:
+                return False
     return True
 
 

@@ -4,10 +4,11 @@
 set -euo pipefail
 P=native/pipeline
 
-# STAGE=first: chỉ ghép + publish lượt 1 (workflow cài Flutter sau bước này); STAGE=rest: phần còn lại.
+# STAGE=first: chỉ ghép + publish lượt 1; STAGE=probes: ghép dò ô lọc các báo cáo nặng + publish lại;
+# STAGE=rest: đối chiếu + lượt 2, 3 (workflow cài Flutter trước bước này).
 # Không đặt STAGE: chạy hết (workflow cũ).
 STAGE=${STAGE:-all}
-if [ "$STAGE" != rest ]; then
+if [ "$STAGE" = all ] || [ "$STAGE" = first ]; then
 echo "::group::Lấy bản reports trước"
 git clone -q --depth 1 -b reports "https://github.com/${REPO}.git" _prev || mkdir -p _prev
 echo "::endgroup::"
@@ -26,6 +27,15 @@ echo "::endgroup::"
 bash native/ci/publish.sh _reports "Lượt 1 từ ${GITHUB_SHA::7}"
 fi
 [ "$STAGE" = first ] && exit 0
+
+# Kết quả dò ô lọc của các báo cáo nặng (máy probe.sh chạy song song) → ghép + publish lại
+if [ -d _probes ] && [ "$STAGE" != rest ]; then
+  echo "::group::Ghép dò ô lọc các báo cáo nặng"
+  python $P/merge_probes.py --probes _probes --out _reports
+  echo "::endgroup::"
+  bash native/ci/publish.sh _reports "Lượt 1 + bộ lọc từ ${GITHUB_SHA::7}"
+fi
+[ "$STAGE" = probes ] && exit 0
 
 echo "::group::Đối chiếu số Turnover + bộ lọc (App vs App.py)"
 PARITY=0

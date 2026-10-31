@@ -190,13 +190,16 @@ def _split(tasks, shard, weights):
     return mine
 
 
-def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, mode='full', shard=None):
+def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, mode='full', shard=None,
+                 skip_probe=(), only_probe=()):
     """mode:
       'default' — chỉ ngày mặc định (Tất cả + từng ĐDKD); các ngày khác giữ từ lần trước
       'history' — các ngày còn lại của tháng (Tất cả), dùng sau khi đã publish 'default'
       'full'    — cả hai
     shard=(i, n): chỉ tính phần việc của máy i trong n máy chạy song song (lượt 'default');
       không chép bản cũ vào — merge_shards.py ghép bản cũ + phần của các máy.
+    skip_probe: báo cáo nặng chỉ xuất số (không dò ô lọc) → lượt 1 đưa lên app sớm hơn;
+    only_probe: chỉ dò ô lọc cho các báo cáo này (máy riêng chạy song song, run.sh ghép vào sau).
     Tháng đã qua: chỉ ngày cuối tháng. Tháng không đổi (fingerprint) → dùng lại bản trước."""
     now_utc = now_utc or dt.datetime.utcnow()
     repo = os.path.dirname(os.path.abspath(app_path))
@@ -240,7 +243,7 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
 
     # Giữ các file ngày cũ từ lần trước (sẽ ghi đè phần tính lại)
     if prev_dir and os.path.isdir(prev_dir) and os.path.abspath(prev_dir) != os.path.abspath(out_dir) \
-            and mode == 'default' and shard is None:
+            and mode == 'default' and shard is None and not only_probe:
         shutil.rmtree(out_dir, ignore_errors=True)
         shutil.copytree(prev_dir, out_dir)
     elif mode != 'history':
@@ -251,7 +254,7 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
     tasks = []
     if mode in ('default', 'full'):
         # ngày mặc định, Tất cả: mỗi báo cáo/tab 1 tác vụ (có chạy thử ô lọc) → chạy song song
-        tasks += [(mk, plan['default_date'], None, [r], out_dir, True) for r in plan['reports']]
+        tasks += [(mk, plan['default_date'], None, [r], out_dir, r[0] not in skip_probe) for r in plan['reports']]
         tasks += [(mk, plan['default_date'], nv, kpi_reports, out_dir, False) for nv in plan['nv']]
         # ngày T (ngày mới nhất có data): data đổi mỗi lần sync → tính luôn ở lượt nhanh
         if mode == 'default' and plan['data_max_date'] and plan['data_max_date'] > plan['default_date'] \
@@ -264,6 +267,8 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         tasks += [(mk, plan['default_date'], None, [r], out_dir, True) for r in plan['reports']]
         tasks += [(mk, plan['default_date'], nv, kpi_reports, out_dir, False) for nv in plan['nv']]
 
+    if only_probe:
+        tasks = [(mk, plan['default_date'], None, [r], out_dir, True) for r in plan['reports'] if r[0] in only_probe]
     weights = {}
     for d in (prev_dir, out_dir):
         try:
