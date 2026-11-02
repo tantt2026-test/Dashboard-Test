@@ -444,7 +444,63 @@ MONTH_OPTIONS = {
         },
         'holidays': set(),
     },
+    'Thang11': {
+        'label': 'Tháng 11/2026',
+        'year': 2026, 'month': 11,
+        'folder': 'Thang11',
+        # CV 26 (T11): ASO_Focus = danh sách SP Tết (theo mã SP), chỉ tiêu 20 ASO/ĐDKD
+        'aso_focus_codes': [
+            '03NM00980', '03NM00981', '03NM00984', '03NM00798', '03NM00797', '03NM00982',
+            '03NM00983', '03OT00548', '03OT00547', '03OT00559', '03OT00558', '03OT00382',
+            '03OT00381', '03OT00215', '03OT00214', '03OT00217', '03OT00216', '03NM00986',
+            '03NM00987', '03NM00988', '02KK00313', '02KK00361', '02KK00360', '02OM00338',
+            '02OM00772', '02OM00770', '02OM00771', '02OM00951', '04HP00636', '04HP00637',
+            '04HP00638', '08CF00980', '08CF00979', '08TR00055', '08TR00056', '08TR00057',
+            '08TL00111',
+        ],
+        'aso_focus_pat': r'',
+        'aso_focus_name': 'ASO_Focus - Trận Xanh (SP Tết)',
+        'aso_focus_short': 'SP Tết',
+        'aso_focus_card': 'SP Tết',
+        'aso_focus_target': 20,
+        # CV 26 (T11): ASO_Focus_2 = Hạt nêm Chinsu ngọt thanh xương hầm cô đặc 170/400/900gr, 15 ASO/ĐDKD
+        'aso_focus2_pat': r'(?=.*h[aạ]t\s*n[eê]m)(?=.*ng[oọ]t\s*thanh)(?=.*x[uư][oơ]ng\s*h[aầ]m\s*c[oô]\s*[dđ][aặ]c)(?=.*(?<!\d)(?:170|400|900)\s*g)',
+        'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Hạt nêm Chinsu xương hầm)',
+        'aso_focus2_short': 'Hạt nêm xương hầm',
+        'aso_focus2_card': 'Hạt nêm XH',
+        'aso_focus2_target': 15,
+        'pc_on_pat': r'b[uú]p\s*non|bup\s*non|tea\s*365|tea365',
+        'pc_on_name': 'PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)',
+        'aso_all_name': 'ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)',
+        'pc_bt_exclude_meat': False,
+        'lppc_moc': 4.3,
+        'salary': {
+            'TURNOVER': '95%: 4.508.000đ | 100%: 6.440.000đ',
+            'PC_BT': '100%: 2.400.000đ',
+            'LPPC': 'Mức 1 (4,3): 1.980.000đ | Mức 2 (4,7): 2.200.000đ',
+            'ASO_ALL': '100%: 1.100.000đ',
+            'ASO_FOCUS': '90%: 880.000đ | 100%: 1.100.000đ (SP Tết)',
+            'ASO_FOCUS_2': '90%: 720.000đ | 100%: 900.000đ (Hạt nêm Chinsu xương hầm)',
+            'PC_ON': '100%: 1.500.000đ',
+            'LPPC_MEAT': '100%: 400.000đ',
+        },
+        'holidays': set(),
+    },
 }
+
+def _month_has_data(k):
+  # Tháng có data bán hàng (DanhSachChiTietDonHang*.xlsx hoặc RPT_061.xlsx + Data_MCP.xlsx) mới hiện / xuất báo cáo
+  p = os.path.join('data', (MONTH_OPTIONS.get(k) or {}).get('folder', k))
+  try:
+    fs = os.listdir(p)
+  except OSError:
+    return False
+  return 'Data_MCP.xlsx' in fs and ('RPT_061.xlsx' in fs or any(
+      f.startswith('DanhSachChiTietDonHang') and f.endswith('.xlsx') for f in fs))
+
+def _default_month_key():
+  ks = [k for k in MONTH_OPTIONS if _month_has_data(k)]
+  return ks[-1] if ks else 'Thang10'
 
 def get_month_key():
   try:
@@ -2955,7 +3011,7 @@ def build_report(
     if 'Tên SP lower' not in off.columns and 'Tên sản phẩm' in off.columns:
       off['Tên SP lower'] = off['Tên sản phẩm'].astype(str).str.lower()
     # T10: không trừ ngành nào. T09: trừ Beer nếu cfg yêu cầu
-    if get_month_key() != 'Thang10':
+    if get_month_key() == 'Thang09':
       sub = off['Sub Division'].astype(str) if 'Sub Division' in off.columns else pd.Series('', index=off.index)
       name = off['Tên SP lower'] if 'Tên SP lower' in off.columns else pd.Series('', index=off.index)
       if cfg.get('pc_bt_exclude_meat', False):
@@ -3025,11 +3081,18 @@ def build_report(
     else:
       off_src = pd.DataFrame()
       on_src = pd.DataFrame()
+    _all_src = df_mtd if df_mtd is not None else pd.DataFrame()
+    _codes = {str(c).strip().upper() for c in (cfg.get('aso_focus_codes') or [])}
+    if _codes:
+      # T11 (CV 26): đúng danh sách mã SP Tết
+      def _by_codes(x):
+        if x is None or x.empty or 'Mã sản phẩm' not in x.columns:
+          return pd.DataFrame()
+        return x[x['Mã sản phẩm'].astype(str).str.strip().str.upper().isin(_codes)]
+      off_src, on_src, _all_src = _by_codes(off_src), _by_codes(on_src), _by_codes(_all_src)
     mtd_off, ngay_off = _aso_coverage(off_src, pat, min_qty=1)
     mtd_on, ngay_on = _aso_coverage(on_src, pat, min_qty=1)
-    mtd, ngay = _aso_coverage(
-        df_mtd if df_mtd is not None else pd.DataFrame(), pat, min_qty=1
-    )
+    mtd, ngay = _aso_coverage(_all_src, pat, min_qty=1)
 
   elif report_type == 'ASO_FOCUS_2':
     cfg = get_month_cfg()
@@ -3140,8 +3203,8 @@ def build_report(
 
   # Default target theo Công văn nếu không có trong Target_KPI
   DEFAULT_TGT = {
-      'ASO_FOCUS': 72,
-      'ASO_FOCUS_2': 26,
+      'ASO_FOCUS': get_month_cfg().get('aso_focus_target', 72),
+      'ASO_FOCUS_2': get_month_cfg().get('aso_focus2_target', 26),
       'LPPC': 4.7,
       'LPPC_MEAT': 3.8,
   }
@@ -6091,6 +6154,65 @@ def is_combo_line_t10(row):
 
 
 
+def _is_chinsu_250_gift(row):
+  sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
+  return ('chinsu' in sp or 'chin-su' in sp or 'chin su' in sp) and '250' in sp and (
+      'ớt' in sp or 'tương' in sp or 'tuong' in sp)
+
+
+def _is_wakeup_330_gift(row):
+  sp = str(row.get('Tên SP lower', '') or row.get('Tên sản phẩm', '')).lower()
+  if not (('wake' in sp and '247' in sp) or 'wakeup247' in sp.replace(' ', '').replace('-', '')):
+    return False
+  return not (('245' in sp or 'amazon' in sp) and '330' not in sp)
+
+
+def is_combo_line_t11(row):
+  """Line QUÀ tặng CTKM Combo T11 (CV 482): Tương ớt Chinsu MN 250gr / Wake up 247 330ml miễn phí
+  (dấu hiệu quà như T10). T11 không còn chương trình CK 20.000đ Homey."""
+  return bool(is_combo_line_t10(row) and (_is_chinsu_250_gift(row) or _is_wakeup_330_gift(row)))
+
+
+def _combo_t11_order_ok(d):
+  """CV 482-311026 (T11) — đơn có quà Combo phải thỏa ĐK chính + ĐK phụ của 1 chương trình:
+    1) VIP1 (OFF): ĐH ≥800.000đ MSC (Food+Bev+Meat) + HPC (trừ NET), trong đó ≥100.000đ
+       Chinsu / Nam Ngư / Kokomi / Chanté → tặng Tương ớt Chinsu MN 250gr
+    2-3) On Premise: ĐH ≥250.000đ Bev, trong đó ≥80.000đ Trà Búp Non Tea 365 hoặc
+       ≥80.000đ NTL Wake up 247 Amazon 245ml (08TL00086) → tặng Wake up 247 330ml
+    4) VIP2 (On_L2): ĐH ≥500.000đ Gia vị, trong đó ≥200.000đ Nam Ngư siêu tiết kiệm → tặng Chinsu 250
+    5) VIP3 (On_L2): ĐH ≥400.000đ Gia vị, trong đó ≥32.000đ Tam Thái Tử Nhị Ca → tặng Chinsu 250
+  """
+  if d is None or d.empty or 'Mã đơn hàng' not in d.columns or '_line_sales' not in d.columns:
+    return pd.Series(False, index=d.index if d is not None else None)
+  sp = d['Tên SP lower'].astype(str) if 'Tên SP lower' in d.columns else pd.Series('', index=d.index)
+  sub = d['Sub Division'].astype(str) if 'Sub Division' in d.columns else pd.Series('', index=d.index)
+  code = d['Mã sản phẩm'].astype(str).str.strip().str.upper() if 'Mã sản phẩm' in d.columns else pd.Series('', index=d.index)
+  v = pd.to_numeric(d['_line_sales'], errors='coerce').fillna(0)
+  is_net = sp.str.contains(r'\bnet\b', regex=True, na=False)
+  is_beer = sub.str.contains('Beer|Bia', case=False, na=False)
+  msc = ~is_net & ~is_beer
+  core4 = sp.str.contains(r'chin-?\s?su|nam ng[uư]|kokomi|chant[eé]', regex=True, na=False)
+  bev = sub.str.contains('Refreshment', case=False, na=False)
+  tea = sp.str.contains(r'b[uú]p\s*non|tea\s*365', regex=True, na=False)
+  wk_amz = (code == '08TL00086') | (
+      sp.str.contains('wake', na=False) & sp.str.contains('amazon', na=False) & sp.str.contains('245', na=False))
+  season = sub.str.contains('Seasoning', case=False, na=False)
+  nn_stk = sp.str.contains(r'nam ng[uư]', regex=True, na=False) & sp.str.contains(r'si[eê]u\s*ti[eế]t\s*ki[eệ]m', regex=True, na=False)
+  ttt2 = sp.str.contains(r'tam\s*th[aá]i\s*t[uử]', regex=True, na=False) & sp.str.contains(r'nh[iị]\s*ca', regex=True, na=False)
+  gift = d['_line_combo'].astype(bool) if '_line_combo' in d.columns else pd.Series(False, index=d.index)
+  chinsu_gift = gift & d.apply(_is_chinsu_250_gift, axis=1)
+  wk_gift = gift & ~chinsu_gift
+
+  o = d['Mã đơn hàng'].astype(str)
+  s = lambda m: (v * m).groupby(o).transform('sum')
+  has = lambda m: m.groupby(o).transform('any')
+  p1 = has(chinsu_gift) & (s(msc) >= 800000) & (s(msc & core4) >= 100000)
+  p23 = has(wk_gift) & (s(bev) >= 250000) & ((s(tea) >= 80000) | (s(wk_amz) >= 80000))
+  p4 = has(chinsu_gift) & (s(season) >= 500000) & (s(nn_stk) >= 200000)
+  p5 = has(chinsu_gift) & (s(season) >= 400000) & (s(ttt2) >= 32000)
+  return (p1 | p23 | p4 | p5).fillna(False)
+
+
 def build_mcp_channel_map(mcp_df):
   """Map Mã CH → 'OFF' | 'ON' từ Data_MCP (L1 / Loại hình KD)."""
   ch_map = {}
@@ -6151,7 +6273,8 @@ def tag_combo_orders_t10(df_mtd, mcp_df=None):
       return is_combo_line_t09_off(r)
     d['_line_combo'] = d.apply(_line_t09, axis=1)
   else:
-    d['_line_combo'] = d.apply(is_combo_line_t10, axis=1)
+    d['_line_combo'] = d.apply(
+        is_combo_line_t11 if get_month_key() == 'Thang11' else is_combo_line_t10, axis=1)
 
   if 'Mã đơn hàng' not in d.columns:
     for c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH', 'Doc No']:
@@ -6194,8 +6317,12 @@ def tag_combo_orders_t10(df_mtd, mcp_df=None):
     order_sales = d.groupby(d['Mã đơn hàng'].astype(str))['_line_sales'].transform('sum')
     ch = d['channel'].astype(str).str.upper() if 'channel' in d.columns else pd.Series('OFF', index=d.index)
     is_on = ch.str.contains('ON', na=False) & ~ch.str.contains('OFF', na=False)
-    min_req = np.where(is_on, 300000.0, 800000.0)
-    d['is_combo'] = d['is_combo'] & (order_sales >= min_req)
+    if get_month_key() == 'Thang11':
+      # CV 482 (T11): ĐK chính + ĐK phụ theo từng chương trình
+      d['is_combo'] = d['is_combo'] & _combo_t11_order_ok(d)
+    else:
+      min_req = np.where(is_on, 300000.0, 800000.0)
+      d['is_combo'] = d['is_combo'] & (order_sales >= min_req)
 
   combo = d[d['is_combo']].copy()
   return combo
@@ -6235,7 +6362,8 @@ def tag_all_orders_with_combo_flag(df_day, mcp_df=None):
       return is_combo_line_t09_off(r)
     d['_line_combo'] = d.apply(_line_t09, axis=1)
   else:
-    d['_line_combo'] = d.apply(is_combo_line_t10, axis=1)
+    d['_line_combo'] = d.apply(
+        is_combo_line_t11 if get_month_key() == 'Thang11' else is_combo_line_t10, axis=1)
 
   if 'Mã đơn hàng' not in d.columns:
     for c in ['Order No', 'OrderNo', 'Số đơn', 'Order ID', 'Mã ĐH', 'Doc No']:
@@ -9226,12 +9354,12 @@ def _perf_table_html(df, section='call'):
             ('TH SO', 'TH'),
             ('% TH SO', '% TH'),
         ]),
-        ('ASO Focus Trận Xanh TEA', [
+        (f"ASO Focus Trận Xanh {get_month_cfg().get('aso_focus_short', 'TEA')}", [
             ('CT Xanh', 'CT Ngày'),
             ('TH Xanh', 'TH'),
             ('% TH Xanh', '% TH'),
         ]),
-        ('ASO Focus Trận Vàng Homey 2,9kg', [
+        (f"ASO Focus Trận Vàng {get_month_cfg().get('aso_focus2_short', 'Homey 2,9kg')}", [
             ('CT Vàng', 'CT Ngày'),
             ('TH Vàng', 'TH'),
             ('% TH Vàng', '% TH'),
@@ -13558,7 +13686,9 @@ def build_combo_miss_detail(df_rpt, report_date, df_master, channel, filter_nv=N
     if df_master is None or (hasattr(df_master, 'empty') and df_master.empty):
       return empty
 
-    min_sales = 800000.0 if str(channel).upper() == 'OFF' else 300000.0
+    # ĐK chính thấp nhất theo kênh: T10 OFF 800k / ON 300k | T11 (CV 482) OFF 800k / ON 250k
+    min_sales = 800000.0 if str(channel).upper() == 'OFF' else (
+        250000.0 if get_month_key() == 'Thang11' else 300000.0)
     rd = report_date.date() if hasattr(report_date, 'date') else report_date
     month_start = date(rd.year, rd.month, 1)
     # Chuẩn hoá cột date → date thuần để so sánh MTD
@@ -14753,8 +14883,8 @@ def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter
     ('PC_BT', 'PC BT', 'num'),
     ('LPPC', 'LPPC OFF (trừ Meat, Beer)', 'float'),
     ('ASO_ALL', 'ASO ALL', 'num'),
-    ('ASO_FOCUS', 'Trận Xanh · Tea365', 'num'),
-    ('ASO_FOCUS_2', 'Trận Vàng · Homey', 'num'),
+    ('ASO_FOCUS', f"Trận Xanh · {get_month_cfg().get('aso_focus_card', 'Tea365')}", 'num'),
+    ('ASO_FOCUS_2', f"Trận Vàng · {get_month_cfg().get('aso_focus2_card', 'Homey')}", 'num'),
     ('PC_ON', 'PC ON', 'num'),
     ('LPPC_MEAT', 'LPPC Meat', 'float'),
   ]
@@ -15115,10 +15245,10 @@ def get_timegone_stats(target_date):
 
 # ===== Chọn tháng báo cáo (data/Thang09 | data/Thang10) =====
 if 'report_month_key' not in st.session_state:
-  st.session_state['report_month_key'] = 'Thang10'
+  st.session_state['report_month_key'] = _default_month_key()
 
 _month_labels = {k: v['label'] for k, v in MONTH_OPTIONS.items()}
-_month_keys = list(MONTH_OPTIONS.keys())
+_month_keys = [k for k in MONTH_OPTIONS if _month_has_data(k) or k in ('Thang09', 'Thang10')]
 _cur_idx = _month_keys.index(st.session_state['report_month_key']) if st.session_state['report_month_key'] in _month_keys else 1
 
 mc1, mc2 = st.columns([1, 3])
@@ -15131,7 +15261,7 @@ with mc1:
       key='month_select_box',
       label_visibility='collapsed',
   )
-_new_key = [k for k, v in MONTH_OPTIONS.items() if v['label'] == _sel_label][0]
+_new_key = [k for k in _month_keys if MONTH_OPTIONS[k]['label'] == _sel_label][0]
 if _new_key != st.session_state.get('report_month_key'):
   st.session_state['report_month_key'] = _new_key
   for _k in list(st.session_state.keys()):

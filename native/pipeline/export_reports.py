@@ -111,8 +111,12 @@ def main():
     repo = os.path.dirname(app)
     ns = app_logic.load(app)
 
+    # tháng có data bán hàng (App.py._month_has_data: DanhSachChiTietDonHang + Data_MCP); App.py cũ
+    # chưa có hàm này → mọi tháng có thư mục data
+    has = ns.get('_month_has_data')
     months = a.months or [k for k, v in ns['MONTH_OPTIONS'].items()
-                          if os.path.isdir(os.path.join(repo, 'data', v.get('folder', k)))]
+                          if os.path.isdir(os.path.join(repo, 'data', v.get('folder', k)))
+                          and (has is None or has(k))]
     os.makedirs(os.path.join(out, 'turnover'), exist_ok=True)
 
     now_vn = dt.datetime.utcnow() + dt.timedelta(hours=7)
