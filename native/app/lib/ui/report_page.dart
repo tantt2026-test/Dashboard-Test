@@ -116,7 +116,8 @@ class _KpiReportPageState extends State<KpiReportPage> {
       final r = await widget.repo.kpiIndex(widget.monthKey);
       _idx = r.value;
       _offline = r.fromCache;
-      if (wasDefault || _date == null || !_idx!.dates.contains(_date)) _date = _idx!.defaultDate;
+      final inMonth = _date != null && _date!.startsWith('${_idx!.year}-${_idx!.month.toString().padLeft(2, '0')}');
+      if (wasDefault || !inMonth) _date = _idx!.defaultDate;
       _nvs = _nvs.where(_idx!.nv.contains).toList();
       await _loadDoc();
     } catch (e) {
@@ -128,22 +129,28 @@ class _KpiReportPageState extends State<KpiReportPage> {
     }
   }
 
-  String get _docDate {
+  /// Ngày đang xem (chọn được cả tháng như Streamlit, kể cả các tab và khi lọc 1 ĐDKD).
+  String get _docDate => _date ?? _idx!.defaultDate;
+
+  /// Các ngày GitHub tính sẵn cho màn hình này: tab → ngày mặc định; lọc 1 ĐDKD → ngày có bản
+  /// riêng ĐDKD; còn lại → các ngày "Tất cả" (trừ ngày còn số của lần sync trước).
+  List<String> get _fileDates {
     final idx = _idx!;
-    if (_isTab) return idx.tabDates.isNotEmpty ? idx.tabDates.first : idx.defaultDate;
-    if (_exactNv != null) return idx.nvDates.first;
-    return _date!;
+    if (_isTab) return idx.tabDates.isNotEmpty ? idx.tabDates : [idx.defaultDate];
+    if (_exactNv != null) return idx.nvDates.isNotEmpty ? idx.nvDates : [idx.defaultDate];
+    return [for (final d in idx.dates) if (!idx.staleDates.contains(d)) d];
   }
 
-  /// Ngày đang chọn chưa có bản tính sẵn theo data mới nhất (ngày còn số cũ, hoặc chưa tính)
-  /// → hiện khung báo cáo của ngày gần nhất, số do App.py tính lại cho đúng ngày đó.
-  bool get _staleDay {
-    final idx = _idx!;
-    if (_isTab || _exactNv != null) return false;
-    return idx.staleDates.contains(_date) || !idx.dates.contains(_date);
-  }
+  /// Ngày đang chọn chưa có bản tính sẵn theo data mới nhất (ngày T, ngày còn số cũ…) → hiện khung
+  /// báo cáo của ngày gần nhất có sẵn, số do App.py tính lại cho đúng ngày đó.
+  bool get _staleDay => !_fileDates.contains(_docDate);
 
-  String get _fileDate => _staleDay && !_idx!.dates.contains(_date) ? _idx!.defaultDate : _docDate;
+  String get _fileDate {
+    if (!_staleDay) return _docDate;
+    final idx = _idx!;
+    if (_isTab || _exactNv != null) return _fileDates.first;
+    return idx.dates.contains(_docDate) ? _docDate : idx.defaultDate;
+  }
 
   Future<void> _loadDoc() async {
     final idx = _idx;
@@ -191,27 +198,6 @@ class _KpiReportPageState extends State<KpiReportPage> {
 
   Future<void> _pickDate() async {
     final idx = _idx!;
-    if (_isTab) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Tab này hiện có số liệu ngày ${_ddmm(_docDate)} (ngày mới nhất).')));
-      return;
-    }
-    if (_exactNv != null) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Đổi ngày'),
-          content: Text('Số liệu riêng của 1 ĐDKD hiện chỉ có cho ngày ${_ddmm(idx.nvDates.first)}.\n'
-              'Bỏ lọc ĐDKD để xem ngày khác?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Bỏ lọc')),
-          ],
-        ),
-      );
-      if (ok != true || !mounted) return;
-      _nvs = [];
-    }
     // chọn được cả tháng như Streamlit; ngày chưa tính sẵn thì App.py tính lại
     final picked = await showDatePicker(
       context: context,
