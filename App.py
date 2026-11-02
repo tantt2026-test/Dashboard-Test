@@ -3644,6 +3644,22 @@ def _load_weekly_sales_m(month_key):
     return pd.DataFrame()
 
 
+def _weekly_cur():
+  """(năm, tháng) của tháng báo cáo đang chọn — tháng này lấy số từ RPT (data bán hàng trong tháng)."""
+  cfg = get_month_cfg()
+  return int(cfg.get('year', 2026)), int(cfg.get('month', 10))
+
+
+def _weekly_months(n=5):
+  """n tháng gần nhất, kết thúc ở tháng đang chọn (T10 → 06..10/2026, T11 → 07..11/2026)."""
+  y, m = _weekly_cur()
+  out = []
+  for _ in range(n):
+    out.append((y, m))
+    y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+  return out[::-1]
+
+
 def build_weekly_preview(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
   """Weekly Preview: MCP / ASO / %COV theo tháng, map theo Position code.
 
@@ -3654,7 +3670,7 @@ def build_weekly_preview(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months
   Hiển thị Tên NVBH lấy từ MCP hiện tại theo Position code.
   """
   if months is None:
-    months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
+    months = _weekly_months()
 
   def _empty():
     cols = ['STT', 'Tên NVBH', 'Position code']
@@ -4026,7 +4042,7 @@ def _lppc_from_orders(df_lines):
 def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=None):
   """Bảng LPPC Weekly — chỉ Kênh OFF, logic giống KPI LPPC, map Position code."""
   if months is None:
-    months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
+    months = _weekly_months()
 
   empty_cols = ['STT', 'Tên NVBH'] + [x for y, m in months for x in (f'PC|{m:02d}/{y}', f'LPPC|{m:02d}/{y}')]
   empty = pd.DataFrame(columns=empty_cols)
@@ -4059,8 +4075,8 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
   if not s_norm.empty and 'Month' in s_norm.columns:
     for y, m in months:
       label = f'{m:02d}/{y}'
-      if m == 10 and y == 2026:
-        continue  # tháng 10 lấy RPT
+      if (y, m) == _weekly_cur():
+        continue  # tháng đang chọn lấy RPT
       sub = s_norm[s_norm['Month'].astype(str).str.strip() == label].copy()
       if sub.empty:
         continue
@@ -4078,7 +4094,7 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
         sub['Mã NVBH'] = sub['Tên NVBH'].astype(str).str.strip()
       lppc_by_month[label] = _lppc_from_orders(sub)
 
-  # Tháng 10 từ RPT (OFF only)
+  # Tháng đang chọn (và tháng thiếu trong data-2) từ RPT (OFF only)
   if df_rpt is not None and not df_rpt.empty:
     for y, m in months:
       label = f'{m:02d}/{y}'
@@ -4233,7 +4249,7 @@ def build_weekly_lppc_vip(mcp_df, sales_hist, df_rpt=None, filter_nv=None, month
   Map Mã CH với Data_MCP (VIP MCH) → lọc đơn OFF → LPPC (trừ Meat/Beer).
   """
   if months is None:
-    months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
+    months = _weekly_months()
   vip_groups = ('VIP3', 'VIP5', 'VIPSI')
   empty_cols = ['STT', 'Tên NVBH']
   for y, m in months:
@@ -4364,7 +4380,7 @@ def build_weekly_lppc_vip(mcp_df, sales_hist, df_rpt=None, filter_nv=None, month
     s_norm['_mon'] = s_norm['Month'].map(_norm_month)
     for y, m in months:
       label = f'{m:02d}/{y}'
-      if m == 10 and y == 2026:
+      if (y, m) == _weekly_cur():
         continue
       sub = s_norm[s_norm['_mon'] == label].copy()
       if not sub.empty:
@@ -4374,7 +4390,7 @@ def build_weekly_lppc_vip(mcp_df, sales_hist, df_rpt=None, filter_nv=None, month
     for y, m in months:
       label = f'{m:02d}/{y}'
       # fill nếu tháng chưa có data (hoặc tháng hiện tại)
-      if any(lppc_by[label][g] for g in vip_groups) and not (m == 10 and y == 2026):
+      if any(lppc_by[label][g] for g in vip_groups) and not ((y, m) == _weekly_cur()):
         continue
       try:
         start_d = date(y, m, 1)
@@ -4870,7 +4886,7 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   - PC/DAY: tổng PC OFF (MOQ, max 1 PC/CH/ngày) ÷ số ngày làm việc
   """
   if months is None:
-    months = [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10)]
+    months = _weekly_months()
 
   empty_cols = ['STT', 'Tên NVBH']
   for y, m in months:
@@ -4942,7 +4958,7 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   if not s_norm.empty and 'Month' in s_norm.columns:
     for y, m in months:
       label = f'{m:02d}/{y}'
-      if m == 10 and y == 2026:
+      if (y, m) == _weekly_cur():
         continue
       sub = s_norm[s_norm['Month'].astype(str).str.strip() == label].copy()
       if sub.empty:
