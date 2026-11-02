@@ -4947,6 +4947,7 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
       as_of_today = as_of_today.date()
   except Exception:
     as_of_today = date.today()
+  as_of_today = _weekly_effective_date(df_rpt, as_of_today)
   days_by_month = {}
   for y, m in months:
     lab = f'{m:02d}/{y}'
@@ -4985,6 +4986,8 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
         start_d = date(y, m, 1)
         end_d = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
         d = df_rpt[(df_rpt['date'] >= start_d) & (df_rpt['date'] < end_d)].copy()
+        if (y, m) == (as_of_today.year, as_of_today.month):
+          d = d[d['date'] <= as_of_today]  # PC cùng mốc ngày với Call Plan / ngày làm việc
         if d.empty:
           continue
         if 'L1' in d.columns:
@@ -5121,6 +5124,24 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
 
 
 
+def _weekly_effective_date(df_rpt, report_date):
+  """Ngày chốt số tháng đang xem của Weekly Preview = ngày BC; nếu từ đầu tháng tới ngày BC chưa có ngày
+  làm việc nào (vd Chủ nhật 01/11) → ngày mới nhất có ĐH trong tháng đó."""
+  try:
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
+    start = date(rd.year, rd.month, 1)
+    if any((start + timedelta(days=i)).weekday() != 6 for i in range((rd - start).days + 1)):
+      return rd
+    if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
+      return rd
+    end = date(rd.year + 1, 1, 1) if rd.month == 12 else date(rd.year, rd.month + 1, 1)
+    ds = pd.to_datetime(df_rpt['date'], errors='coerce').dt.date
+    ds = ds[(ds >= start) & (ds < end)].dropna()
+    return max(ds) if len(ds) else rd
+  except Exception:
+    return report_date
+
+
 def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv=None):
   """Tổng hợp ĐH Trái Tuyến từ đầu tháng → ngày BC theo từng NV.
 
@@ -5137,6 +5158,7 @@ def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv
   if report_date is None:
     return empty
   rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  rd = _weekly_effective_date(df_rpt, rd)
   start = date(rd.year, rd.month, 1)
 
   parts = []
