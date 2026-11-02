@@ -426,6 +426,8 @@ class HeadlessApp:
             status = 'rerun'
         except Exception as e:  # báo cáo lỗi → ghi lại, không làm hỏng cả lần xuất
             status = f'error: {type(e).__name__}: {e}'
+            import traceback
+            self.last_tb = traceback.format_exc()
         finally:
             os.chdir(cwd)
             for k, v in saved.items():
