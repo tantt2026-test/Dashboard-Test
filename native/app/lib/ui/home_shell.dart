@@ -14,7 +14,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.6.1';
+const appVersion = '1.6.2';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -217,11 +217,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                       child: const Text('Đăng xuất', style: TextStyle(fontSize: 11)),
                     ),
                 ]),
-                for (final r in reports.where((r) => r.group == 'sup'))
+                // chưa đăng nhập: ẩn danh sách báo cáo, chỉ có nút đăng nhập
+                if (_supOk)
+                  for (final r in reports.where((r) => r.group == 'sup'))
+                    _MenuTile(name: r.name, selected: r.code == _code, onTap: () => _openSup(r.code))
+                else
                   _MenuTile(
-                      name: _supOk ? r.name : r.name.replaceFirst('🔒 SUP · ', '🔒 '),
-                      selected: r.code == _code,
-                      onTap: () => _openSup(r.code)),
+                      name: '🔒 Đăng nhập để xem',
+                      selected: false,
+                      onTap: () => _openSup(reports.firstWhere((r) => r.group == 'sup').code)),
               ],
             ]),
           ),
