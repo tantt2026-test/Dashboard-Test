@@ -25,9 +25,9 @@ import unicodedata
 import warnings
 
 NAV_KPI = '📊 BÁO CÁO KPI'
-# Tab 🔒 SUP (thưởng ĐDKD, cần đăng nhập): mỗi chương trình = 1 báo cáo, tên bắt đầu '🔒 SUP',
+# Tab 🔒 TRACKING SALE SUP (cần đăng nhập): mỗi chương trình = 1 báo cáo, tên bắt đầu '🔒 SUP',
 # chọn bằng ô 'sup_prog' của App.py (App.py.SUP_PROGRAMS)
-SUP_NAV = '🔒 SUP - THƯỞNG ĐDKD'
+SUP_NAV = '🔒 TRACKING SALE SUP'
 SUP_PREFIX = '🔒 SUP'
 
 

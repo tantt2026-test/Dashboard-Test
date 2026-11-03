@@ -485,7 +485,7 @@ MONTH_OPTIONS = {
             'LPPC_MEAT': '100%: 400.000đ',
         },
         'holidays': set(),
-        'sup': True,  # tab 🔒 SUP — thưởng ĐDKD theo CV 483/026/484/485/486/487
+        'sup': True,  # tab 🔒 TRACKING SALE SUP — CV 483/026/484/485/486/487
     },
 }
 
@@ -15809,7 +15809,7 @@ components.html(
 
 st.markdown('---')
 
-SUP_NAV = '🔒 SUP - THƯỞNG ĐDKD'  # tab thưởng ĐDKD theo công văn tháng (cần đăng nhập)
+SUP_NAV = '🔒 TRACKING SALE SUP'  # tab theo dõi các chương trình ĐDKD theo công văn tháng (cần đăng nhập)
 _nav_opts = [
     '📊 BÁO CÁO KPI',
     '🗺️ MCP VISIT',
@@ -20709,7 +20709,7 @@ if _nav == '📋 DSKH_Combo ON':
     st.caption(f'Hiển thị: {len(df_on_f):,} / {len(df_combo_on):,} cửa hàng')
 
 
-# ====================== 🔒 SUP — THƯỞNG ĐDKD THEO CÔNG VĂN THÁNG (T11/2026) ======================
+# ====================== 🔒 TRACKING SALE SUP — CHƯƠNG TRÌNH ĐDKD THEO CÔNG VĂN THÁNG (T11/2026) ======================
 # CV 483 (Mì, Combo Xốt mỹ vị, Homey, Thịt chế biến 3 nhóm) · CV 026 (Bia) · CV 484 (DS Trà Phúc Long)
 # CV 485/486/487 (Trưng bày: Xốt CHIN-SU mỹ vị, Trà Phúc Long, Tủ mát NGK). Xem cần đăng nhập.
 # App native: mỗi chương trình = 1 báo cáo (tên bắt đầu "🔒 SUP"), chọn bằng ô 'sup_prog'.
@@ -20720,14 +20720,14 @@ def _sup_hash(u, p):
 
 SUP_USER_HASH = 'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4'  # sha256('ID:mật khẩu') — không lưu mật khẩu trong code
 
-SUP_PROG_TONG = '🔒 SUP · Tổng hợp thưởng ĐDKD'
-SUP_PROG_MI = '🔒 SUP · Thưởng DS ngành Mì (CV 483)'
+SUP_PROG_TONG = '🔒 SUP · Tổng hợp theo ĐDKD'
+SUP_PROG_MI = '🔒 SUP · Doanh số ngành Mì (CV 483)'
 SUP_PROG_XOT = '🔒 SUP · ASO Combo Xốt mỹ vị CHIN-SU (CV 483)'
 SUP_PROG_HOMEY = '🔒 SUP · Cửa hàng Homey (CV 483)'
-SUP_PROG_MEAT = '🔒 SUP · Thưởng DS Thịt chế biến (CV 483)'
-SUP_PROG_BIA = '🔒 SUP · Thưởng đầu thùng Bia (CV 026)'
-SUP_PROG_PL = '🔒 SUP · Thưởng DS Trà Phúc Long (CV 484)'
-SUP_PROG_TB = '🔒 SUP · Thưởng Trưng bày (CV 485 · 486 · 487)'
+SUP_PROG_MEAT = '🔒 SUP · Doanh số Thịt chế biến (CV 483)'
+SUP_PROG_BIA = '🔒 SUP · Bia Sư Tử Trắng & Red Ruby (CV 026)'
+SUP_PROG_PL = '🔒 SUP · Doanh số Trà Phúc Long (CV 484)'
+SUP_PROG_TB = '🔒 SUP · Trưng bày (CV 485 · 486 · 487)'
 SUP_PROGRAMS = [
     ('SUP_TONG', SUP_PROG_TONG), ('SUP_MI', SUP_PROG_MI), ('SUP_XOT', SUP_PROG_XOT),
     ('SUP_HOMEY', SUP_PROG_HOMEY), ('SUP_MEAT', SUP_PROG_MEAT), ('SUP_BIA', SUP_PROG_BIA),
@@ -21149,7 +21149,7 @@ def _sup_detail(title, det, prefix, extra=None, money=()):
 
 if _nav == SUP_NAV:
   st.markdown('<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
-              '🔒 SUP — THƯỞNG ĐDKD ' + get_month_cfg().get('label', '') + '</h3>', unsafe_allow_html=True)
+              '🔒 TRACKING SALE SUP — ' + get_month_cfg().get('label', '') + '</h3>', unsafe_allow_html=True)
   if not st.session_state.get('sup_ok'):
     st.markdown('<p style="text-align:center;">Khu vực dành cho Giám sát — vui lòng đăng nhập.</p>',
                 unsafe_allow_html=True)

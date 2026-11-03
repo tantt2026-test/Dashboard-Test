@@ -14,7 +14,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.6.0';
+const appVersion = '1.6.1';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -119,7 +119,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (_scaffold.currentState?.isDrawerOpen ?? false) Navigator.of(context).pop();
   }
 
-  // Tab 🔒 SUP (thưởng ĐDKD): đăng nhập 1 lần mỗi lần mở app. Chỉ lưu mã băm sha256('ID:mật khẩu').
+  // Tab 🔒 TRACKING SALE SUP: đăng nhập 1 lần mỗi lần mở app. Chỉ lưu mã băm sha256('ID:mật khẩu').
   static const _supHash = 'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4';
   bool _supOk = false;
 
@@ -140,7 +140,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         }
 
         return AlertDialog(
-          title: const Text('🔒 SUP — Đăng nhập'),
+          title: const Text('🔒 Tracking Sale Sup — Đăng nhập'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(controller: user, autofocus: true, decoration: const InputDecoration(labelText: 'ID đăng nhập')),
             TextField(
@@ -207,7 +207,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   decoration: BoxDecoration(color: const Color(0xFF805AD5), borderRadius: BorderRadius.circular(2)),
                 ),
                 Row(children: [
-                  Expanded(child: _section('🔒 SUP — THƯỞNG ĐDKD')),
+                  Expanded(child: _section('🔒 TRACKING SALE SUP')),
                   if (_supOk)
                     TextButton(
                       onPressed: () => setState(() {
