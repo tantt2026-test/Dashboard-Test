@@ -458,6 +458,11 @@ MONTH_OPTIONS = {
             '04HP00638', '08CF00980', '08CF00979', '08TR00055', '08TR00056', '08TR00057',
             '08TL00111',
         ],
+        # CV 26 gửi lại: ASO thành công = mua ĐỒNG THỜI 2 nhóm SP Tết, mỗi nhóm đạt MOQ
+        'aso_focus_both': {
+            'Nước giặt xả Chanté (Tết)': ['04HP00636', '04HP00637', '04HP00638'],
+            'Trà Bupnon TEA365 (Tết)': ['08TR00055', '08TR00056', '08TR00057'],
+        },
         'aso_focus_pat': r'',
         'aso_focus_name': 'ASO_Focus - Trận Xanh (SP Tết)',
         'aso_focus_short': 'SP Tết',
@@ -3184,9 +3189,43 @@ def build_report(
           return pd.DataFrame()
         return x[x['Mã sản phẩm'].astype(str).str.strip().str.upper().isin(_codes)]
       off_src, on_src, _all_src = _by_codes(off_src), _by_codes(on_src), _by_codes(_all_src)
-    mtd_off, ngay_off = _aso_coverage(off_src, pat, min_qty=1)
-    mtd_on, ngay_on = _aso_coverage(on_src, pat, min_qty=1)
-    mtd, ngay = _aso_coverage(_all_src, pat, min_qty=1)
+    _both = cfg.get('aso_focus_both')
+    if _both:
+      # CV 26 gửi lại (T11): CH có ĐỦ các nhóm SP Tết, mỗi nhóm có ≥1 dòng đạt MOQ (Chanté ≥2 chai/túi;
+      # TEA365 ≥6 chai/mã và ≥12 chai/nhóm trên đơn). Ngày = ngày CH đạt đủ nhóm cuối cùng.
+      _grp_of = {str(c).upper(): g for g, cs in _both.items() for c in cs}
+
+      def _aso_both(x):
+        if x is None or x.empty or 'Mã sản phẩm' not in x.columns:
+          return pd.Series(dtype=int), pd.Series(dtype=int)
+        x = x[x['Mã sản phẩm'].astype(str).str.strip().str.upper().isin(_grp_of)].copy()
+        if x.empty:
+          return pd.Series(dtype=int), pd.Series(dtype=int)
+        x['_grp'] = x['Mã sản phẩm'].astype(str).str.strip().str.upper().map(_grp_of)
+        oks = []
+        for _, g in x.groupby('Mã đơn hàng', sort=False):
+          for _, gg in g.groupby('_grp', sort=False):
+            oks.append(apply_dual_moq_mask(gg))
+        x = x[pd.concat(oks).reindex(x.index).fillna(False).astype(bool)] if oks else x.iloc[0:0]
+        if x.empty:
+          return pd.Series(dtype=int), pd.Series(dtype=int)
+        first = x.groupby(['Mã NVBH', 'Mã CH', '_grp'])['date'].min().reset_index()
+        per = first.groupby(['Mã NVBH', 'Mã CH']).agg(n=('_grp', 'nunique'), d=('date', 'max')).reset_index()
+        per = per[per['n'] >= len(_both)]
+        return (per.groupby('Mã NVBH')['Mã CH'].nunique(),
+                per[per['d'] == report_date].groupby('Mã NVBH')['Mã CH'].nunique())
+
+      _src = df_mtd if df_mtd is not None else pd.DataFrame()
+      _l1 = _src['L1'].astype(str) if 'L1' in _src.columns else pd.Series('', index=_src.index)
+      _is_off = _l1.str.contains('Off', case=False, na=False)
+      _is_on = _l1.str.contains('On', case=False, na=False) & ~_is_off
+      mtd_off, ngay_off = _aso_both(_src[_is_off])
+      mtd_on, ngay_on = _aso_both(_src[_is_on])
+      mtd, ngay = _aso_both(_src)
+    else:
+      mtd_off, ngay_off = _aso_coverage(off_src, pat, min_qty=1)
+      mtd_on, ngay_on = _aso_coverage(on_src, pat, min_qty=1)
+      mtd, ngay = _aso_coverage(_all_src, pat, min_qty=1)
 
   elif report_type == 'ASO_FOCUS_2':
     cfg = get_month_cfg()
