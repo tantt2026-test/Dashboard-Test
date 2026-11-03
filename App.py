@@ -20720,14 +20720,14 @@ def _sup_hash(u, p):
 
 SUP_USER_HASH = 'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4'  # sha256('ID:mật khẩu') — không lưu mật khẩu trong code
 
-SUP_PROG_TONG = '🔒 SUP · Tổng hợp theo ĐDKD'
-SUP_PROG_MI = '🔒 SUP · Doanh số ngành Mì (CV 483)'
+SUP_PROG_TONG = '🔒 SUP · Tổng hợp thưởng ĐDKD'
+SUP_PROG_MI = '🔒 SUP · Thưởng DS ngành Mì (CV 483)'
 SUP_PROG_XOT = '🔒 SUP · ASO Combo Xốt mỹ vị CHIN-SU (CV 483)'
 SUP_PROG_HOMEY = '🔒 SUP · Cửa hàng Homey (CV 483)'
-SUP_PROG_MEAT = '🔒 SUP · Doanh số Thịt chế biến (CV 483)'
-SUP_PROG_BIA = '🔒 SUP · Bia Sư Tử Trắng & Red Ruby (CV 026)'
-SUP_PROG_PL = '🔒 SUP · Doanh số Trà Phúc Long (CV 484)'
-SUP_PROG_TB = '🔒 SUP · Trưng bày (CV 485 · 486 · 487)'
+SUP_PROG_MEAT = '🔒 SUP · Thưởng DS Thịt chế biến (CV 483)'
+SUP_PROG_BIA = '🔒 SUP · Thưởng đầu thùng Bia (CV 026)'
+SUP_PROG_PL = '🔒 SUP · Thưởng DS Trà Phúc Long (CV 484)'
+SUP_PROG_TB = '🔒 SUP · Thưởng Trưng bày (CV 485 · 486 · 487)'
 SUP_PROGRAMS = [
     ('SUP_TONG', SUP_PROG_TONG), ('SUP_MI', SUP_PROG_MI), ('SUP_XOT', SUP_PROG_XOT),
     ('SUP_HOMEY', SUP_PROG_HOMEY), ('SUP_MEAT', SUP_PROG_MEAT), ('SUP_BIA', SUP_PROG_BIA),
