@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 
 
 import '../data/local_engine.dart';
@@ -14,7 +16,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.6.2';
+const appVersion = '1.6.3';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -123,10 +125,47 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   static const _supHash = 'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4';
   bool _supOk = false;
 
+  // Vân tay (Android) / Touch ID (Mac): bật sau 1 lần đăng nhập đúng bằng mật khẩu trên máy này
+  final _bio = LocalAuthentication();
+
+  File get _bioFlag {
+    final base = Platform.isAndroid
+        ? '${Directory.systemTemp.parent.path}/files'
+        : '${Platform.environment['HOME'] ?? Directory.systemTemp.path}/Library/Application Support/kpi_reports';
+    return File('$base/sup_bio_on');
+  }
+
+  Future<bool> _bioAvailable() async {
+    try {
+      return await _bio.isDeviceSupported() && (await _bio.getAvailableBiometrics()).isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _bioAuth() async {
+    try {
+      return await _bio.authenticate(
+          localizedReason: 'Xác thực để xem Tracking Sale Sup', biometricOnly: true);
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _openSup(String code) async {
     if (_supOk) return _select(code);
+    final bioOk = await _bioAvailable();
+    final bioOn = bioOk && _bioFlag.existsSync();
+    // đã bật vân tay → quét luôn, không cần mở ô mật khẩu
+    if (bioOn && await _bioAuth()) {
+      if (!mounted) return;
+      setState(() => _supOk = true);
+      return _select(code);
+    }
+    if (!mounted) return;
     final user = TextEditingController(), pass = TextEditingController();
     String? err;
+    var show = false;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
@@ -142,12 +181,30 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         return AlertDialog(
           title: const Text('🔒 Tracking Sale Sup — Đăng nhập'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: user, autofocus: true, decoration: const InputDecoration(labelText: 'ID đăng nhập')),
+            TextField(controller: user, autofocus: !bioOn, decoration: const InputDecoration(labelText: 'ID đăng nhập')),
             TextField(
                 controller: pass,
-                obscureText: true,
-                decoration: InputDecoration(labelText: 'Mật khẩu', errorText: err),
+                obscureText: !show,
+                decoration: InputDecoration(
+                  labelText: 'Mật khẩu',
+                  errorText: err,
+                  suffixIcon: IconButton(
+                    tooltip: show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu',
+                    icon: Icon(show ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setD(() => show = !show),
+                  ),
+                ),
                 onSubmitted: (_) => submit()),
+            if (bioOn) ...[
+              const SizedBox(height: 14),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.fingerprint),
+                label: Text(Platform.isMacOS ? 'Đăng nhập bằng Touch ID' : 'Đăng nhập bằng vân tay'),
+                onPressed: () async {
+                  if (await _bioAuth() && ctx.mounted) Navigator.pop(ctx, true);
+                },
+              ),
+            ],
           ]),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
@@ -156,9 +213,31 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         );
       }),
     );
-    if (ok == true && mounted) {
-      setState(() => _supOk = true);
-      _select(code);
+    if (ok != true || !mounted) return;
+    setState(() => _supOk = true);
+    _select(code);
+    // lần đầu đăng nhập bằng mật khẩu → hỏi bật vân tay cho lần sau
+    if (bioOk && !_bioFlag.existsSync()) {
+      final yes = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(Platform.isMacOS ? 'Dùng Touch ID?' : 'Dùng vân tay?'),
+          content: Text(Platform.isMacOS
+              ? 'Lần sau mở Tracking Sale Sup chỉ cần chạm Touch ID.'
+              : 'Lần sau mở Tracking Sale Sup chỉ cần quét vân tay.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Để sau')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Bật')),
+          ],
+        ),
+      );
+      if (yes == true && await _bioAuth()) {
+        try {
+          _bioFlag
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('1');
+        } catch (_) {}
+      }
     }
   }
 
