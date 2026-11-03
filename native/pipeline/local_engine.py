@@ -43,7 +43,7 @@ def _plan(app, root, mk):
     p = export_kpi.plan_month(os.path.join(root, 'App.py'), mk, dt.datetime.utcnow())
     return {**{k: p[k] for k in ('month_key', 'month_label', 'year', 'month', 'dates', 'default_date',
                                  'data_max_date', 'nv')},
-            'reports': [{'code': c, 'name': lab, 'group': 'kpi' if nav == export_kpi.NAV_KPI else 'tab'}
+            'reports': [{'code': c, 'name': lab, 'group': export_kpi.report_group(nav)}
                         for c, lab, nav in p['reports']]}
 
 

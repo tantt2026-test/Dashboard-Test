@@ -81,7 +81,8 @@ class _KpiReportPageState extends State<KpiReportPage> {
   String? _error;
 
   String? get _exactNv => _nvs.length == 1 ? _nvs.first : null;
-  bool get _isTab => widget.code.startsWith('TAB_');
+  // các tab (MCP, MBS, Combo) + tab 🔒 SUP: GitHub chỉ tính sẵn ngày mặc định
+  bool get _isTab => widget.code.startsWith('TAB_') || widget.code.startsWith('SUP_');
 
   @override
   void initState() {

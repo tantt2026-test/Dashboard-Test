@@ -30,6 +30,8 @@ def key_of(req):
 def compute(app, export_kpi, report_doc, filters_probe, req, name, nav=None):
     """Mở báo cáo (App.py đặt mặc định) rồi áp lựa chọn — như người dùng thật."""
     nav = nav or export_kpi.NAV_KPI
+    if str(name).startswith(getattr(export_kpi, 'SUP_PREFIX', '\0')):
+        nav = export_kpi.SUP_NAV
     day = dt.date.fromisoformat(req['date'][:10])
     export_kpi._reset_widgets()
     base = export_kpi._state(req['month_key'], day, None, name, nav)

@@ -25,6 +25,14 @@ import unicodedata
 import warnings
 
 NAV_KPI = '📊 BÁO CÁO KPI'
+# Tab 🔒 SUP (thưởng ĐDKD, cần đăng nhập): mỗi chương trình = 1 báo cáo, tên bắt đầu '🔒 SUP',
+# chọn bằng ô 'sup_prog' của App.py (App.py.SUP_PROGRAMS)
+SUP_NAV = '🔒 SUP - THƯỞNG ĐDKD'
+SUP_PREFIX = '🔒 SUP'
+
+
+def report_group(nav):
+    return 'kpi' if nav == NAV_KPI else ('sup' if nav == SUP_NAV else 'tab')
 # Giai đoạn cuối: các tab còn lại của App.py (code app → tên tab trên Streamlit)
 TAB_CODES = {'🗺️ MCP VISIT': 'TAB_MCP', '📦 TRACKING MBS - CAT': 'TAB_CAT',
              '🏷️ TRACKING MBS - BRAND': 'TAB_BRAND', '📋 DSKH_Combo OFF': 'TAB_OFF',
@@ -56,7 +64,12 @@ def _state(mk, day, nv, label=None, nav=NAV_KPI):
          'main_nav_section': nav}
     if day is not None:
         s['ngay'] = day
-    if label is not None and nav == NAV_KPI:
+    if label is not None and str(label).startswith(SUP_PREFIX):
+        # báo cáo SUP: app có thể gửi nav là tên báo cáo / None → luôn về tab SUP, đã đăng nhập
+        s['main_nav_section'] = SUP_NAV
+        s['sup_prog'] = label
+        s['sup_ok'] = True
+    elif label is not None and nav == NAV_KPI:
         s[f'kpi_{mk}'] = label
     return s
 
@@ -159,6 +172,8 @@ def plan_month(app_path, mk, now_utc):
     for nav in ns.get('_nav_opts') or []:
         if nav in TAB_CODES:
             reports.append((TAB_CODES[nav], nav, nav))
+        elif nav == SUP_NAV:
+            reports += [(c, lab, SUP_NAV) for c, lab in ns.get('SUP_PROGRAMS') or []]
     nv = list(ns.get('nv_list') or [])
     return {
         'month_key': mk, 'month_label': cfg['label'], 'year': y, 'month': m,
@@ -316,7 +331,7 @@ def export_month(app_path, mk, out_root, workers, prev_root=None, now_utc=None, 
         # ngày còn số của lần sync trước (lượt 2 tính lại) → app tự tính lại khi chọn ngày đó
         'stale_dates': [] if mode in ('history', 'full') or past_month else
         [d for d in have if d not in (plan['default_date'], plan['data_max_date'])],
-        'reports': [{'code': c, 'name': l, 'group': 'kpi' if n == NAV_KPI else 'tab'}
+        'reports': [{'code': c, 'name': l, 'group': report_group(n)}
                     for c, l, n in plan['reports']],
         'tab_dates': [plan['default_date']],
         'nv_slugs': {nv: slug(nv) for nv in plan['nv']},

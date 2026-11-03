@@ -485,6 +485,7 @@ MONTH_OPTIONS = {
             'LPPC_MEAT': '100%: 400.000đ',
         },
         'holidays': set(),
+        'sup': True,  # tab 🔒 SUP — thưởng ĐDKD theo CV 483/026/484/485/486/487
     },
 }
 
@@ -15808,6 +15809,7 @@ components.html(
 
 st.markdown('---')
 
+SUP_NAV = '🔒 SUP - THƯỞNG ĐDKD'  # tab thưởng ĐDKD theo công văn tháng (cần đăng nhập)
 _nav_opts = [
     '📊 BÁO CÁO KPI',
     '🗺️ MCP VISIT',
@@ -15816,6 +15818,8 @@ _nav_opts = [
     '📋 DSKH_Combo OFF',
     '📋 DSKH_Combo ON',
 ]
+if get_month_cfg().get('sup'):
+  _nav_opts.append(SUP_NAV)
 _nav = st.radio(
     'Section', _nav_opts, horizontal=True,
     key='main_nav_section', label_visibility='collapsed',
@@ -20703,3 +20707,548 @@ if _nav == '📋 DSKH_Combo ON':
 
     render_mbs_data_table(df_on_f, selected_on_cols)
     st.caption(f'Hiển thị: {len(df_on_f):,} / {len(df_combo_on):,} cửa hàng')
+
+
+# ====================== 🔒 SUP — THƯỞNG ĐDKD THEO CÔNG VĂN THÁNG (T11/2026) ======================
+# CV 483 (Mì, Combo Xốt mỹ vị, Homey, Thịt chế biến 3 nhóm) · CV 026 (Bia) · CV 484 (DS Trà Phúc Long)
+# CV 485/486/487 (Trưng bày: Xốt CHIN-SU mỹ vị, Trà Phúc Long, Tủ mát NGK). Xem cần đăng nhập.
+# App native: mỗi chương trình = 1 báo cáo (tên bắt đầu "🔒 SUP"), chọn bằng ô 'sup_prog'.
+
+def _sup_hash(u, p):
+  import hashlib
+  return hashlib.sha256(f'{str(u).strip()}:{p}'.encode('utf-8')).hexdigest()
+
+SUP_USER_HASH = 'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4'  # sha256('ID:mật khẩu') — không lưu mật khẩu trong code
+
+SUP_PROG_TONG = '🔒 SUP · Tổng hợp thưởng ĐDKD'
+SUP_PROG_MI = '🔒 SUP · Thưởng DS ngành Mì (CV 483)'
+SUP_PROG_XOT = '🔒 SUP · ASO Combo Xốt mỹ vị CHIN-SU (CV 483)'
+SUP_PROG_HOMEY = '🔒 SUP · Cửa hàng Homey (CV 483)'
+SUP_PROG_MEAT = '🔒 SUP · Thưởng DS Thịt chế biến (CV 483)'
+SUP_PROG_BIA = '🔒 SUP · Thưởng đầu thùng Bia (CV 026)'
+SUP_PROG_PL = '🔒 SUP · Thưởng DS Trà Phúc Long (CV 484)'
+SUP_PROG_TB = '🔒 SUP · Thưởng Trưng bày (CV 485 · 486 · 487)'
+SUP_PROGRAMS = [
+    ('SUP_TONG', SUP_PROG_TONG), ('SUP_MI', SUP_PROG_MI), ('SUP_XOT', SUP_PROG_XOT),
+    ('SUP_HOMEY', SUP_PROG_HOMEY), ('SUP_MEAT', SUP_PROG_MEAT), ('SUP_BIA', SUP_PROG_BIA),
+    ('SUP_PL', SUP_PROG_PL), ('SUP_TB', SUP_PROG_TB),
+]
+
+_SUP_MEAT_GROUPS = {
+    'Nhóm Trọng điểm': (['Xúc Xích Cao Bồi Xốt Lắc', 'Xúc Xích Cao Bồi Cuốn Cuốn', 'Xúc xích Ponnie',
+                         'Xúc xích Ponnie Bin & Bon'], 0.01, 0.02),
+    'Nhóm Tập trung': (['Xúc xích Heo cao bồi xì xèo', 'Hotdog Ponnie'], 0.03, 0.05),
+    'Nhóm Mở mới': (['Xúc Xích Cao Bồi', 'Xúc Xích Cao Bồi Đũa Phép', 'Chân gà Ponnie', 'Snack Ponnie',
+                     'Xúc xích Ponnie Cao Cấp', 'Xúc Xích Cao Bồi Lắc'], 0.06, 0.10),
+}
+_SUP_MEAT_CAP = 1500000
+_SUP_BIA = {
+    'Bia Sư Tử Trắng': ['08BI00029', '08BI00079', '08BI00033', '08BI00039', '08BI00035', '08BI00095'],
+    'Bia Red Ruby': ['08BI00044', '08BI00071', '08BI00040', '08BI00080', '08BI00081', '08BI00077',
+                     '08BI00096', '08BI00082', '08BI00088'],
+}
+# Trưng bày: (từ khoá tên CT trên hệ thống, thưởng/CH, số CH tối thiểu, thưởng tối đa)
+_SUP_TB = [
+    ('TBTL Xốt CHIN-SU mỹ vị (CV 485)', r'x[oố]t\s*chin-?\s*su\s*m[yỹ]\s*v[iị]', 10000, 1, None),
+    ('TBTN Trà Phúc Long (CV 486)', r'tbtn.*ph[uú]c\s*long', 10000, 1, 100000),
+    ('TBTN Tủ mát NGK (CV 487)', r'tbtn.*t[uủ]\s*m[aá]t\s*n[uư][oớ]c\s*gi[aả]i\s*kh[aá]t', 20000, 5, 300000),
+]
+_SUP_TB_BO_DAT = 2  # số bộ ảnh duyệt đạt của chương trình
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _sup_read_excel(path, mtime, header):
+  return pd.read_excel(path, header=header)
+
+
+def _sup_file(*names):
+  for n in names:
+    p = os.path.join(get_data_dir(), n)
+    if os.path.isfile(p):
+      return p
+  return None
+
+
+def _sup_targets(sub_div):
+  """Chỉ tiêu lương tháng (đầu tháng) theo ngành của từng ĐDKD — TARGETACTUAL (TARGET SO)."""
+  p = _sup_file('TARGETACTUAL BY STD SKU -BY SM.xlsx', 'TARGETACTUAL BY STD SKU -BY SM.xls')
+  if not p:
+    return {}
+  t = _sup_read_excel(p, os.path.getmtime(p), 2)
+  c_m, c_nv = find_col(t, ['MONTH']), find_col(t, ['SM NAME', 'SM_NAME'])
+  c_sub, c_tg = find_col(t, ['SUB DIV', 'SUB_DIV']), find_col(t, ['TARGET SO'])
+  if not (c_m and c_nv and c_sub and c_tg):
+    return {}
+  cfg = get_month_cfg()
+  lab = f"{int(cfg['month']):02d}/{int(cfg['year'])}"
+  x = t[(t[c_m].astype(str).str.strip() == lab) & (t[c_sub].astype(str).str.strip() == sub_div)]
+  return pd.to_numeric(x[c_tg], errors='coerce').fillna(0).groupby(x[c_nv].astype(str).str.strip()).sum().to_dict()
+
+
+def _sup_orders(df_rpt, report_date):
+  """Đơn hàng từ đầu tháng tới ngày BC (loại Đã hủy) — DS = Thành tiền trước CK như TURNOVER."""
+  if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
+    return pd.DataFrame()
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  d = df_rpt[(df_rpt['date'] >= date(rd.year, rd.month, 1)) & (df_rpt['date'] <= rd)].copy()
+  c_st = find_col(d, ['Tình trạng đơn hàng'])
+  if c_st:
+    d = d[~d[c_st].astype(str).str.contains('hủy|huỷ|huy', case=False, na=False)]
+  c_v = find_col(d, ['Thành tiền trước CK', 'Tổng tiền'])
+  d['_v'] = pd.to_numeric(d[c_v], errors='coerce').fillna(0) if c_v else 0.0
+  d['_nv'] = d['Tên NVBH'].astype(str).str.strip() if 'Tên NVBH' in d.columns else ''
+  d['_ma'] = d['Mã CH'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True) if 'Mã CH' in d.columns else ''
+  d['_ten'] = d['Tên CH'].astype(str).str.strip() if 'Tên CH' in d.columns else ''
+  d['_grp'] = d['Group STD SKU'].astype(str).str.strip() if 'Group STD SKU' in d.columns else ''
+  d['_sub'] = d['Sub Division'].astype(str).str.strip() if 'Sub Division' in d.columns else ''
+  d['_code'] = d['Mã sản phẩm'].astype(str).str.strip().str.upper() if 'Mã sản phẩm' in d.columns else ''
+  d['_name'] = d['Tên sản phẩm'].astype(str).str.lower() if 'Tên sản phẩm' in d.columns else ''
+  d['_chan'] = pd.to_numeric(d.get('Tổng chẵn', 0), errors='coerce').fillna(0)
+  d['_le'] = pd.to_numeric(d.get('Tổng lẻ', 0), errors='coerce').fillna(0)
+  d['_ord'] = d['Mã đơn hàng'].astype(str) if 'Mã đơn hàng' in d.columns else d.index.astype(str)
+  if nv_selected(filter_nv):
+    vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+    d = d[d['_nv'].isin(vals)]
+  return d
+
+
+def _sup_roster(d, *maps):
+  names = set(d['_nv'].dropna().astype(str)) if not d.empty else set()
+  for m in maps:
+    names |= {str(k) for k in (m or {})}
+  names = {n for n in names if n and n.lower() not in ('nan', 'none')}
+  if nv_selected(filter_nv):
+    vals = {str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])}
+    names &= vals
+  return sorted(names)
+
+
+def _sup_pct(a, b):
+  return round(a / b * 100, 1) if b else 0.0
+
+
+def _sup_tong_cong(df, label_col='Tên NVBH', sum_cols=(), pct=None):
+  """Thêm dòng TỔNG CỘNG (STT '-'). pct: {cột %: (cột tử, cột mẫu)}."""
+  if df.empty:
+    return df
+  tot = {c: '' for c in df.columns}
+  tot['STT'] = '-'
+  tot[label_col] = 'TỔNG CỘNG'
+  for c in sum_cols:
+    tot[c] = float(pd.to_numeric(df[c], errors='coerce').fillna(0).sum())
+  for c, (a, b) in (pct or {}).items():
+    tot[c] = _sup_pct(float(tot[a] or 0), float(tot[b] or 0))
+  return pd.concat([df, pd.DataFrame([tot])], ignore_index=True)
+
+
+def _sup_table_html(df, money=(), pct=(), groups=None):
+  """Bảng SUP — cùng format Báo cáo Trưng Bày: header xanh đậm, STT + cột tên cố định khi cuộn ngang,
+  dòng xen kẽ, dòng TỔNG CỘNG xanh đậm chữ trắng; groups: [(tên nhóm, số cột)] → dòng tiêu đề vàng."""
+  if df is None or df.empty:
+    return '<p>Không có dữ liệu.</p>'
+  cols = list(df.columns)
+  th = ('background-color:#1a365d !important;color:#ffffff !important;font-weight:800 !important;'
+        'text-align:center !important;border:1px solid #2b6cb0 !important;padding:6px 5px;font-size:11px;')
+  th_g = ('background-color:#f6e05e !important;color:#1a365d !important;font-weight:900 !important;'
+          'text-align:center !important;border:1px solid #2b6cb0 !important;padding:8px;font-size:13px;')
+  td = 'border:1px solid #bce2f5 !important;padding:5px 4px;font-size:12px;'
+  tot_style = ('background-color:#1a365d !important;color:#ffffff !important;font-weight:900 !important;'
+               'border:1px solid #2b6cb0 !important;padding:5px 4px;font-size:12px;')
+  html = ['<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">',
+          '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+          'width:max-content;min-width:100%;font-family:Arial,sans-serif;">',
+          '<thead style="position:sticky;top:0;z-index:5;">']
+  if groups:
+    html.append('<tr>' + ''.join(f'<th colspan="{n}" style="{th_g}">{g}</th>' for g, n in groups) + '</tr>')
+  html.append('<tr>' + ''.join(f'<th style="{th}">{c}</th>' for c in cols) + '</tr></thead><tbody>')
+  for pos, (_, row) in enumerate(df.iterrows()):
+    is_tot = str(row.get('STT', '')).strip() == '-'
+    bg = '#e6f4fc' if pos % 2 == 0 else '#ffffff'
+    html.append('<tr class="row-total">' if is_tot else '<tr>')
+    for c in cols:
+      v = row.get(c, '')
+      if v is None or (not isinstance(v, str) and pd.isna(v)):
+        v = ''
+      al = 'center'
+      if c in money and v != '':
+        v = format_number_vn(float(v))
+        al = 'right'
+      elif c in pct and v != '':
+        v = f'{float(v):.1f}%'
+      elif c in ('Tên NVBH', 'Tên KH', 'Nhóm SP', 'Chương trình'):
+        al = 'left'
+      elif isinstance(v, float):
+        v = str(int(v)) if v.is_integer() else f'{v:.1f}'
+      if is_tot:
+        html.append(f'<td class="row-total-cell" style="{tot_style}text-align:{al} !important;white-space:nowrap;">{v}</td>')
+      elif c in pct and v != '':
+        try:
+          cls, sty = color_pct_class(v), color_pct_bg(v)
+        except Exception:
+          cls, sty = '', ''
+        html.append(f'<td data-colored="1" class="{cls}" style="{td}background:{bg} !important;{sty}text-align:center;">{v}</td>')
+      else:
+        html.append(f'<td style="{td}background:{bg} !important;color:#1a202c !important;text-align:{al};white-space:nowrap;">{v}</td>')
+    html.append('</tr>')
+  html.append('</tbody></table></div>')
+  return ''.join(html)
+
+
+def _sup_stt(df):
+  df = df.reset_index(drop=True)
+  df.insert(0, 'STT', range(1, len(df) + 1))
+  return df
+
+
+# ---------- tính thưởng từng chương trình → bảng theo ĐDKD (+ chi tiết) ----------
+
+def sup_calc_mi(d):
+  tg = _sup_targets('Convenience Foods')
+  act = d[d['_sub'] == 'Convenience Foods'].groupby('_nv')['_v'].sum().to_dict() if not d.empty else {}
+  rows = [{'Tên NVBH': n, 'Chỉ tiêu Mì': float(tg.get(n, 0)), 'Thực đạt Mì': float(act.get(n, 0)),
+           '% đạt': _sup_pct(act.get(n, 0), tg.get(n, 0))} for n in _sup_roster(d, tg)]
+  t_tg, t_act = sum(r['Chỉ tiêu Mì'] for r in rows), sum(r['Thực đạt Mì'] for r in rows)
+  p = _sup_pct(t_act, t_tg)
+  muc = 500000 if p >= 110 else (300000 if p >= 100 else 0)
+  for r in rows:
+    r['Thưởng'] = muc
+  return pd.DataFrame(rows), {'tg': t_tg, 'act': t_act, 'pct': p, 'muc': muc}
+
+
+def sup_calc_xot(d):
+  x = d[d['_code'] == '03MR00045'] if not d.empty else d
+  det = pd.DataFrame(columns=['Tên NVBH', 'Mã KH', 'Tên KH', 'Số ĐH', 'Tổng hộp', 'Hộp lớn nhất/ĐH', 'Đạt ASO'])
+  if not x.empty:
+    o = x.groupby(['_nv', '_ma', '_ten', '_ord'])['_le'].sum().reset_index()
+    det = o.groupby(['_nv', '_ma', '_ten']).agg(n=('_ord', 'nunique'), tong=('_le', 'sum'), mx=('_le', 'max')).reset_index()
+    det = det.rename(columns={'_nv': 'Tên NVBH', '_ma': 'Mã KH', '_ten': 'Tên KH', 'n': 'Số ĐH',
+                              'tong': 'Tổng hộp', 'mx': 'Hộp lớn nhất/ĐH'})
+    det['Đạt ASO'] = det['Hộp lớn nhất/ĐH'].map(lambda v: 'Đạt' if v >= 2 else 'Chưa đạt')
+    det[['Tổng hộp', 'Hộp lớn nhất/ĐH']] = det[['Tổng hộp', 'Hộp lớn nhất/ĐH']].round(0).astype(int)
+  aso = det[det['Đạt ASO'] == 'Đạt'].groupby('Tên NVBH')['Mã KH'].nunique().to_dict()
+  rows = []
+  for n in _sup_roster(d):
+    a = int(aso.get(n, 0))
+    rows.append({'Tên NVBH': n, 'ASO Combo Xốt': a, 'Thiếu (tối thiểu 5)': max(0, 5 - a),
+                 'Thưởng': a * 10000 if a >= 5 else 0})
+  return pd.DataFrame(rows), det
+
+
+def sup_calc_homey(d):
+  x = d[d['_name'].str.contains('homey', na=False) & (d['_v'] > 0)] if not d.empty else d
+  det = pd.DataFrame(columns=['Tên NVBH', 'Mã KH', 'Tên KH', 'DS Homey'])
+  if not x.empty:
+    det = x.groupby(['_nv', '_ma', '_ten'])['_v'].sum().reset_index().rename(
+        columns={'_nv': 'Tên NVBH', '_ma': 'Mã KH', '_ten': 'Tên KH', '_v': 'DS Homey'})
+  ch = det.groupby('Tên NVBH')['Mã KH'].nunique().to_dict() if not det.empty else {}
+  rows = []
+  for n in _sup_roster(d):
+    c = int(ch.get(n, 0))
+    rows.append({'Tên NVBH': n, 'CH có DS Homey': c, 'Thiếu (tối thiểu 15)': max(0, 15 - c),
+                 'Thưởng': c * 10000 if c >= 15 else 0})
+  return pd.DataFrame(rows), det
+
+
+def sup_calc_meat(d):
+  tg = _sup_targets('Processed Meats')
+  m = d[d['_sub'] == 'Processed Meats'] if not d.empty else d
+  act = m.groupby('_nv')['_v'].sum().to_dict() if not m.empty else {}
+  g2n = {}
+  for gname, (grps, _r1, _r2) in _SUP_MEAT_GROUPS.items():
+    for g in grps:
+      g2n[g.lower()] = gname
+  det = pd.DataFrame(columns=['Tên NVBH', 'Nhóm thưởng', 'Nhóm SP', 'DS'])
+  if not m.empty:
+    mm = m.assign(_ng=m['_grp'].str.lower().map(g2n)).dropna(subset=['_ng'])
+    det = mm.groupby(['_nv', '_ng', '_grp'])['_v'].sum().reset_index().rename(
+        columns={'_nv': 'Tên NVBH', '_ng': 'Nhóm thưởng', '_grp': 'Nhóm SP', '_v': 'DS'})
+  rows = []
+  for n in _sup_roster(d, tg):
+    t, a = float(tg.get(n, 0)), float(act.get(n, 0))
+    p = _sup_pct(a, t)
+    lv = 2 if p >= 105 else (1 if p >= 100 else 0)
+    r = {'Tên NVBH': n, 'Chỉ tiêu Meat': t, 'Thực đạt Meat': a, '% đạt': p, 'Mức': f'Mức {lv}' if lv else '-'}
+    tot = 0.0
+    for gname, (_grps, r1, r2) in _SUP_MEAT_GROUPS.items():
+      ds = float(det[(det['Tên NVBH'] == n) & (det['Nhóm thưởng'] == gname)]['DS'].sum()) if not det.empty else 0.0
+      th = min(_SUP_MEAT_CAP, ds * (r2 if lv == 2 else (r1 if lv == 1 else 0)))
+      short = gname.replace('Nhóm ', '')
+      r[f'DS {short}'] = ds
+      r[f'Thưởng {short}'] = round(th)
+      tot += round(th)
+    r['Thưởng'] = tot
+    rows.append(r)
+  return pd.DataFrame(rows), det
+
+
+def sup_calc_bia(d):
+  det = pd.DataFrame(columns=['Tên NVBH', 'Nhãn', 'Mã KH', 'Tên KH', 'Số thùng'])
+  parts = []
+  for brand, codes in _SUP_BIA.items():
+    x = d[d['_code'].isin(codes)] if not d.empty else d
+    if not x.empty:
+      g = x.groupby(['_nv', '_ma', '_ten'])['_chan'].sum().reset_index()
+      g['Nhãn'] = brand
+      parts.append(g)
+  if parts:
+    det = pd.concat(parts).rename(columns={'_nv': 'Tên NVBH', '_ma': 'Mã KH', '_ten': 'Tên KH', '_chan': 'Số thùng'})
+    det = det[['Tên NVBH', 'Nhãn', 'Mã KH', 'Tên KH', 'Số thùng']]
+  rows = []
+  for n in _sup_roster(d):
+    r = {'Tên NVBH': n}
+    tot = 0
+    for brand in _SUP_BIA:
+      th = float(det[(det['Tên NVBH'] == n) & (det['Nhãn'] == brand)]['Số thùng'].sum()) if not det.empty else 0.0
+      short = brand.replace('Bia ', '')
+      r[f'Thùng {short}'] = round(th, 1)
+      r[f'Thưởng {short}'] = round(th * 6000) if th >= 20 else 0
+      tot += r[f'Thưởng {short}']
+    r['Thưởng'] = tot
+    rows.append(r)
+  return pd.DataFrame(rows), det
+
+
+def sup_pl_target():
+  """Chỉ tiêu thưởng Trà Phúc Long của NPP (CHI TIEU THUONG PHUC LONG.xlsx — Target DSO giá RTL +VAT)."""
+  p = _sup_file('CHI TIEU THUONG PHUC LONG.xlsx')
+  if not p:
+    return {}
+  t = _sup_read_excel(p, os.path.getmtime(p), 2)
+  c_ship, c_tg = find_col(t, ['Ship To code', 'Ship To', 'Ship-To']), find_col(t, ['Target DSO giá RTL (+VAT)', 'Target'])
+  if not (c_ship and c_tg):
+    return {}
+  return pd.to_numeric(t[c_tg], errors='coerce').fillna(0).groupby(t[c_ship].astype(str).str.strip()).sum().to_dict()
+
+
+def sup_calc_pl(d):
+  x = d[d['_name'].str.contains('phúc long|phuc long', na=False, regex=True)] if not d.empty else d
+  act = x.groupby('_nv')['_v'].sum().to_dict() if not x.empty else {}
+  ship = ''
+  if not d.empty and 'Ship-To NPP' in d.columns:
+    s = d['Ship-To NPP'].astype(str).str.strip()
+    ship = s.mode().iloc[0] if len(s) else ''
+  tg = float(sup_pl_target().get(ship, 0))
+  team = float(sum(act.values()))
+  p = _sup_pct(team, tg)
+  rows = [{'Tên NVBH': n, 'DS Trà Phúc Long': float(act.get(n, 0)), 'Thưởng': 400000 if (tg and p >= 100) else 0}
+          for n in _sup_roster(d)]
+  return pd.DataFrame(rows), {'ship': ship, 'tg': tg, 'act': team, 'pct': p}
+
+
+def sup_calc_tb(d):
+  p = _sup_file('DanhSachXetBoHinhTrungBay.xlsx')
+  det = pd.DataFrame(columns=['Tên NVBH', 'Chương trình', 'Mã KH', 'Tên KH', 'Số bộ đạt', 'Kết quả CT'])
+  if p:
+    t = _sup_read_excel(p, os.path.getmtime(p), 2)
+    c_ct, c_kq = find_col(t, ['Tên CT']), find_col(t, ['Kết quả'])
+    c_ma, c_ten, c_nv = find_col(t, ['Mã cửa hàng']), find_col(t, ['Tên cửa hàng']), find_col(t, ['NVBH'])
+    if c_ct and c_kq and c_ma and c_nv:
+      t = t[t[c_ct].notna()]
+      parts = []
+      for prog, pat, _per, _min, _cap in _SUP_TB:
+        x = t[t[c_ct].astype(str).str.lower().str.contains(pat, regex=True, na=False)].copy()
+        if x.empty:
+          continue
+        x['_dat'] = x[c_kq].astype(str).str.strip().str.lower().eq('đạt')
+        g = x.groupby([x[c_nv].astype(str).str.strip(), x[c_ma].astype(str).str.replace(r'\.0$', '', regex=True),
+                       x[c_ten].astype(str) if c_ten else x[c_ma].astype(str)])['_dat'].sum().reset_index()
+        g.columns = ['Tên NVBH', 'Mã KH', 'Tên KH', 'Số bộ đạt']
+        g['Chương trình'] = prog
+        g['Kết quả CT'] = g['Số bộ đạt'].map(lambda v: 'Đạt' if v >= _SUP_TB_BO_DAT else 'Chưa đạt')
+        parts.append(g)
+      if parts:
+        det = pd.concat(parts)[['Tên NVBH', 'Chương trình', 'Mã KH', 'Tên KH', 'Số bộ đạt', 'Kết quả CT']]
+        if nv_selected(filter_nv):
+          vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
+          det = det[det['Tên NVBH'].isin(vals)]
+  names = sorted(set(_sup_roster(d)) | (set(det['Tên NVBH']) if not det.empty else set()))
+  rows = []
+  for n in names:
+    r = {'Tên NVBH': n}
+    tot = 0
+    for prog, _pat, per, mn, cap in _SUP_TB:
+      c = int(det[(det['Tên NVBH'] == n) & (det['Chương trình'] == prog) & (det['Kết quả CT'] == 'Đạt')]['Mã KH'].nunique()) if not det.empty else 0
+      th = c * per if c >= mn else 0
+      if cap:
+        th = min(th, cap)
+      short = prog.split(' (')[0]
+      r[f'CH đạt · {short}'] = c
+      r[f'Thưởng · {short}'] = th
+      tot += th
+    r['Thưởng'] = tot
+    rows.append(r)
+  return pd.DataFrame(rows), det
+
+
+def _sup_money_cols(df):
+  return [c for c in df.columns if c.startswith('Thưởng') or c.startswith('DS') or c.startswith('Chỉ tiêu')
+          or c.startswith('Thực đạt')]
+
+
+def _sup_filters(prefix, det, extra=None):
+  """Bộ lọc bảng chi tiết: ĐDKD, Mã KH, Tên KH (+ ô chọn riêng theo chương trình)."""
+  if det is None or det.empty:
+    return det
+  cols = st.columns(3 + len(extra or []))
+  with cols[0]:
+    st.markdown('<p class="filter-label">Tên NVBH</p>', unsafe_allow_html=True)
+    f_nv = st.multiselect('', sorted(det['Tên NVBH'].astype(str).unique()), default=[], key=f'{prefix}_nv',
+                          label_visibility='collapsed', placeholder='Tất cả NV')
+  with cols[1]:
+    st.markdown('<p class="filter-label">Mã KH</p>', unsafe_allow_html=True)
+    f_ma = st.text_input('', key=f'{prefix}_ma', label_visibility='collapsed', placeholder='Nhập Mã KH...')
+  with cols[2]:
+    st.markdown('<p class="filter-label">Tên KH</p>', unsafe_allow_html=True)
+    f_ten = st.text_input('', key=f'{prefix}_ten', label_visibility='collapsed', placeholder='Nhập Tên KH...')
+  sel = {}
+  for i, (col, label) in enumerate(extra or []):
+    with cols[3 + i]:
+      st.markdown(f'<p class="filter-label">{label}</p>', unsafe_allow_html=True)
+      sel[col] = st.multiselect('', sorted(det[col].astype(str).unique()), default=[], key=f'{prefix}_{i}',
+                                label_visibility='collapsed', placeholder='Tất cả')
+  v = det.copy()
+  if f_nv:
+    v = v[v['Tên NVBH'].astype(str).isin(f_nv)]
+  if f_ma and str(f_ma).strip():
+    v = v[v['Mã KH'].astype(str).str.contains(str(f_ma).strip(), case=False, na=False, regex=False)]
+  if f_ten and str(f_ten).strip():
+    v = v[v['Tên KH'].astype(str).str.contains(str(f_ten).strip(), case=False, na=False, regex=False)]
+  for col, vals in sel.items():
+    if vals:
+      v = v[v[col].astype(str).isin(vals)]
+  return v
+
+
+def _sup_summary(df, sum_cols, pct=None, groups=None, kq_key=None):
+  """Bảng theo ĐDKD + dòng TỔNG CỘNG; ô lọc 'Kết quả' (Có thưởng / Chưa có thưởng)."""
+  if df is None or df.empty:
+    st.info('Chưa có dữ liệu.')
+    return
+  v = df.copy()
+  if kq_key:
+    st.markdown('<p class="filter-label">Kết quả thưởng</p>', unsafe_allow_html=True)
+    kq = st.multiselect('', ['Có thưởng', 'Chưa có thưởng'], default=[], key=kq_key,
+                        label_visibility='collapsed', placeholder='Tất cả')
+    if kq:
+      has = pd.to_numeric(v['Thưởng'], errors='coerce').fillna(0) > 0
+      v = v[(has & ('Có thưởng' in kq)) | (~has & ('Chưa có thưởng' in kq))]
+  v = _sup_tong_cong(_sup_stt(v), sum_cols=sum_cols, pct=pct)
+  st.markdown(_sup_table_html(v, money=_sup_money_cols(v), pct=[c for c in v.columns if c.startswith('%')],
+                              groups=groups), unsafe_allow_html=True)
+
+
+def _sup_detail(title, det, prefix, extra=None, money=()):
+  st.markdown(f'<p style="font-weight:800;color:#034ea2;margin:14px 0 4px;">{title}</p>', unsafe_allow_html=True)
+  if det is None or det.empty:
+    st.info('Chưa có dữ liệu chi tiết.')
+    return
+  v = _sup_filters(prefix, det, extra)
+  st.markdown(_sup_table_html(_sup_stt(v), money=money), unsafe_allow_html=True)
+  st.caption(f'Hiển thị: {len(v):,} / {len(det):,} dòng')
+
+
+if _nav == SUP_NAV:
+  st.markdown('<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
+              '🔒 SUP — THƯỞNG ĐDKD ' + get_month_cfg().get('label', '') + '</h3>', unsafe_allow_html=True)
+  if not st.session_state.get('sup_ok'):
+    st.markdown('<p style="text-align:center;">Khu vực dành cho Giám sát — vui lòng đăng nhập.</p>',
+                unsafe_allow_html=True)
+    _c1, _c2, _c3 = st.columns([1, 1, 1])
+    with _c2:
+      _u = st.text_input('ID đăng nhập', key='sup_login_user')
+      _p = st.text_input('Mật khẩu', type='password', key='sup_login_pass')
+      if st.button('Đăng nhập', key='sup_login_btn'):
+        if _sup_hash(_u, _p) == SUP_USER_HASH:
+          st.session_state['sup_ok'] = True
+          st.rerun()
+        else:
+          st.error('Sai ID hoặc mật khẩu.')
+    st.stop()
+
+  _sup_labels = [l for _, l in SUP_PROGRAMS]
+  _prog = st.radio('Chương trình', _sup_labels, key='sup_prog', label_visibility='collapsed')
+  _d = _sup_orders(df, report_date)
+  st.caption(f'Số liệu từ 01/{int(get_month_cfg()["month"]):02d} đến ngày {report_date.strftime("%d/%m/%Y")} '
+             '| DS = Thành tiền trước CK (như TURNOVER), không tính đơn đã hủy | thưởng là số dự kiến theo công văn')
+
+  if _prog == SUP_PROG_TONG:
+    parts = {
+        'Mì': sup_calc_mi(_d)[0], 'Combo Xốt': sup_calc_xot(_d)[0], 'Homey': sup_calc_homey(_d)[0],
+        'Thịt CB': sup_calc_meat(_d)[0], 'Bia': sup_calc_bia(_d)[0], 'Trà Phúc Long': sup_calc_pl(_d)[0],
+        'Trưng bày': sup_calc_tb(_d)[0],
+    }
+    names = sorted({n for p in parts.values() if not p.empty for n in p['Tên NVBH']})
+    rows = []
+    for n in names:
+      r = {'Tên NVBH': n}
+      tot = 0.0
+      for k, p in parts.items():
+        val = float(p[p['Tên NVBH'] == n]['Thưởng'].sum()) if not p.empty else 0.0
+        r[f'Thưởng {k}'] = val
+        tot += val
+      r['Thưởng'] = tot
+      rows.append(r)
+    _t = pd.DataFrame(rows)
+    _sup_summary(_t, sum_cols=[c for c in _t.columns if c.startswith('Thưởng')], kq_key='sup_tong_kq',
+                 groups=[('THÔNG TIN ĐDKD', 2), ('THƯỞNG DỰ KIẾN THEO CHƯƠNG TRÌNH', len(parts)), ('TỔNG', 1)])
+
+  elif _prog == SUP_PROG_MI:
+    _t, info = sup_calc_mi(_d)
+    st.markdown('**CV 483 · Mục 1** — NPP đạt ≥100% chỉ tiêu lương (đầu tháng) tổng ngành Mì: '
+                'Mức 1 (100% – <110%) 300.000đ/ĐDKD · Mức 2 (≥110%) 500.000đ/ĐDKD. '
+                f'**Team:** chỉ tiêu {format_number_vn(info["tg"])}đ · thực đạt {format_number_vn(info["act"])}đ · '
+                f'**{info["pct"]}%** → thưởng {format_number_vn(info["muc"])}đ/ĐDKD. '
+                '_Lưu ý: công văn xét theo cả NPP; ở đây tính theo data của team._')
+    _sup_summary(_t, sum_cols=['Chỉ tiêu Mì', 'Thực đạt Mì', 'Thưởng'], pct={'% đạt': ('Thực đạt Mì', 'Chỉ tiêu Mì')},
+                 kq_key='sup_mi_kq')
+
+  elif _prog == SUP_PROG_XOT:
+    _t, _det = sup_calc_xot(_d)
+    st.markdown('**CV 483 · Mục 2** — ĐDKD đạt tối thiểu 5 ASO Combo xốt mỹ vị CHIN-SU (mã 03MR00045, '
+                'ASO = CH có đơn ≥2 hộp) → 10.000đ/ASO.')
+    _sup_summary(_t, sum_cols=['ASO Combo Xốt', 'Thưởng'], kq_key='sup_xot_kq')
+    _sup_detail('CHI TIẾT CỬA HÀNG MUA COMBO XỐT', _det, 'sup_xot_d', extra=[('Đạt ASO', 'Đạt ASO')])
+
+  elif _prog == SUP_PROG_HOMEY:
+    _t, _det = sup_calc_homey(_d)
+    st.markdown('**CV 483 · Mục 3** — ĐDKD có tối thiểu 15 cửa hàng phát sinh doanh số Homey '
+                '(Nước rửa chén, Sữa rửa chén, Nước giặt xả Homey) → 10.000đ/cửa hàng.')
+    _sup_summary(_t, sum_cols=['CH có DS Homey', 'Thưởng'], kq_key='sup_homey_kq')
+    _sup_detail('CHI TIẾT CỬA HÀNG CÓ DOANH SỐ HOMEY', _det, 'sup_homey_d', money=('DS Homey',))
+
+  elif _prog == SUP_PROG_MEAT:
+    _t, _det = sup_calc_meat(_d)
+    st.markdown('**CV 483 · Mục 4-5-6** — ĐDKD đạt ≥100% (Mức 1) / ≥105% (Mức 2) chỉ tiêu lương ngành Thịt chế biến → '
+                'thưởng % doanh số: Trọng điểm 1% / 2% · Tập trung 3% / 5% · Mở mới 6% / 10% — '
+                'tối đa 1.500.000đ/ĐDKD mỗi nhóm.')
+    _n = len(_SUP_MEAT_GROUPS)
+    _sup_summary(_t, sum_cols=[c for c in _t.columns if c not in ('Tên NVBH', '% đạt', 'Mức')],
+                 pct={'% đạt': ('Thực đạt Meat', 'Chỉ tiêu Meat')}, kq_key='sup_meat_kq',
+                 groups=[('THÔNG TIN ĐDKD', 2), ('NGÀNH THỊT CHẾ BIẾN', 4), ('THEO NHÓM SẢN PHẨM', 2 * _n), ('TỔNG', 1)])
+    _sup_detail('DOANH SỐ THEO NHÓM SẢN PHẨM', _det, 'sup_meat_d', extra=[('Nhóm thưởng', 'Nhóm thưởng')],
+                money=('DS',))
+
+  elif _prog == SUP_PROG_BIA:
+    _t, _det = sup_calc_bia(_d)
+    st.markdown('**CV 026** — ĐDKD bán đạt từ 20 thùng → 6.000đ/thùng theo số thực đạt, tính riêng '
+                'Bia Sư Tử Trắng và Bia Red Ruby (đúng mã SP trong công văn).')
+    _sup_summary(_t, sum_cols=[c for c in _t.columns if c != 'Tên NVBH'], kq_key='sup_bia_kq')
+    _sup_detail('CHI TIẾT CỬA HÀNG MUA BIA', _det, 'sup_bia_d', extra=[('Nhãn', 'Nhãn bia')])
+
+  elif _prog == SUP_PROG_PL:
+    _t, info = sup_calc_pl(_d)
+    st.markdown('**CV 484** — NPP đạt ≥100% chỉ tiêu thưởng bán ra tháng (file CHI TIEU THUONG PHUC LONG) của tất cả '
+                'sản phẩm Trà Phúc Long → 400.000đ/ĐDKD. '
+                f'**NPP {info["ship"]}:** chỉ tiêu {format_number_vn(info["tg"])}đ (giá RTL +VAT) · '
+                f'team thực đạt {format_number_vn(info["act"])}đ · **{info["pct"]}%**. '
+                '_Lưu ý: công văn xét theo cả NPP; ở đây tính theo data của team._')
+    _sup_summary(_t, sum_cols=['DS Trà Phúc Long', 'Thưởng'], kq_key='sup_pl_kq')
+
+  elif _prog == SUP_PROG_TB:
+    _t, _det = sup_calc_tb(_d)
+    st.markdown('**CV 485** TBTL Xốt CHIN-SU mỹ vị 10.000đ/CH đạt · **CV 486** TBTN Trà Phúc Long 10.000đ/CH đạt '
+                '(tối đa 100.000đ) · **CV 487** TBTN Tủ mát NGK từ 5 CH đạt 20.000đ/CH (tối đa 300.000đ). '
+                f'CH đạt = có ≥{_SUP_TB_BO_DAT} bộ ảnh được duyệt đạt (DanhSachXetBoHinhTrungBay).')
+    _sup_summary(_t, sum_cols=[c for c in _t.columns if c != 'Tên NVBH'], kq_key='sup_tb_kq')
+    _sup_detail('CHI TIẾT CỬA HÀNG THEO CHƯƠNG TRÌNH TRƯNG BÀY', _det, 'sup_tb_d',
+                extra=[('Chương trình', 'Chương trình'), ('Kết quả CT', 'Kết quả')])

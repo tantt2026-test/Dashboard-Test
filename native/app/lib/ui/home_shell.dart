@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 
@@ -12,7 +14,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.5.6';
+const appVersion = '1.6.0';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -117,6 +119,49 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (_scaffold.currentState?.isDrawerOpen ?? false) Navigator.of(context).pop();
   }
 
+  // Tab 🔒 SUP (thưởng ĐDKD): đăng nhập 1 lần mỗi lần mở app. Chỉ lưu mã băm sha256('ID:mật khẩu').
+  static const _supHash = 'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4';
+  bool _supOk = false;
+
+  Future<void> _openSup(String code) async {
+    if (_supOk) return _select(code);
+    final user = TextEditingController(), pass = TextEditingController();
+    String? err;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        void submit() {
+          final h = sha256.convert(utf8.encode('${user.text.trim()}:${pass.text}')).toString();
+          if (h == _supHash) {
+            Navigator.pop(ctx, true);
+          } else {
+            setD(() => err = 'Sai ID hoặc mật khẩu');
+          }
+        }
+
+        return AlertDialog(
+          title: const Text('🔒 SUP — Đăng nhập'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: user, autofocus: true, decoration: const InputDecoration(labelText: 'ID đăng nhập')),
+            TextField(
+                controller: pass,
+                obscureText: true,
+                decoration: InputDecoration(labelText: 'Mật khẩu', errorText: err),
+                onSubmitted: (_) => submit()),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
+            FilledButton(onPressed: submit, child: const Text('Đăng nhập')),
+          ],
+        );
+      }),
+    );
+    if (ok == true && mounted) {
+      setState(() => _supOk = true);
+      _select(code);
+    }
+  }
+
   Widget _menu({required bool permanent}) {
     final reports = _idx?.reports ?? [];
     return Container(
@@ -155,6 +200,29 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                 _section('CÁC TAB KHÁC'),
               ],
               for (final r in reports.where((r) => r.group == 'tab')) _tile(r.code, r.name),
+              if (reports.any((r) => r.group == 'sup')) ...[
+                Container(
+                  height: 2.5,
+                  margin: const EdgeInsets.fromLTRB(4, 14, 4, 2),
+                  decoration: BoxDecoration(color: const Color(0xFF805AD5), borderRadius: BorderRadius.circular(2)),
+                ),
+                Row(children: [
+                  Expanded(child: _section('🔒 SUP — THƯỞNG ĐDKD')),
+                  if (_supOk)
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _supOk = false;
+                        if (_code.startsWith('SUP_')) _code = 'TURNOVER';
+                      }),
+                      child: const Text('Đăng xuất', style: TextStyle(fontSize: 11)),
+                    ),
+                ]),
+                for (final r in reports.where((r) => r.group == 'sup'))
+                  _MenuTile(
+                      name: _supOk ? r.name : r.name.replaceFirst('🔒 SUP · ', '🔒 '),
+                      selected: r.code == _code,
+                      onTap: () => _openSup(r.code)),
+              ],
             ]),
           ),
           const Divider(height: 1),
