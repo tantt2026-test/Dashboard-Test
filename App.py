@@ -21147,6 +21147,17 @@ def _sup_detail(title, det, prefix, extra=None, money=()):
   st.caption(f'Hiển thị: {len(v):,} / {len(det):,} dòng')
 
 
+def _sup_note(thuong, muc, ket_qua, luu_y=None):
+  """Đầu mỗi báo cáo thưởng: Thưởng gì · Mức thưởng · Chỉ tiêu / Thực đạt → Tiền thưởng (in đậm, xanh lá)."""
+  sty = 'color:#2f855a;font-weight:800;font-size:13.5px;margin:3px 0;'
+  html = (f'<div style="{sty}">🎯 Thưởng: {thuong}</div>'
+          f'<div style="{sty}">💰 Mức thưởng: {muc}</div>'
+          f'<div style="{sty}">📊 Chỉ tiêu / Thực đạt → Tiền thưởng: {ket_qua}</div>')
+  if luu_y:
+    html += f'<div style="color:#718096;font-style:italic;font-size:12px;margin:2px 0 6px;">Lưu ý: {luu_y}</div>'
+  st.markdown(html, unsafe_allow_html=True)
+
+
 if _nav == SUP_NAV:
   st.markdown('<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
               '🔒 TRACKING SALE SUP — ' + get_month_cfg().get('label', '') + '</h3>', unsafe_allow_html=True)
@@ -21189,38 +21200,49 @@ if _nav == SUP_NAV:
       r['Thưởng'] = tot
       rows.append(r)
     _t = pd.DataFrame(rows)
+    _sup_note('Tổng hợp các chương trình thưởng ĐDKD tháng (CV 483 · 026 · 484 · 485 · 486 · 487)',
+              'Theo từng công văn — xem từng báo cáo trong tab',
+              f'{int((_t["Thưởng"] > 0).sum()) if not _t.empty else 0}/{len(_t)} ĐDKD có thưởng → '
+              f'tổng {format_number_vn(_t["Thưởng"].sum() if not _t.empty else 0)}đ')
     _sup_summary(_t, sum_cols=[c for c in _t.columns if c.startswith('Thưởng')], kq_key='sup_tong_kq',
                  groups=[('THÔNG TIN ĐDKD', 2), ('THƯỞNG DỰ KIẾN THEO CHƯƠNG TRÌNH', len(parts)), ('TỔNG', 1)])
 
   elif _prog == SUP_PROG_MI:
     _t, info = sup_calc_mi(_d)
-    st.markdown('**CV 483 · Mục 1** — NPP đạt ≥100% chỉ tiêu lương (đầu tháng) tổng ngành Mì: '
-                'Mức 1 (100% – <110%) 300.000đ/ĐDKD · Mức 2 (≥110%) 500.000đ/ĐDKD. '
-                f'**Team:** chỉ tiêu {format_number_vn(info["tg"])}đ · thực đạt {format_number_vn(info["act"])}đ · '
-                f'**{info["pct"]}%** → thưởng {format_number_vn(info["muc"])}đ/ĐDKD. '
-                '_Lưu ý: công văn xét theo cả NPP; ở đây tính theo data của team._')
+    _sup_note('Doanh số ngành Mì — NPP đạt chỉ tiêu lương (đầu tháng) tổng ngành Mì (CV 483 · Mục 1)',
+              'Mức 1: đạt 100% – dưới 110% → 300.000đ/ĐDKD · Mức 2: đạt từ 110% → 500.000đ/ĐDKD',
+              f'{format_number_vn(info["tg"])}đ / {format_number_vn(info["act"])}đ ({info["pct"]}%) → '
+              f'{format_number_vn(info["muc"])}đ/ĐDKD',
+              luu_y='Công văn xét theo cả NPP; ở đây tính theo data của team.')
     _sup_summary(_t, sum_cols=['Chỉ tiêu Mì', 'Thực đạt Mì', 'Thưởng'], pct={'% đạt': ('Thực đạt Mì', 'Chỉ tiêu Mì')},
                  kq_key='sup_mi_kq')
 
   elif _prog == SUP_PROG_XOT:
     _t, _det = sup_calc_xot(_d)
-    st.markdown('**CV 483 · Mục 2** — ĐDKD đạt tối thiểu 5 ASO Combo xốt mỹ vị CHIN-SU (mã 03MR00045, '
-                'ASO = CH có đơn ≥2 hộp) → 10.000đ/ASO.')
+    _sup_note('ASO Combo xốt mỹ vị CHIN-SU — mã 03MR00045 (CV 483 · Mục 2)',
+              'Đạt tối thiểu 5 ASO (CH có đơn ≥2 hộp) → 10.000đ/ASO',
+              f'Tối thiểu 5 ASO/ĐDKD / team {int(_t["ASO Combo Xốt"].sum())} ASO, '
+              f'{int((_t["Thưởng"] > 0).sum())}/{len(_t)} ĐDKD đạt → {format_number_vn(_t["Thưởng"].sum())}đ')
     _sup_summary(_t, sum_cols=['ASO Combo Xốt', 'Thưởng'], kq_key='sup_xot_kq')
     _sup_detail('CHI TIẾT CỬA HÀNG MUA COMBO XỐT', _det, 'sup_xot_d', extra=[('Đạt ASO', 'Đạt ASO')])
 
   elif _prog == SUP_PROG_HOMEY:
     _t, _det = sup_calc_homey(_d)
-    st.markdown('**CV 483 · Mục 3** — ĐDKD có tối thiểu 15 cửa hàng phát sinh doanh số Homey '
-                '(Nước rửa chén, Sữa rửa chén, Nước giặt xả Homey) → 10.000đ/cửa hàng.')
+    _sup_note('Cửa hàng có doanh số Homey — Nước rửa chén, Sữa rửa chén, Nước giặt xả Homey (CV 483 · Mục 3)',
+              'Đạt tối thiểu 15 cửa hàng có doanh số Homey → 10.000đ/cửa hàng',
+              f'Tối thiểu 15 CH/ĐDKD / team {int(_t["CH có DS Homey"].sum())} CH, '
+              f'{int((_t["Thưởng"] > 0).sum())}/{len(_t)} ĐDKD đạt → {format_number_vn(_t["Thưởng"].sum())}đ')
     _sup_summary(_t, sum_cols=['CH có DS Homey', 'Thưởng'], kq_key='sup_homey_kq')
     _sup_detail('CHI TIẾT CỬA HÀNG CÓ DOANH SỐ HOMEY', _det, 'sup_homey_d', money=('DS Homey',))
 
   elif _prog == SUP_PROG_MEAT:
     _t, _det = sup_calc_meat(_d)
-    st.markdown('**CV 483 · Mục 4-5-6** — ĐDKD đạt ≥100% (Mức 1) / ≥105% (Mức 2) chỉ tiêu lương ngành Thịt chế biến → '
-                'thưởng % doanh số: Trọng điểm 1% / 2% · Tập trung 3% / 5% · Mở mới 6% / 10% — '
-                'tối đa 1.500.000đ/ĐDKD mỗi nhóm.')
+    _mt, _ma = float(_t['Chỉ tiêu Meat'].sum()), float(_t['Thực đạt Meat'].sum())
+    _sup_note('Doanh số Thịt chế biến — Nhóm Trọng điểm / Tập trung / Mở mới (CV 483 · Mục 4-5-6)',
+              'Mức 1 (đạt ≥100% chỉ tiêu Meat): Trọng điểm 1% · Tập trung 3% · Mở mới 6% DS nhóm | '
+              'Mức 2 (≥105%): 2% · 5% · 10% — tối đa 1.500.000đ/ĐDKD mỗi nhóm',
+              f'{format_number_vn(_mt)}đ / {format_number_vn(_ma)}đ ({_sup_pct(_ma, _mt)}%), '
+              f'{int((_t["Thưởng"] > 0).sum())}/{len(_t)} ĐDKD đạt mức → {format_number_vn(_t["Thưởng"].sum())}đ')
     _n = len(_SUP_MEAT_GROUPS)
     _sup_summary(_t, sum_cols=[c for c in _t.columns if c not in ('Tên NVBH', '% đạt', 'Mức')],
                  pct={'% đạt': ('Thực đạt Meat', 'Chỉ tiêu Meat')}, kq_key='sup_meat_kq',
@@ -21230,25 +21252,32 @@ if _nav == SUP_NAV:
 
   elif _prog == SUP_PROG_BIA:
     _t, _det = sup_calc_bia(_d)
-    st.markdown('**CV 026** — ĐDKD bán đạt từ 20 thùng → 6.000đ/thùng theo số thực đạt, tính riêng '
-                'Bia Sư Tử Trắng và Bia Red Ruby (đúng mã SP trong công văn).')
+    _sup_note('Thưởng đầu thùng Bia Sư Tử Trắng & Bia Red Ruby (CV 026)',
+              'Đạt từ 20 thùng/nhãn → 6.000đ/thùng theo số thực đạt (tính riêng từng nhãn)',
+              f'20 thùng/nhãn/ĐDKD / team Sư Tử Trắng {_t["Thùng Sư Tử Trắng"].sum():g} thùng, '
+              f'Red Ruby {_t["Thùng Red Ruby"].sum():g} thùng → {format_number_vn(_t["Thưởng"].sum())}đ')
     _sup_summary(_t, sum_cols=[c for c in _t.columns if c != 'Tên NVBH'], kq_key='sup_bia_kq')
     _sup_detail('CHI TIẾT CỬA HÀNG MUA BIA', _det, 'sup_bia_d', extra=[('Nhãn', 'Nhãn bia')])
 
   elif _prog == SUP_PROG_PL:
     _t, info = sup_calc_pl(_d)
-    st.markdown('**CV 484** — NPP đạt ≥100% chỉ tiêu thưởng bán ra tháng (file CHI TIEU THUONG PHUC LONG) của tất cả '
-                'sản phẩm Trà Phúc Long → 400.000đ/ĐDKD. '
-                f'**NPP {info["ship"]}:** chỉ tiêu {format_number_vn(info["tg"])}đ (giá RTL +VAT) · '
-                f'team thực đạt {format_number_vn(info["act"])}đ · **{info["pct"]}%**. '
-                '_Lưu ý: công văn xét theo cả NPP; ở đây tính theo data của team._')
+    _sup_note('Doanh số Trà Phúc Long — NPP đạt chỉ tiêu bán ra tháng, tất cả SP Trà Phúc Long (CV 484)',
+              'NPP đạt từ 100% chỉ tiêu → 400.000đ/ĐDKD',
+              f'{format_number_vn(info["tg"])}đ (NPP {info["ship"]}, giá RTL +VAT) / '
+              f'{format_number_vn(info["act"])}đ ({info["pct"]}%) → '
+              f'{format_number_vn(400000 if (info["tg"] and info["pct"] >= 100) else 0)}đ/ĐDKD',
+              luu_y='Công văn xét theo cả NPP; ở đây tính theo data của team.')
     _sup_summary(_t, sum_cols=['DS Trà Phúc Long', 'Thưởng'], kq_key='sup_pl_kq')
 
   elif _prog == SUP_PROG_TB:
     _t, _det = sup_calc_tb(_d)
-    st.markdown('**CV 485** TBTL Xốt CHIN-SU mỹ vị 10.000đ/CH đạt · **CV 486** TBTN Trà Phúc Long 10.000đ/CH đạt '
-                '(tối đa 100.000đ) · **CV 487** TBTN Tủ mát NGK từ 5 CH đạt 20.000đ/CH (tối đa 300.000đ). '
-                f'CH đạt = có ≥{_SUP_TB_BO_DAT} bộ ảnh được duyệt đạt (DanhSachXetBoHinhTrungBay).')
+    _cd = [c for c in _t.columns if c.startswith('CH đạt')]
+    _sup_note('Trưng bày — TBTL Xốt CHIN-SU mỹ vị (CV 485) · TBTN Trà Phúc Long (CV 486) · TBTN Tủ mát NGK (CV 487)',
+              'Xốt CHIN-SU 10.000đ/CH đạt · Trà Phúc Long 10.000đ/CH đạt (tối đa 100.000đ) · '
+              'Tủ mát NGK từ 5 CH đạt → 20.000đ/CH (tối đa 300.000đ)',
+              f'CH đạt = ≥{_SUP_TB_BO_DAT} bộ ảnh duyệt đạt / team '
+              + ' · '.join(f'{c.split(" · ")[1]} {int(_t[c].sum())} CH' for c in _cd)
+              + f' → {format_number_vn(_t["Thưởng"].sum())}đ')
     _sup_summary(_t, sum_cols=[c for c in _t.columns if c != 'Tên NVBH'], kq_key='sup_tb_kq')
     _sup_detail('CHI TIẾT CỬA HÀNG THEO CHƯƠNG TRÌNH TRƯNG BÀY', _det, 'sup_tb_d',
                 extra=[('Chương trình', 'Chương trình'), ('Kết quả CT', 'Kết quả')])
