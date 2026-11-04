@@ -470,6 +470,8 @@ MONTH_OPTIONS = {
         'aso_focus_target': 20,
         # CV 26 (T11): ASO_Focus_2 = Hạt nêm Chinsu ngọt thanh xương hầm cô đặc 170/400/900gr, 15 ASO/ĐDKD
         'aso_focus2_pat': r'(?=.*h[aạ]t\s*n[eê]m)(?=.*ng[oọ]t\s*thanh)(?=.*x[uư][oơ]ng\s*h[aầ]m\s*c[oô]\s*[dđ][aặ]c)(?=.*(?<!\d)(?:170|400|900)\s*g)',
+        # Chỉ đúng 3 mã + dòng SP trên đơn đạt MOQ (Hạt nêm Chinsu: >= 6 gói)
+        'aso_focus2_codes': ['03HG00256', '03HG00258', '03HG00281'],
         'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Hạt nêm Chinsu xương hầm)',
         'aso_focus2_short': 'Hạt nêm xương hầm',
         'aso_focus2_card': 'Hạt nêm XH',
@@ -2828,6 +2830,20 @@ def _rpt_order_ts(x):
   return base
 
 
+def aso_focus_codes_moq(x, codes):
+  """Dòng ĐH đúng mã SP [codes] và đạt MOQ dòng (bảng MOQ_RULES). Tên SP trên đơn ghi 'CHIN-SU'
+  → đổi về 'chinsu' để khớp luật MOQ Chinsu."""
+  if x is None or x.empty or 'Mã sản phẩm' not in x.columns:
+    return pd.DataFrame()
+  _codes = {str(c).strip().upper() for c in codes}
+  x = x[x['Mã sản phẩm'].astype(str).str.strip().str.upper().isin(_codes)].copy()
+  if x.empty:
+    return x
+  nm = x['Tên sản phẩm'].astype(str).str.replace(r'(?i)chin-su', 'chinsu', regex=True)
+  ok = x.assign(**{'Tên sản phẩm': nm}).apply(line_meets_moq, axis=1)
+  return x[ok.astype(bool)]
+
+
 def aso_focus_both_done(x, both):
   """ASO Trận Xanh T11 (CV 26 gửi lại): CH có ĐỦ các nhóm SP Tết, mỗi nhóm có ≥1 dòng đạt MOQ
   trên đơn. Trả về DataFrame [Mã NVBH, Tên NVBH, Mã CH, date, ts] — thời điểm CH đạt đủ nhóm cuối."""
@@ -3316,6 +3332,15 @@ def build_report(
           first = d.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
           first.columns = ['Mã NVBH', 'Mã CH', 'first_date']
           ngay = first[first['first_date'] == report_date].groupby('Mã NVBH')['Mã CH'].nunique()
+    elif cfg.get('aso_focus2_codes'):
+      # T11: đúng mã SP + dòng đạt MOQ; ngày = ngày CH lần đầu mua đạt MOQ
+      d = aso_focus_codes_moq(df_mtd, cfg['aso_focus2_codes'])
+      if d.empty:
+        mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
+      else:
+        mtd = d.groupby('Mã NVBH')['Mã CH'].nunique()
+        first = d.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
+        ngay = first[first['date'] == report_date].groupby('Mã NVBH')['Mã CH'].nunique()
     else:
       pat = cfg.get('aso_focus2_pat', r'homey')
       mtd, ngay = _aso_coverage(df_mtd, pat, min_qty=1)
@@ -9183,24 +9208,13 @@ def build_performance_report(
         _x['ts'] = _rpt_order_ts(_x)
         _px = _x.groupby(['Mã NVBH', 'Mã CH']).agg(
             date=('date', 'min'), ts=('ts', 'min'), **{'Tên NVBH': ('Tên NVBH', 'first')}).reset_index()
-      # Trận Vàng: CH mua SP (SL >= 1) — ngày = lần mua đầu (như _aso_coverage)
-      _v = _m.copy()
-      if 'Tên SP lower' in _v.columns:
-        _nm = _v['Tên SP lower'].astype(str)
-      else:
-        _nm = _v['Tên sản phẩm'].astype(str) if 'Tên sản phẩm' in _v.columns else pd.Series('', index=_v.index)
-        for _c in ['Group STD', 'Group std', 'STANDARD_SKU_NAME']:
-          if _c in _v.columns:
-            _nm = _nm + ' ' + _v[_c].astype(str)
-      _v = _v[_nm.str.lower().str.contains(_cfg_aso.get('aso_focus2_pat') or r'^$', na=False, regex=True)]
+      # Trận Vàng: đúng mã SP + dòng đạt MOQ — ngày = lần đầu mua đạt MOQ (như Báo Cáo ASO)
+      _v = aso_focus_codes_moq(_m, _cfg_aso.get('aso_focus2_codes') or [])
       if not _v.empty:
-        _qc = next((c for c in ['Tổng lẻ', 'Số lượng', 'Qty', 'SL'] if c in _v.columns), None)
-        _v['_q'] = pd.to_numeric(_v[_qc], errors='coerce').fillna(0) if _qc else 1
         _v['ts'] = _rpt_order_ts(_v)
         _pv = _v.groupby(['Mã NVBH', 'Mã CH']).agg(
-            q=('_q', 'sum'), date=('date', 'min'), ts=('ts', 'min'),
+            date=('date', 'min'), ts=('ts', 'min'),
             **{'Tên NVBH': ('Tên NVBH', 'first')}).reset_index()
-        _pv = _pv[_pv['q'] >= 1]
       else:
         _pv = pd.DataFrame()
       _aso_t11 = {'x': _per_nv(_px), 'v': _per_nv(_pv)}
