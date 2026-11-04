@@ -1,6 +1,6 @@
 """Sale Sup 'Cả 2' (all): mỗi bảng tách theo team như khi xem riêng từng Sale Sup + 1 dòng Total chung.
 
-  Bảng = dòng team Tân (+ dòng Tổng Tân) → dòng team Vy (+ dòng Tổng Vy) → dòng Tổng cả 2 team
+  Bảng = dòng team Vy (+ dòng Tổng Vy) → dòng team Tân (+ dòng Tổng Tân) → dòng Tổng cả 2 team
   (lấy từ App.py chạy trên data ghép). Thẻ / biểu đồ / nhận xét giữ bản data ghép.
 
   python team_merge.py --tan _reports --vy _reports/t/vy --all _reports/t/all
@@ -81,9 +81,9 @@ def merge_table(tt, tv, ta, labels=None):
         b = [_label_row(labels[1], len(names))] + b
     g = _relabel(_grand_rows(ta))
     out = dict(ta)
-    out['b'] = copy.deepcopy(a) + copy.deepcopy(b) + g
-    # đoạn 1 = Tân, đoạn 2 = Vy → app tính lại dòng Tổng từng đoạn khi lọc dòng
-    out['seg'] = [len(a), len(a) + len(b)]
+    # Vy trước, Tân sau (theo mẫu); app tính lại dòng Tổng từng đoạn khi lọc dòng
+    out['b'] = copy.deepcopy(b) + copy.deepcopy(a) + g
+    out['seg'] = [len(b), len(b) + len(a)]
     out.pop('_before', None)
     out.pop('_after', None)
     return out
@@ -209,9 +209,9 @@ def merge_turnover(pt, pv, pa):
     T, V, A = _load(pt), _load(pv), _load(pa)
     if T is None or V is None or A is None:
         return False
-    A['teams'] = [
-        {'label': T.get('total_label') or 'Team Tân', 'nv': T.get('nv') or []},
+    A['teams'] = [  # Vy trước, Tân sau (giống bảng báo cáo)
         {'label': V.get('total_label') or 'Team Vy', 'nv': V.get('nv') or []},
+        {'label': T.get('total_label') or 'Team Tân', 'nv': T.get('nv') or []},
     ]
     A['total_label'] = ALL_TOTAL
     with open(pa, 'w', encoding='utf-8') as fh:
