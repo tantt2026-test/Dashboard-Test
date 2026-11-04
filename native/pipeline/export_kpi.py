@@ -170,8 +170,9 @@ def plan_month(app_path, mk, now_utc):
     reports = [(code, label, NAV_KPI) for label, code in ns['kpi_map'].items()]
     # các tab còn lại (giai đoạn cuối): MCP VISIT, TRACKING MBS CAT/BRAND, DSKH Combo OFF/ON
     for nav in ns.get('_nav_opts') or []:
-        if nav in TAB_CODES:
-            reports.append((TAB_CODES[nav], nav, nav))
+        code = TAB_CODES.get(nav) or ('TAB_BRAND' if nav.startswith('🏷️ TRACKING') else None)
+        if code:  # T11: tab Brand đổi tên '🏷️ TRACKING HỘI VIÊN TẾT 2027'
+            reports.append((code, nav, nav))
         elif nav == SUP_NAV:
             reports += [(c, lab, SUP_NAV) for c, lab in ns.get('SUP_PROGRAMS') or []]
     nv = list(ns.get('nv_list') or [])

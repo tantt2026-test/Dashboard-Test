@@ -470,6 +470,9 @@ MONTH_OPTIONS = {
         'aso_focus_target': 20,
         # CV 26 (T11): ASO_Focus_2 = Hạt nêm Chinsu ngọt thanh xương hầm cô đặc 170/400/900gr, 15 ASO/ĐDKD
         'aso_focus2_pat': r'(?=.*h[aạ]t\s*n[eê]m)(?=.*ng[oọ]t\s*thanh)(?=.*x[uư][oơ]ng\s*h[aầ]m\s*c[oô]\s*[dđ][aặ]c)(?=.*(?<!\d)(?:170|400|900)\s*g)',
+        # T11: không còn MBS Cat; MBS Brand đổi tên Hội Viên Tết 2027
+        'no_mbs_cat': True,
+        'mbs_brand_name': 'HỘI VIÊN TẾT 2027',
         # Chỉ đúng 3 mã + dòng SP trên đơn đạt MOQ (Hạt nêm Chinsu: >= 6 gói)
         'aso_focus2_codes': ['03HG00256', '03HG00258', '03HG00281'],
         'aso_focus2_name': 'ASO_Focus_2 - Trận Vàng (Hạt nêm Chinsu xương hầm)',
@@ -7878,8 +7881,9 @@ def render_summary_html_table(df, selected_metrics):
         ('% MTD DS (Cat)', '% MTD', True, False),
     ]))
   if has_brand:
-    groups.append(('MBS Brand (K VNĐ)', [
-        ('MBS Brand', 'MBS Brand', False, False),
+    _bn = get_month_cfg().get('mbs_brand_name')  # T11: Hội Viên Tết 2027
+    groups.append((f'{_bn.title()} (K VNĐ)' if _bn else 'MBS Brand (K VNĐ)', [
+        ('MBS Brand', 'Tổng KH' if _bn else 'MBS Brand', False, False),
         ('Đã Mua (Brand)', 'Đã Mua', False, False),
         ('% MTD (Brand)', '% MTD', True, False),
         ('CT DS (Brand)', 'CT DS', False, True),
@@ -8198,7 +8202,8 @@ def is_mbs_t11_member(member_type):
       'BRAND_VIP', 'BRAND_VIPDAISU')
 
 
-def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col_actual='_actual'):
+def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col_actual='_actual',
+                 col_loai='_loai'):
   """MBS Brand T11 (BRAND_VIP / BRAND_VIPDAISU), nhóm 4 nhãn Nam Ngư (trừ Đệ Nhị, Siêu Tiết Kiệm),
   Chinsu, Kokomi, Chanté:
     VIP: tổng DS 4 nhãn >= 500.000 | VIP Đại sứ: mua đủ 4 nhãn, mỗi nhãn >= 150.000
@@ -8209,6 +8214,10 @@ def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col
   by_brand = act.groupby(b).sum()
   ds4 = float(sum(by_brand.get(k, 0) for k in MBS_T11_BRANDS))
   if str(member_type).strip().upper().replace(' ', '') == 'BRAND_VIPDAISU':
+    # VIP Đại sứ: 4 nhãn phải được phân loại FOCUS, mỗi nhãn >= 150.000
+    if col_loai in df_outlet.columns:
+      foc = df_outlet[col_loai].astype(str).str.upper().str.contains('FOCUS', na=False)
+      by_brand = act[foc].groupby(b[foc]).sum()
     mission = all(by_brand.get(k, 0) >= 150000 for k in MBS_T11_BRANDS)
   else:
     mission = ds4 >= 500000
@@ -15076,8 +15085,10 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
         'KH Đạt/Tổng KH/% Đạt',
         color,
     )
-  cards.append(_mbs_card('MBS CAT', mbs_cat, '#9f7aea'))
-  cards.append(_mbs_card('MBS BRAND', mbs_brand, '#ed64a6'))
+  _bn = get_month_cfg().get('mbs_brand_name')
+  if not get_month_cfg().get('no_mbs_cat'):
+    cards.append(_mbs_card('MBS CAT', mbs_cat, '#9f7aea'))
+  cards.append(_mbs_card(_bn or 'MBS BRAND', mbs_brand, '#ed64a6'))
 
   wd = report_date.strftime('%d/%m') if hasattr(report_date, 'strftime') else str(report_date)
   try:
@@ -15219,13 +15230,16 @@ def render_hs_monthly_kpi_table(
       f'<div style="font-size:12px;color:#4a5568;">{"".join(parts)}</div>'
     )
 
+  _mbs_bn_t = get_month_cfg().get('mbs_brand_name')  # T11: Hội Viên Tết 2027, không còn MBS Cat
+  _no_cat = bool(get_month_cfg().get('no_mbs_cat'))
   html.append(
     f'<div style="background:linear-gradient(135deg,#faf5ff,#fff);border:1px solid #d6bcfa;'
     f'border-left:4px solid #805ad5;border-radius:12px;padding:14px;">'
-    f'<div style="font-size:12px;font-weight:800;color:#6b46c1;margin-bottom:6px;">MBS CAT &amp; BRAND</div>'
+    f'<div style="font-size:12px;font-weight:800;color:#6b46c1;margin-bottom:6px;">'
+    f'{_mbs_bn_t or "MBS CAT &amp; BRAND"}</div>'
     f'<div style="font-size:13px;color:#2d3748;line-height:1.5;">'
-    f'{_mbs_block("MBS Cat", mbs_cat, "#805ad5")}'
-    f'{_mbs_block("MBS Brand", mbs_brand, "#d53f8c")}'
+    f'{"" if _no_cat else _mbs_block("MBS Cat", mbs_cat, "#805ad5")}'
+    f'{_mbs_block(_mbs_bn_t.title() if _mbs_bn_t else "MBS Brand", mbs_brand, "#d53f8c")}'
     f'</div></div>'
   )
   html.append('</div></div>')
@@ -15599,7 +15613,38 @@ def load_prepared_cat(_month_key='Thang10'):
 def load_prepared_brand(_month_key='Thang10'):
   df, _ = load_main_data(_month_key)
   brand = load_brand_data()
-  return process_brand_sales(df, brand)
+  return fill_mbs_t11_bonus(process_brand_sales(df, brand))
+
+
+def fill_mbs_t11_bonus(df):
+  """Hội Viên Tết 2027 (MBS Brand T11): ghi điểm thưởng dự kiến app tính vào cột
+  'Điểm thưởng dự kiến của OUTLET' (file Onetech để 0) — mọi dòng của CH cùng 1 số."""
+  if df is None or df.empty:
+    return df
+  c_ma = find_col(df, ['Outlet Code', 'Outlet_code', 'Mã CH'])
+  c_mem = find_col(df, ['Member type', 'Member Type'])
+  c_brand = find_col(df, ['Danh sách full brand', 'Danh sách full cat/brand'])
+  c_loai = find_col(df, ['Phân loại brand', 'Phân loại cat/brand'])
+  c_tgt = find_col(df, ['Doanh số nền tảng của OUTLET'])
+  c_act = find_col(df, ['Doanh số thực đạt của brand', 'Doanh số thực đạt của CAT/BRAND'])
+  c_bonus = find_col(df, ['Điểm thưởng dự kiến của OUTLET', 'Điểm thưởng dự kiến'])
+  if not all([c_ma, c_mem, c_brand, c_tgt, c_act, c_bonus]):
+    return df
+  if not df[c_mem].map(is_mbs_t11_member).any():
+    return df
+  df = df.copy()
+  df[c_bonus] = pd.to_numeric(df[c_bonus], errors='coerce').astype(float)
+  key = df[c_ma].astype(str).str.strip()
+  for _, idx in df.groupby(key).groups.items():
+    sub = df.loc[idx]
+    member = sub[c_mem].iloc[0]
+    if not is_mbs_t11_member(member):
+      continue
+    actual = float(pd.to_numeric(sub[c_act], errors='coerce').fillna(0).sum())
+    target = float(pd.to_numeric(sub[c_tgt], errors='coerce').fillna(0).iloc[0])
+    df.loc[idx, c_bonus] = float(mbs_t11_eval(sub, member, actual, target, col_brand=c_brand,
+                                              col_actual=c_act, col_loai=c_loai or '_loai')[4])
+  return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -15886,6 +15931,16 @@ with f2:
       '17. BÁO CÁO PERFORMANCE': 'PERF_CAT',
       '18. WEEKLY PREVIEW - MCP / ASO / %COV': 'WEEKLY_PREVIEW',
   }
+  if _cfg.get('no_mbs_cat') or _cfg.get('mbs_brand_name'):
+    # T11: bỏ MBS Cat, MBS Brand đổi tên (Hội Viên Tết 2027) → đánh lại số thứ tự
+    _items = []
+    for _lab, _code in kpi_map.items():
+      if _code == 'MBS_CAT' and _cfg.get('no_mbs_cat'):
+        continue
+      if _code == 'MBS_BRAND' and _cfg.get('mbs_brand_name'):
+        _lab = f"13. BÁO CÁO {_cfg['mbs_brand_name']}"
+      _items.append((re.sub(r'^\d+\.\s*', '', _lab), _code))
+    kpi_map = {f'{i}. {lab}': code for i, (lab, code) in enumerate(_items, 1)}
   selected_name = st.selectbox(
       '',
       list(kpi_map.keys()),
@@ -16075,16 +16130,27 @@ components.html(
 st.markdown('---')
 
 SUP_NAV = '🔒 TRACKING SALE SUP'  # tab theo dõi các chương trình ĐDKD theo công văn tháng (cần đăng nhập)
+BRAND_NAV = '🏷️ TRACKING MBS - BRAND'
+_mbs_bn = get_month_cfg().get('mbs_brand_name')
+if _mbs_bn:
+  BRAND_NAV = f'🏷️ TRACKING {_mbs_bn}'  # T11: Hội Viên Tết 2027
 _nav_opts = [
     '📊 BÁO CÁO KPI',
     '🗺️ MCP VISIT',
     '📦 TRACKING MBS - CAT',
-    '🏷️ TRACKING MBS - BRAND',
+    BRAND_NAV,
     '📋 DSKH_Combo OFF',
     '📋 DSKH_Combo ON',
 ]
+if get_month_cfg().get('no_mbs_cat'):
+  _nav_opts.remove('📦 TRACKING MBS - CAT')
 if get_month_cfg().get('sup'):
   _nav_opts.append(SUP_NAV)
+# đổi tháng: tab đang chọn không còn (MBS Cat ẩn / Brand đổi tên) → về tab tương ứng / tab đầu
+_cur_nav = st.session_state.get('main_nav_section')
+if _cur_nav is not None and _cur_nav not in _nav_opts:
+  st.session_state['main_nav_section'] = (
+      BRAND_NAV if str(_cur_nav).startswith('🏷️ TRACKING') else _nav_opts[0])
 _nav = st.radio(
     'Section', _nav_opts, horizontal=True,
     key='main_nav_section', label_visibility='collapsed',
@@ -16204,6 +16270,10 @@ if _nav == '📊 BÁO CÁO KPI':
           'MBS Cat',
           'MBS Brand',
       ]
+      # T11: không còn MBS Cat; MBS Brand hiện tên Hội Viên Tết 2027
+      _sum_bn = get_month_cfg().get('mbs_brand_name')
+      if get_month_cfg().get('no_mbs_cat'):
+        metric_opts.remove('MBS Cat')
       saved_metrics = st.query_params.get('sum_metrics', '')
       default_metrics = (
           [x.strip() for x in saved_metrics.split(',') if x.strip()]
@@ -16225,6 +16295,7 @@ if _nav == '📊 BÁO CÁO KPI':
           '',
           metric_opts,
           default=valid_metrics,
+          format_func=lambda o: _sum_bn.title() if (_sum_bn and o == 'MBS Brand') else o,
           key='sum_metrics_input',
           on_change=update_metric_params,
           label_visibility='collapsed',
@@ -16353,7 +16424,7 @@ if _nav == '📊 BÁO CÁO KPI':
       ))
     if 'MBS Brand' in selected_metrics:
       cards.append((
-          'MBS Brand',
+          _sum_bn.title() if _sum_bn else 'MBS Brand',
           _card_th_ct_pct('Đã Mua (Brand)', 'MBS Brand', '% MTD (Brand)'),
       ))
 
@@ -16477,7 +16548,7 @@ if _nav == '📊 BÁO CÁO KPI':
           ('KH Combo OFF', 'KH Combo OFF', '% MTD (OFF)', 'Đã Mua (OFF)', 'KH Combo OFF'),
           ('KH Combo ON', 'KH Combo ON', '% MTD (ON)', 'Đã Mua (ON)', 'KH Combo ON'),
           ('MBS Cat', 'MBS Cat', '% MTD (Cat)', 'Đã Mua (Cat)', 'MBS Cat'),
-          ('MBS Brand', 'MBS Brand', '% MTD (Brand)', 'Đã Mua (Brand)', 'MBS Brand'),
+          ('MBS Brand', _sum_bn.title() if _sum_bn else 'MBS Brand', '% MTD (Brand)', 'Đã Mua (Brand)', 'MBS Brand'),
       ]
       labels, pcts, hover = [], [], []
       for metric_key, label, pct_col, th_col, ct_col in chart_specs:
@@ -16566,13 +16637,18 @@ if _nav == '📊 BÁO CÁO KPI':
     except Exception as _e_chart:
       st.caption(f'Không vẽ được chart KPI: {_e_chart}')
 
+    # T11: không còn MBS Cat; MBS Brand → Hội Viên Tết 2027
+    _mbs_note = ('' if get_month_cfg().get('no_mbs_cat') else
+                 'MBS Category: <b>' + f"{tot_row_s['MBS Cat']:,}" + ' CH</b> | ')
+    _mbs_note += ((_sum_bn.title() if _sum_bn else 'MBS Brand') + ': <b>'
+                  + f"{tot_row_s['MBS Brand']:,}" + ' CH</b>.')
     st.markdown(
         f"""
         <div class="note-box">
             <div style="font-weight: 800; color: #034ea2; margin-bottom: 8px; font-size: 13.5px;">NHẬN XÉT & ĐÁNH GIÁ BÁO CÁO TỔNG HỢP:</div>
             <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
                 <li><b>Kết Quả Tổng Quan:</b> Tổng số lượng cửa hàng VIP (VIP3, VIP5, VIPSI) toàn đội đạt <b>{tot_row_s['VIP MCH']:,} cửa hàng</b> (Đã mua: {tot_row_s['Đã Mua (VIP)']:,}).</li>
-                <li><b>Chương Trình Combo & MBS:</b> Tổng KH tham gia Combo OFF: <b>{tot_row_s['KH Combo OFF']:,} CH</b> (Đã mua: {tot_row_s['Đã Mua (OFF)']:,}) | Combo ON: <b>{tot_row_s['KH Combo ON']:,} CH</b> (Đã mua: {tot_row_s['Đã Mua (ON)']:,}). MBS Category: <b>{tot_row_s['MBS Cat']:,} CH</b> | MBS Brand: <b>{tot_row_s['MBS Brand']:,} CH</b>.</li>
+                <li><b>Chương Trình Combo & MBS:</b> Tổng KH tham gia Combo OFF: <b>{tot_row_s['KH Combo OFF']:,} CH</b> (Đã mua: {tot_row_s['Đã Mua (OFF)']:,}) | Combo ON: <b>{tot_row_s['KH Combo ON']:,} CH</b> (Đã mua: {tot_row_s['Đã Mua (ON)']:,}). {_mbs_note}</li>
                 <li><b>Đề Xuất Hành Động:</b> Tiếp tục bám sát lịch tuyến, đẩy mạnh các nhóm cửa hàng chưa phát sinh và đôn đốc các ĐDKD hoàn thành toàn diện các chỉ tiêu trong tháng {report_date.strftime('%m/%Y')}.</li>
             </ul>
         </div>
@@ -16894,6 +16970,7 @@ if _nav == '📊 BÁO CÁO KPI':
 
   elif selected_kpi == 'MBS_BRAND':
     set_color_moc_for_kpi('MBS_BRAND')
+    _bn = get_month_cfg().get('mbs_brand_name') or 'MBS BRAND'  # T11: Hội Viên Tết 2027
     result = build_mbs_brand_report(df_brand, filter_nv, mcp_df=mcp)
     groups = result['groups']
     df_detail = result['df_detail']
@@ -16901,7 +16978,7 @@ if _nav == '📊 BÁO CÁO KPI':
 
     st.markdown(
         f'<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 4px;'
-        f' font-size: 16px; text-align: center;">BÁO CÁO TỔNG HỢP MBS BRAND'
+        f' font-size: 16px; text-align: center;">BÁO CÁO TỔNG HỢP {_bn}'
         f' - 6 NHÓM</h3>',
         unsafe_allow_html=True,
     )
@@ -16950,7 +17027,7 @@ if _nav == '📊 BÁO CÁO KPI':
         }
 
     if total_kh == 0:
-      st.warning('Không có dữ liệu Data_Brand để chạy báo cáo MBS BRAND.')
+      st.warning(f'Không có dữ liệu Data_Brand để chạy báo cáo {_bn}.')
     else:
       # 6 cards - grid responsive (3 cột desktop / 2 cột mobile / 1 cột máy nhỏ)
       cards_html = ['<div class="mbs-card-grid">']
@@ -17148,7 +17225,7 @@ if _nav == '📊 BÁO CÁO KPI':
           st.markdown(
               '<div style="background:#f0fff4;border:1px solid #9ae6b4;border-radius:8px;'
               'padding:8px 12px;margin:6px 0;font-size:13px;color:#22543d;">'
-              '<b>🎁 ĐIỂM THƯỞNG DỰ KIẾN (MBS BRAND T11): ' + format_number_vn(_diem) + '</b>'
+              f'<b>🎁 ĐIỂM THƯỞNG DỰ KIẾN ({_bn}): ' + format_number_vn(_diem) + '</b>'
               ' &nbsp;|&nbsp; Mức 1 (≥95% CT, 1,2%): <b>' + str(int(_lv.get('Mức 1', 0))) + '</b> KH'
               ' &nbsp;|&nbsp; Mức 2 (≥100% CT, 1,5%): <b>' + str(int(_lv.get('Mức 2', 0))) + '</b> KH'
               ' &nbsp;|&nbsp; Mức 3 (≥105% CT, 2%): <b>' + str(int(_lv.get('Mức 3', 0))) + '</b> KH'
@@ -17166,7 +17243,7 @@ if _nav == '📊 BÁO CÁO KPI':
                 render_mbs_nv_summary_html(
                     df_nv_sum,
                     title=(
-                        f'TỔNG HỢP THEO NV — CHỐT ĐẠT MBS BRAND '
+                        f'TỔNG HỢP THEO NV — CHỐT ĐẠT {_bn} '
                         f'(Actual RPT đến {report_date.strftime("%d/%m/%Y") if hasattr(report_date, "strftime") else report_date})'
                     ),
                 ),
@@ -17181,10 +17258,10 @@ if _nav == '📊 BÁO CÁO KPI':
                    'KH Đạt (N1) = Actual ≥ Target và đạt nhiệm vụ')
             )
         except Exception as _e_mbs_nv:
-          st.warning(f'Không dựng được bảng tổng hợp NV MBS BRAND: {_e_mbs_nv}')
-        render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm — MBS BRAND')
+          st.warning(f'Không dựng được bảng tổng hợp NV {_bn}: {_e_mbs_nv}')
+        render_mbs_pie_chart(df_show, title=f'Tỷ lệ KH theo Nhóm — {_bn}')
         st.download_button(
-            label='⬇️ Xuất file CSV - Chi tiết MBS BRAND',
+            label=f'⬇️ Xuất file CSV - Chi tiết {_bn}',
             data=df_html.to_csv(index=False).encode('utf-8-sig'),
             file_name='MBS_BRAND_ChiTiet_KH.csv',
             mime='text/csv',
@@ -17197,7 +17274,7 @@ if _nav == '📊 BÁO CÁO KPI':
       note_html = (
           '<div class="note-box">'
           '<div style="font-weight:800; color:#034ea2; margin-bottom:8px;'
-          ' font-size:13.5px;">NHẬN XÉT & ĐÁNH GIÁ MBS BRAND:</div>'
+          ' font-size:13.5px;">NHẬN XÉT & ĐÁNH GIÁ ' + _bn + ':</div>'
           '<ul style="margin:0; padding-left:18px; line-height:1.6;">'
           '<li><b>Đã đạt MBS (Nhóm 1):</b> ' + str(g1['kh']) + ' KH ('
           + str(g1['pct_kh']) + '% tổng) — Actual '
@@ -19436,8 +19513,8 @@ def build_mbs_data_summary(df_source, kind='CAT'):
     pct = round(actual / target * 100, 1) if target else 0.0
     member = first[col_member] if col_member else ''
     if kind_u == 'BRAND' and col_brand and is_mbs_t11_member(member):
-      bonus = float(mbs_t11_eval(sub, member, actual, target,
-                                 col_brand=col_brand, col_actual='_summary_actual')[4])
+      bonus = float(mbs_t11_eval(sub, member, actual, target, col_brand=col_brand,
+                                 col_actual='_summary_actual', col_loai='_summary_type')[4])
     elif col_bonus and not pd.to_numeric(sub[col_bonus], errors='coerce').dropna().empty:
       bonus = float(pd.to_numeric(sub[col_bonus], errors='coerce').dropna().iloc[0])
     else:
@@ -20545,12 +20622,14 @@ if _nav == '📦 TRACKING MBS - CAT':
     render_mbs_data_summary(df_cat_summary, 'DATA_CAT SUMMARY')
 
 # ----- TAB BRAND -----
-if _nav == '🏷️ TRACKING MBS - BRAND':
+if _nav == BRAND_NAV:
   if df_brand is None:
     df_brand = _lazy_brand(get_month_key() if True else "Thang10")
   st.markdown(
       '<h3 style="color: #034ea2; font-weight: 800; margin-bottom: 0px;'
-      ' font-size: 15px;">🏷️ TRACKING MBS - THEO THƯƠNG HIỆU (BRAND)</h3>',
+      ' font-size: 15px;">'
+      + (f'🏷️ TRACKING {_mbs_bn}' if _mbs_bn else '🏷️ TRACKING MBS - THEO THƯƠNG HIỆU (BRAND)')
+      + '</h3>',
       unsafe_allow_html=True,
   )
   if df_brand.empty:
