@@ -11,12 +11,13 @@ import '../data/local_engine.dart';
 import '../data/report_repository.dart';
 import 'report_page.dart';
 import 'theme.dart';
+import '../data/app_dirs.dart';
 import 'turnover_page.dart';
 
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.1';
+const appVersion = '1.7.2';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -148,9 +149,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   final _bio = LocalAuthentication();
 
   File get _bioFlag {
-    final base = Platform.isAndroid
-        ? '${Directory.systemTemp.parent.path}/files'
-        : '${Platform.environment['HOME'] ?? Directory.systemTemp.path}/Library/Application Support/kpi_reports';
+    final base = appDataDir();
     return File('$base/sup_bio_on');
   }
 
@@ -218,7 +217,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               const SizedBox(height: 14),
               OutlinedButton.icon(
                 icon: const Icon(Icons.fingerprint),
-                label: Text(Platform.isMacOS ? 'Đăng nhập bằng Touch ID' : 'Đăng nhập bằng vân tay'),
+                label: Text('Đăng nhập bằng ${bioName()}'),
                 onPressed: () async {
                   if (await _bioAuth() && ctx.mounted) Navigator.pop(ctx, true);
                 },
@@ -240,10 +239,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       final yes = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text(Platform.isMacOS ? 'Dùng Touch ID?' : 'Dùng vân tay?'),
-          content: Text(Platform.isMacOS
-              ? 'Lần sau mở Tracking Sale Sup chỉ cần chạm Touch ID.'
-              : 'Lần sau mở Tracking Sale Sup chỉ cần quét vân tay.'),
+          title: Text('Dùng ${bioName()}?'),
+          content: Text('Lần sau mở Tracking Sale Sup chỉ cần xác thực bằng ${bioName()}.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Để sau')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Bật')),

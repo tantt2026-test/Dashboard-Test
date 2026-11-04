@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../logic/turnover_logic.dart';
 import 'filter_cache.dart' show ghRepo, ghToken;
+import 'app_dirs.dart';
 import 'local_engine.dart';
 
 /// JSON do GitHub Action xuất ra branch `reports` của repo Dashboard-Test.
@@ -73,12 +74,7 @@ class ReportRepository {
   /// cần biên dịch NDK). Android: thư mục cache của app → dùng thư mục cha;
   /// macOS (sandbox): HOME là thư mục container của app.
   Future<File> _cacheFile(String rel) async {
-    final String base;
-    if (Platform.isAndroid) {
-      base = '${Directory.systemTemp.parent.path}/files/reports';
-    } else {
-      base = '${Platform.environment['HOME'] ?? Directory.systemTemp.path}/Library/Application Support/kpi_reports';
-    }
+    final base = Platform.isAndroid ? '${appDataDir()}/reports' : appDataDir();
     final f = File('$base/$rel');
     await f.parent.create(recursive: true);
     return f;

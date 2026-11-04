@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/app_dirs.dart';
 import 'theme.dart';
 
 /// Tỷ lệ hiển thị chung của app (chữ, bảng, thẻ, biểu đồ). Lưu lại cho lần mở sau.
@@ -12,9 +13,7 @@ class AppScale extends ValueNotifier<double> {
   static const min = 0.6, max = 1.8, step = 0.1;
 
   File _file() {
-    final base = Platform.isAndroid
-        ? '${Directory.systemTemp.parent.path}/files'
-        : '${Platform.environment['HOME'] ?? Directory.systemTemp.path}/Library/Application Support/kpi_reports';
+    final base = appDataDir();
     return File('$base/ui_scale.txt');
   }
 
