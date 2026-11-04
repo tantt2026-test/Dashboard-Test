@@ -71,22 +71,68 @@ class LocalEngine {
     final dir = Directory('$_home/snap/${sc.substring(0, 12)}');
     final done = File('${dir.path}/.ok');
     if (done.existsSync()) return dir.path;
-    final res = await _client
-        .get(Uri.parse('https://api.github.com/repos/$ghRepo/git/trees/$sc?recursive=1'), headers: _headers)
-        .timeout(const Duration(seconds: 60));
-    if (res.statusCode != 200) throw HttpException('GitHub ${res.statusCode} (danh sách file)');
-    final tree = ((jsonDecode(res.body) as Map)['tree'] as List).cast<Map>();
-    final files = [
-      for (final t in tree)
-        if (t['type'] == 'blob' && (t['path'] == 'App.py' || '${t['path']}'.startsWith('data/'))) t
-    ];
-    final blobs = Directory('$_home/blobs')..createSync(recursive: true);
     if (dir.existsSync()) dir.deleteSync(recursive: true);
+    await _fetchTree(ghRepo, sc, dir.path, (p) => p == 'App.py' || p.startsWith('data/'));
+    done.writeAsStringSync(sc);
+    _prune(sc);
+    return dir.path;
+  }
+
+  /// Repo data team Vy (Sale Sup 'vy' và phần Vy của 'all').
+  static const vyRepo = 'Tantt2026/Vyntt_Dashboard';
+
+  /// Thư mục App.py + data/ cho Sale Sup của [req] (team tan: [snapshot]; vy: App.py commit [sc] +
+  /// data repo Vyntt commit 'dsc'; all: data 2 team ghép bằng team_data.py — như GitHub).
+  Future<String> snapshotFor(Map<String, dynamic> req) {
+    final team = (req['team'] as String?) ?? 'tan';
+    final sc = req['sc'] as String;
+    if (team == 'tan') return snapshot(sc);
+    final dsc = (req['dsc'] as String?) ?? 'HEAD';
+    final key = '${team}_${sc.substring(0, 12)}_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}';
+    return _snaps[key] ??= () async {
+      final dir = Directory('$_home/snap/$key');
+      final done = File('${dir.path}/.ok');
+      if (done.existsSync()) return dir.path;
+      final tanRoot = await snapshot(sc);
+      final vyDir = Directory('$_home/snap/vydata_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}');
+      if (!File('${vyDir.path}/.ok').existsSync()) {
+        if (vyDir.existsSync()) vyDir.deleteSync(recursive: true);
+        await _fetchTree(vyRepo, dsc, vyDir.path, (p) => p.startsWith('data/'));
+        File('${vyDir.path}/.ok').writeAsStringSync(dsc);
+      }
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      dir.createSync(recursive: true);
+      await Link('${dir.path}/App.py').create(File('$tanRoot/App.py').resolveSymbolicLinksSync());
+      if (team == 'vy') {
+        await Link('${dir.path}/data').create('${vyDir.path}/data');
+      } else {
+        await _ensureProc();
+        await _call(null, {'op': 'combine', 'a': '$tanRoot/data', 'b': '${vyDir.path}/data', 'out': '${dir.path}/data'},
+            root: dir.path);
+      }
+      done.writeAsStringSync(key);
+      _prune(key);
+      return dir.path;
+    }()
+        .catchError((Object e) {
+      _snaps.remove(key);
+      throw e;
+    });
+  }
+
+  Future<void> _fetchTree(String repo, String ref, String dirPath, bool Function(String) want) async {
+    final res = await _client
+        .get(Uri.parse('https://api.github.com/repos/$repo/git/trees/$ref?recursive=1'), headers: _headers)
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode != 200) throw HttpException('GitHub ${res.statusCode} (danh sách file $repo)');
+    final tree = ((jsonDecode(res.body) as Map)['tree'] as List).cast<Map>();
+    final files = [for (final t in tree) if (t['type'] == 'blob' && want('${t['path']}')) t];
+    final blobs = Directory('$_home/blobs')..createSync(recursive: true);
     for (final f in files) {
       final path = '${f['path']}', sha = '${f['sha']}';
       final blob = File('${blobs.path}/$sha');
       if (!blob.existsSync()) {
-        final url = Uri.https('raw.githubusercontent.com', '/$ghRepo/$sc/$path');
+        final url = Uri.https('raw.githubusercontent.com', '/$repo/$ref/$path');
         http.Response? r;
         for (var attempt = 1; attempt <= 3; attempt++) {
           try {
@@ -102,25 +148,22 @@ class LocalEngine {
         await tmp.writeAsBytes(r.bodyBytes, flush: true);
         await tmp.rename(blob.path);
       }
-      final dst = File('${dir.path}/$path');
+      final dst = File('$dirPath/$path');
       dst.parent.createSync(recursive: true);
       await Link(dst.path).create(blob.path);
     }
-    done.writeAsStringSync(sc);
-    _prune(sc);
-    return dir.path;
   }
 
-  /// Giữ 2 commit gần nhất + các file chúng dùng; xoá phần cũ.
+  /// Giữ 6 bộ data gần nhất (các Sale Sup) + các file chúng dùng; xoá phần cũ.
   void _prune(String keepSc) {
     try {
       final snaps = Directory('$_home/snap').listSync().whereType<Directory>().toList()
         ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
-      for (final d in snaps.skip(2)) {
+      for (final d in snaps.skip(6)) {
         d.deleteSync(recursive: true);
       }
       final used = <String>{};
-      for (final d in snaps.take(2)) {
+      for (final d in snaps.take(6)) {
         for (final e in d.listSync(recursive: true, followLinks: false)) {
           if (e is Link) used.add(e.targetSync().split('/').last);
         }
@@ -186,8 +229,8 @@ class LocalEngine {
     } catch (_) {}
   }
 
-  Future<Map<String, dynamic>> _call(String sc, Map<String, dynamic> msg) async {
-    final root = await snapshot(sc);
+  Future<Map<String, dynamic>> _call(String? sc, Map<String, dynamic> msg, {String? root}) async {
+    root ??= await snapshot(sc!);
     await _ensureProc();
     final id = ++_nextId;
     final c = _wait[id] = Completer<Map<String, dynamic>>();
@@ -199,7 +242,7 @@ class LocalEngine {
 
   /// Tính 1 yêu cầu bộ lọc (như GitHub filter-run) → items.
   Future<List<Map<String, dynamic>>> compute(Map<String, dynamic> req) async {
-    final res = await _call(req['sc'] as String, {'req': req});
+    final res = await _call(null, {'req': req}, root: await snapshotFor(req));
     return [for (final i in res['items'] as List) (i as Map).cast<String, dynamic>()];
   }
 

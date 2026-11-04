@@ -6,6 +6,7 @@ Trả về stdout, mỗi dòng 1 JSON: {"id": 1, "status": "ok", "items": [...]}
 Thêm "op" (khi GitHub có data mới mà chưa xuất xong JSON cho app, app Mac tự tính):
   "plan"     + "month_key" → danh sách báo cáo/ngày/ĐDKD như index.json
   "turnover" + "month_key" → JSON Turnover như turnover/<Thang>.json
+  "combine" + "a", "b", "out" → ghép data 2 Sale Sup (team_data.combine_dirs)
 Giữ App.py + data đã đọc trong bộ nhớ (theo root) → lần lọc sau chỉ vài giây.
 """
 import datetime as dt
@@ -68,6 +69,13 @@ def main():
         t = time.time()
         try:
             op = msg.get('op')
+            if op == 'combine':
+                # Sale Sup 'Cả 2': ghép data 2 team (team_data.py — giống GitHub)
+                import team_data
+                team_data.combine_dirs(msg['a'], msg['b'], msg['out'], workers=1)
+                out.write(json.dumps({'id': msg.get('id'), 'ok': True, 'secs': round(time.time() - t, 1)}) + '\n')
+                out.flush()
+                continue
             app = _app(msg['root'])
             export_kpi._app = app
             if op == 'plan':

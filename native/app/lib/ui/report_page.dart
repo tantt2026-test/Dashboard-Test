@@ -255,6 +255,8 @@ class _KpiReportPageState extends State<KpiReportPage> {
           if (active[e.key] != null && isActive(active[e.key]!, e.value)) e.key: e.value
       },
       'sc': sc,
+      // Sale Sup khác team Tân: GitHub / máy Mac tính trên data của team đó (repo Vyntt commit dsc)
+      if (widget.manifest.team != 'tan') ...{'team': widget.manifest.team, 'dsc': widget.manifest.dataSc ?? ''},
     };
     return _cache.get(req, () {
       if (mounted) setState(() {});

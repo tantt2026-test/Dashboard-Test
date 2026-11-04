@@ -124,6 +124,9 @@ def main():
         'schema': SCHEMA,
         'generated_at': now_vn.strftime('%Y-%m-%dT%H:%M:%S+07:00'),
         'source_commit': git_commit(repo),
+        # Sale Sup của bộ data (tan / vy / all) + commit data repo Vyntt (vy, all) — app gửi kèm khi nhờ tính
+        'team': os.environ.get('TEAM') or 'tan',
+        'data_sc': os.environ.get('TEAM_DSC') or None,
         'months': [],
         'reports': ['turnover'],
     }

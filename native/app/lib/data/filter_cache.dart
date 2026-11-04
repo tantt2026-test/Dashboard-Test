@@ -32,6 +32,8 @@ String canonicalJson(Object? v) {
 }
 
 Map<String, dynamic> canonicalReq(Map<String, dynamic> req) => {
+      // Sale Sup khác team Tân: thêm team + commit data Vyntt (giống run_request.canonical)
+      if (req['team'] != null && req['team'] != 'tan') ...{'team': req['team'], 'dsc': req['dsc'] ?? ''},
       'month_key': req['month_key'],
       'date': (req['date'] as String).substring(0, 10),
       'code': req['code'],

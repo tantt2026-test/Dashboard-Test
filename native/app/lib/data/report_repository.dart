@@ -20,12 +20,28 @@ class MonthInfo {
   MonthInfo(this.key, this.label);
 }
 
+/// Sale Sup: bộ data của từng team (GitHub xuất vào thư mục con của branch reports).
+class SaleSup {
+  final String id, name, prefix;
+  const SaleSup(this.id, this.name, this.prefix);
+}
+
+const saleSups = [
+  SaleSup('tan', 'Trương Thanh Tân', ''),
+  SaleSup('vy', 'Nguyễn Thị Tường Vy', 't/vy/'),
+  SaleSup('all', 'Cả 2 Sup', 't/all/'),
+];
+
+SaleSup saleSupOf(String id) => saleSups.firstWhere((s) => s.id == id, orElse: () => saleSups.first);
+
 class Manifest {
   final DateTime? generatedAt;
   final String? sourceCommit;
   final List<MonthInfo> months;
   final List<MonthInfo> kpiMonths; // tháng có báo cáo tab KPI (giai đoạn 2)
-  Manifest(this.generatedAt, this.sourceCommit, this.months, this.kpiMonths);
+  final String team; // Sale Sup của bộ data
+  final String? dataSc; // commit data repo Vyntt (team vy / all) — gửi kèm khi nhờ tính
+  Manifest(this.generatedAt, this.sourceCommit, this.months, this.kpiMonths, [this.team = 'tan', this.dataSc]);
 
   factory Manifest.fromJson(Map<String, dynamic> j) => Manifest(
         DateTime.tryParse((j['generated_at'] ?? '') as String),
@@ -38,6 +54,8 @@ class Manifest {
           for (final m in (j['kpi_months'] ?? const []) as List)
             MonthInfo((m as Map<String, dynamic>)['key'] as String, m['label'] as String)
         ],
+        (j['team'] as String?) ?? 'tan',
+        j['data_sc'] as String?,
       );
 }
 
@@ -86,7 +104,28 @@ class ReportRepository {
     }
   }
 
-  Future<Loaded<String>> _get(String rel) async {
+  /// Sale Sup đang xem (ghi nhớ trên máy).
+  static String team = 'tan';
+  static String get _prefix => saleSupOf(team).prefix;
+
+  Future<void> loadTeam() async {
+    try {
+      final f = await _cacheFile('sale_sup.txt');
+      if (await f.exists()) team = saleSupOf((await f.readAsString()).trim()).id;
+    } catch (_) {}
+  }
+
+  Future<void> setTeam(String id) async {
+    team = saleSupOf(id).id;
+    clearMemory();
+    _liveDocs.clear();
+    try {
+      await (await _cacheFile('sale_sup.txt')).writeAsString(team);
+    } catch (_) {}
+  }
+
+  Future<Loaded<String>> _get(String rel0) async {
+    final rel = '$_prefix$rel0';
     final cache = await _cacheFile(rel);
     try {
       final ref = _ref;
@@ -116,7 +155,7 @@ class ReportRepository {
 
   /// App Mac: GitHub có data mới nhưng chưa xuất xong → dùng bản máy tự tính (LocalEngine.live*).
   static LocalEngine get _live => LocalEngine.instance;
-  static bool _isLive(String monthKey) => _live.liveSc != null && _live.liveMonth == monthKey;
+  static bool _isLive(String monthKey) => team == 'tan' && _live.liveSc != null && _live.liveMonth == monthKey;
 
   Future<Loaded<Manifest>> manifest() async {
     await _refreshRef();
@@ -124,7 +163,7 @@ class ReportRepository {
     final j = jsonDecode(r.value) as Map<String, dynamic>;
     // KPI_REMOTE_SC (chỉ để thử trên Mac): giả như GitHub mới xuất tới commit cũ → Mac tự tính
     remoteSc = Platform.environment['KPI_REMOTE_SC'] ?? j['source_commit'] as String?;
-    if (_live.liveSc != null && _live.liveSc != remoteSc) {
+    if (team == 'tan' && _live.liveSc != null && _live.liveSc != remoteSc) {
       j['source_commit'] = _live.liveSc;
       if (_live.liveAt != null) j['generated_at'] = _live.liveAt!.toIso8601String();
     }

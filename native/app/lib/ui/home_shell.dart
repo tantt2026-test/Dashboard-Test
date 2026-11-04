@@ -50,7 +50,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     try {
       var man = (await widget.repo.manifest()).value;
       final mk = man.kpiMonths.isEmpty ? null : man.kpiMonths.last.key;
-      if (mk != null && await LocalEngine.instance.checkLive(widget.repo.remoteSc, mk)) {
+      if (ReportRepository.team == 'tan' && mk != null &&
+          await LocalEngine.instance.checkLive(widget.repo.remoteSc, mk)) {
         man = (await widget.repo.manifest()).value;
       }
       final old = _manifest;
@@ -92,7 +93,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _load().then((_) => _checkNew());
+    widget.repo.loadTeam().then((_) => _load()).then((_) => _checkNew());
     _poll = Timer.periodic(const Duration(minutes: 1), (_) => _checkNew());
   }
 
@@ -106,6 +107,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       if (mk != null) idx = (await widget.repo.kpiIndex(mk)).value;
       final sc = man.value.sourceCommit;
       if (sc != null) LocalEngine.instance.warmUp(sc);
+      // app Mac: tải sẵn data của Sale Sup đang xem (Vy / Cả 2) để lọc tại máy đỡ chờ
+      if (sc != null && man.value.team != 'tan' && LocalEngine.instance.available) {
+        LocalEngine.instance
+            .snapshotFor({'sc': sc, 'team': man.value.team, 'dsc': man.value.dataSc ?? 'HEAD'})
+            .catchError((Object _) => '');
+      }
       setState(() {
         _manifest = man.value;
         _kpiMonth = mk;
@@ -114,6 +121,18 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     } catch (e) {
       setState(() => _error = '$e');
     }
+  }
+
+  /// Đổi Sale Sup: tải manifest / báo cáo của bộ data đó, giữ báo cáo đang xem.
+  Future<void> _setTeam(String id) async {
+    if (id == ReportRepository.team) return;
+    await widget.repo.setTeam(id);
+    if (!mounted) return;
+    setState(() {
+      _manifest = null;
+      _idx = null;
+    });
+    await _load();
   }
 
   void _select(String code) {
@@ -254,14 +273,37 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             height: kToolbarHeight,
             alignment: Alignment.centerLeft,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: const Column(
+            child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('KPI Dashboard',
+                  const Text('KPI Dashboard',
                       style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800, height: 1.15)),
-                  SizedBox(height: 2),
-                  Text('Team SS Trương Thanh Tân', style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.15)),
+                  const SizedBox(height: 2),
+                  // Bộ lọc Sale Sup: Tân / Vy / Cả 2 (mỗi lựa chọn là 1 bộ data GitHub xuất riêng)
+                  PopupMenuButton<String>(
+                    tooltip: 'Chọn Sale Sup',
+                    initialValue: ReportRepository.team,
+                    onSelected: _setTeam,
+                    itemBuilder: (_) => [
+                      for (final t in saleSups)
+                        PopupMenuItem(
+                            value: t.id,
+                            child: Text(t.id == 'all' ? '👥 ${t.name}' : 'SS ${t.name}',
+                                style: TextStyle(fontWeight: t.id == ReportRepository.team ? FontWeight.w800 : FontWeight.w500))),
+                    ],
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Flexible(
+                        child: Text(
+                            ReportRepository.team == 'all'
+                                ? 'Sale Sup: Cả 2 Sup'
+                                : 'Sale Sup: SS ${saleSupOf(ReportRepository.team).name}',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white, fontSize: 11.5, height: 1.15, fontWeight: FontWeight.w600)),
+                      ),
+                      const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 18),
+                    ]),
+                  ),
                 ]),
           ),
           Expanded(
@@ -359,13 +401,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     Widget page;
     if (_code == 'TURNOVER' || _manifest == null || _kpiMonth == null) {
       page = TurnoverPage(
-          key: _keyFor('to-$_refreshTick'),
+          key: _keyFor('to-$_refreshTick-${ReportRepository.team}'),
           repo: widget.repo,
           leading: menuButton,
           dataKey: '${_manifest?.sourceCommit}|${_manifest?.generatedAt}');
     } else {
       page = KpiReportPage(
-        key: _keyFor('kpi-$_kpiMonth-$_refreshTick'),
+        key: _keyFor('kpi-$_kpiMonth-$_refreshTick-${ReportRepository.team}'),
         repo: widget.repo,
         manifest: _manifest!,
         code: _code,

@@ -508,6 +508,28 @@ def _default_month_key():
   ks = [k for k in MONTH_OPTIONS if _month_has_data(k)]
   return ks[-1] if ks else 'Thang10'
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _ss_name_m(month_key):
+  """Tên Sup của bộ data đang xem (cột SUP của Target_KPI: '24SF16806 - Trương Thanh Tân');
+  data ghép nhiều Sup → 'A & B'."""
+  try:
+    k = pd.read_excel(_get_kpi_path(), header=None).iloc[2:, 4].dropna().astype(str)
+    names = []
+    for v in k:
+      nm = v.split(' - ', 1)[-1].strip()
+      if nm and nm not in names and nm.lower() not in ('nan', 'sup'):
+        names.append(nm)
+    if names:
+      return ' & '.join(names)
+  except Exception:
+    pass
+  return 'Trương Thanh Tân'
+
+
+def _ss_name():
+  return _ss_name_m(get_month_key())
+
+
 def get_month_key():
   # Ô chọn tháng (đổi trên Streamlit) có giá trị ngay đầu lượt chạy → cả lượt dùng đúng tháng mới
   try:
@@ -3505,7 +3527,7 @@ def build_report(
         'STT': '-',
         'Mã NVBH': 'TỔNG CỘNG',
         'Tên NVBH': (
-            'SS Trương Thanh Tân Total'
+            f'SS {_ss_name()} Total'
             if not nv_selected(filter_nv)
             else nv_label(filter_nv)
         ),
@@ -3547,7 +3569,7 @@ def build_report(
         'STT': '-',
         'Mã NVBH': 'TỔNG CỘNG',
         'Tên NVBH': (
-            'SS Trương Thanh Tân Total'
+            f'SS {_ss_name()} Total'
             if not nv_selected(filter_nv)
             else nv_label(filter_nv)
         ),
@@ -3601,7 +3623,7 @@ def build_report(
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Trương Thanh Tân Total'
+          f'SS {_ss_name()} Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -3889,7 +3911,7 @@ def build_weekly_preview(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months
       df_out = df_out.sort_values(f'_cov|{last_lab}', ascending=True).reset_index(drop=True)
     df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
-    tot = {'STT': '-', 'Tên NVBH': f'SS Trương Thanh Tân Total ({channel})', 'Position code': ''}
+    tot = {'STT': '-', 'Tên NVBH': f'SS {_ss_name()} Total ({channel})', 'Position code': ''}
     for y, m in months:
       label = f'{m:02d}/{y}'
       mcp_s = int(df_out[f'MCP|{label}'].sum()) if f'MCP|{label}' in df_out.columns else 0
@@ -4203,7 +4225,7 @@ def build_weekly_lppc(mcp_df, sales_hist, df_rpt=None, filter_nv=None, months=No
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
   # Total team: tổng line / tổng PC (đúng LPPC team), kèm tổng PC
-  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (LPPC OFF)', 'Position code': ''}
+  tot = {'STT': '-', 'Tên NVBH': f'SS {_ss_name()} Total (LPPC OFF)', 'Position code': ''}
   for y, m in months:
     label = f'{m:02d}/{y}'
     pc_s = int(pd.to_numeric(df_out[f'PC|{label}'], errors='coerce').fillna(0).sum())
@@ -4497,7 +4519,7 @@ def build_weekly_lppc_vip(mcp_df, sales_hist, df_rpt=None, filter_nv=None, month
     df_out = df_out.sort_values(f'_v|{last}', ascending=True).reset_index(drop=True)
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
-  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total (LPPC VIP OFF)'}
+  tot = {'STT': '-', 'Tên NVBH': f'SS {_ss_name()} Total (LPPC VIP OFF)'}
   for y, m in months:
     label = f'{m:02d}/{y}'
     for g in vip_groups:
@@ -5142,7 +5164,7 @@ def build_weekly_pc_sm_day(mcp_df, sales_hist, df_rpt=None, filter_nv=None, mont
   df_out.insert(0, 'STT', range(1, len(df_out) + 1))
 
   ordered = ['STT', 'Tên NVBH']
-  tot = {'STT': '-', 'Tên NVBH': 'SS Trương Thanh Tân Total'}
+  tot = {'STT': '-', 'Tên NVBH': f'SS {_ss_name()} Total'}
   for y, m in months:
     lab = f'{m:02d}/{y}'
     for prefix in ('MCP', 'CALL PLAN BQ', 'PC/DAY'):
@@ -5350,7 +5372,7 @@ def build_weekly_trai_tuyen_mtd(df_rpt, df_visit, mcp_df, report_date, filter_nv
 
   tot = {
       'STT': '-',
-      'Tên NVBH': 'SS Trương Thanh Tân Total',
+      'Tên NVBH': f'SS {_ss_name()} Total',
       'Số ĐH Trái Tuyến': tot_trai,
       'Tổng PC': tot_pc,
       '% ĐH Trái Tuyến': f'{tot_pct}%',
@@ -5809,7 +5831,9 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
     })
 
   df_out = (
-      pd.DataFrame(results)
+      # vị trí trống / NV không có chỉ tiêu → bảng rỗng vẫn đủ cột (không lỗi KeyError '_ratio')
+      pd.DataFrame(results, columns=['Mã NVBH', 'Tên NVBH', 'Chỉ Tiêu Doanh Số', 'Thực Hiện Ngày',
+                                     'Doanh Số MTD', '% MTD', 'GAP', 'Bình quân ngày', '_ratio'])
       .sort_values('_ratio', ascending=True)
       .drop(columns=['_ratio'])
       .reset_index(drop=True)
@@ -5829,7 +5853,7 @@ def build_turnover_report(df, report_date, turnover_targets, filter_nv=None):
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Trương Thanh Tân Total'
+          f'SS {_ss_name()} Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),
@@ -6771,7 +6795,7 @@ def build_combo_matrix(
   total_row = pd.DataFrame([{
       'STT': '-',
       'Tên NVBH': (
-          'SS Trương Thanh Tân Total'
+          f'SS {_ss_name()} Total'
           if not nv_selected(filter_nv) else nv_label(filter_nv)
       ),
       'Target (OFF)': tot_tgt_off,
@@ -9439,7 +9463,7 @@ def build_performance_report(
       'STT': '-',
       'Mã NVBH': 'TỔNG CỘNG',
       'Tên NVBH': (
-          'SS Trương Thanh Tân Total'
+          f'SS {_ss_name()} Total'
           if not nv_selected(filter_nv)
           else nv_label(filter_nv)
       ),

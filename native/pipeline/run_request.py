@@ -20,6 +20,10 @@ def canonical(req):
         'ddkd': list(req.get('ddkd') or []),
         'values': {k: v for k, v in sorted((req.get('values') or {}).items()) if v not in (None, '', [])},
     }
+    # Sale Sup khác team Tân: thêm team + commit data Vyntt (mã tổ hợp team Tân giữ như cũ)
+    if req.get('team') and req.get('team') != 'tan':
+        r['team'] = req['team']
+        r['dsc'] = req.get('dsc') or ''
     return json.dumps(r, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
