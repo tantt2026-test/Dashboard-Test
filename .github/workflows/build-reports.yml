@@ -1,10 +1,11 @@
 # Workflow: build JSON cho app native (native/README.md)
 # Bản gốc của .github/workflows/build-reports.yml (token của máy không có quyền sửa workflow →
 # dán file này vào GitHub web). Các bước nằm trong native/ci/*.sh — sửa quy trình không cần dán lại.
-#   shard ×4  : lượt 1 chia 4 máy (3 báo cáo nặng nhất chỉ xuất số)      ┐ chạy cùng lúc
-#   probe ×3  : mỗi máy dò ô lọc 1 báo cáo nặng                           ┘
-#   publish   : ghép 4 máy → đưa data lên app NGAY
-#   rest      : ghép dò ô lọc → publish lại, đối chiếu, lượt 2, lượt 3
+#   check     : chạy theo lịch → chỉ làm tiếp khi repo Vyntt có data mới
+#   shard     : lượt 1 chia máy theo Sale Sup (tan 4 máy, vy 3, all 3; 3 báo cáo nặng chỉ xuất số) ┐ cùng lúc
+#   probe     : mỗi máy dò ô lọc 1 báo cáo nặng của 1 Sale Sup (3 × 3 máy)                       ┘
+#   publish   : ghép → đưa data lên app NGAY (tan: gốc branch reports, vy: t/vy, all: t/all)
+#   rest      : ghép dò ô lọc → publish lại, đối chiếu, lượt 2 (từng Sale Sup), lượt 3 (tan)
 name: Build native reports
 
 on:
@@ -18,6 +19,8 @@ on:
       - 'native/ci/**'
       - '.github/workflows/build-reports.yml'
   workflow_dispatch:
+  schedule:
+    - cron: '*/15 0-15 * * 1-6'   # 7h–22h45 giờ VN, T2–T7: data Vy (repo Vyntt) mới thì chạy
 
 permissions:
   contents: write
@@ -27,13 +30,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.c.outputs.go }}
+    steps:
+      - id: c
+        run: |
+          if [ "${{ github.event_name }}" != schedule ]; then echo "go=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          head=$(git ls-remote https://github.com/Tantt2026/Vyntt_Dashboard.git HEAD | cut -f1)
+          built=$(curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/reports/t/vy/manifest.json?t=$(date +%s)" \
+            | python3 -c "import json,sys;print(json.load(sys.stdin).get('data_sc') or '')" || true)
+          echo "Vyntt HEAD=$head | đã xuất=$built"
+          [ "$head" != "$built" ] && echo "go=1" >> "$GITHUB_OUTPUT" || echo "go=0" >> "$GITHUB_OUTPUT"
+
   shard:
+    needs: check
+    if: needs.check.outputs.go == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
-      fail-fast: true
+      # 1 Sale Sup lỗi (vd repo Vyntt) không làm hỏng team khác: phần thiếu giữ bản trước
+      fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        include:
+          - {team: tan, i: 0, n: 4}
+          - {team: tan, i: 1, n: 4}
+          - {team: tan, i: 2, n: 4}
+          - {team: tan, i: 3, n: 4}
+          - {team: vy, i: 0, n: 3}
+          - {team: vy, i: 1, n: 3}
+          - {team: vy, i: 2, n: 3}
+          - {team: all, i: 0, n: 3}
+          - {team: all, i: 1, n: 3}
+          - {team: all, i: 2, n: 3}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,23 +72,27 @@ jobs:
           cache: pip
       # Cùng requirements.txt với Streamlit Cloud → cùng phiên bản pandas/plotly/altair
       - run: pip install -r requirements.txt beautifulsoup4
-      - name: Lượt 1 (phần của máy ${{ matrix.shard }})
-        run: bash native/ci/shard.sh ${{ matrix.shard }} 4
+      - name: Lượt 1 (${{ matrix.team }} — máy ${{ matrix.i }}/${{ matrix.n }})
+        run: bash native/ci/shard.sh ${{ matrix.i }} ${{ matrix.n }}
         env:
+          TEAM: ${{ matrix.team }}
           PROBE_JOBS: '1'
           REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v4
         with:
-          name: shard-${{ matrix.shard }}
+          name: shard-${{ matrix.team }}-${{ matrix.i }}
           path: _shard
           retention-days: 1
 
   probe:
+    needs: check
+    if: needs.check.outputs.go == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
+        team: [tan, vy, all]
         k: [0, 1, 2]
     steps:
       - uses: actions/checkout@v4
@@ -67,18 +101,20 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements.txt beautifulsoup4
-      - name: Dò ô lọc báo cáo nặng số ${{ matrix.k }}
+      - name: Dò ô lọc báo cáo nặng số ${{ matrix.k }} (${{ matrix.team }})
         run: bash native/ci/probe.sh ${{ matrix.k }}
         env:
+          TEAM: ${{ matrix.team }}
           REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v4
         with:
-          name: probe-${{ matrix.k }}
+          name: probe-${{ matrix.team }}-${{ matrix.k }}
           path: _probe
           retention-days: 1
 
   publish:
     needs: shard
+    if: ${{ !cancelled() && needs.shard.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -92,7 +128,7 @@ jobs:
         with:
           pattern: shard-*
           path: _shards
-      - name: Ghép 4 máy + đưa data lên cho app
+      - name: Ghép các máy + đưa data lên cho app
         run: bash native/ci/run.sh
         env:
           STAGE: first
@@ -106,11 +142,9 @@ jobs:
 
   rest:
     needs: [publish, probe]
-    # !cancelled(): vẫn chạy khi máy dò lỗi, nhưng DỪNG khi có data mới (always() thì GitHub không huỷ
-    # được → lượt mới phải xếp hàng chờ lượt 2, 3 của lượt cũ chạy xong)
     if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
