@@ -39,6 +39,8 @@ class TurnoverMonth {
   final String? dataMaxDate;
   final List<String> nv;
   final Map<String, TurnoverDay> days;
+  /// Sale Sup 'Cả 2': (tên dòng Tổng team, NV của team) — bảng chia nhóm theo team
+  final List<(String, Set<String>)> teams;
 
   TurnoverMonth({
     required this.monthKey,
@@ -51,6 +53,7 @@ class TurnoverMonth {
     required this.dataMaxDate,
     required this.nv,
     required this.days,
+    this.teams = const [],
   });
 
   factory TurnoverMonth.fromJson(Map<String, dynamic> j) {
@@ -73,6 +76,10 @@ class TurnoverMonth {
       dataMaxDate: j['data_max_date'] as String?,
       nv: [for (final n in j['nv'] as List) n as String],
       days: days,
+      teams: [
+        for (final t in (j['teams'] as List?) ?? const [])
+          ('${(t as Map)['label']}', {for (final n in (t['nv'] as List?) ?? const []) '$n'})
+      ],
     );
   }
 }
@@ -118,8 +125,11 @@ class TurnoverReport {
   final Timegone timegone;
   final String filterLabel;
   final String top3Text, bottom3Text;
+  /// Dòng hiện trong bảng (trừ dòng Tổng cuối): Sale Sup 'Cả 2' = NV từng team + dòng Tổng team
+  final List<TurnoverRow> tableRows;
   TurnoverReport(this.rows, this.total, this.teamTarget, this.timegone, this.filterLabel,
-      this.top3Text, this.bottom3Text);
+      this.top3Text, this.bottom3Text, {List<TurnoverRow>? tableRows})
+      : tableRows = tableRows ?? rows;
 
   /// Mốc tô màu cột %: set_color_moc_for_kpi('TURNOVER') = min(Timegone, 95).
   double get colorMoc => timegone.pct < 95.0 ? timegone.pct : 95.0;
@@ -185,25 +195,49 @@ TurnoverReport buildTurnover(TurnoverMonth month, String isoDate, List<String> f
     ));
   }
 
-  final totalMtd = npSum([for (final r in rows) r.mtd]);
-  final totalToday = npSum([for (final r in rows) r.today]);
+  TurnoverRow totalOf(List<TurnoverRow> rs, String name) {
+    final totalMtd = npSum([for (final r in rs) r.mtd]);
+    final totalToday = npSum([for (final r in rs) r.today]);
+    final tgt = npSum([for (final r in rs) r.target]);
+    final totalPct = tgt != 0 ? pyRound(totalMtd / tgt * 100, 1) : 0.0;
+    final (tGap, tBq) = gapAndBq(tgt, totalMtd, remain);
+    return TurnoverRow(
+      stt: '-',
+      code: 'TỔNG CỘNG',
+      name: name,
+      target: tgt,
+      today: totalToday,
+      mtd: totalMtd,
+      pct: totalPct,
+      pctLabel: '${pyStr(totalPct)}%',
+      gap: tGap,
+      bq: tBq,
+      isTotal: true,
+    );
+  }
+
   final teamTgt = npSum([for (final r in rows) r.target]);
-  final totalPct = teamTgt != 0 ? pyRound(totalMtd / teamTgt * 100, 1) : 0.0;
-  final (tGap, tBq) = gapAndBq(teamTgt, totalMtd, remain);
   final label = filtered ? filterNv.join(', ') : allNvLabel;
-  final total = TurnoverRow(
-    stt: '-',
-    code: 'TỔNG CỘNG',
-    name: filtered ? label : month.totalLabel,
-    target: teamTgt,
-    today: totalToday,
-    mtd: totalMtd,
-    pct: totalPct,
-    pctLabel: '${pyStr(totalPct)}%',
-    gap: tGap,
-    bq: tBq,
-    isTotal: true,
-  );
+  final total = totalOf(rows, filtered ? label : month.totalLabel);
+
+  // Sale Sup 'Cả 2': tách NV theo team (giữ thứ tự sắp xếp) + dòng Tổng từng team, STT đánh lại
+  List<TurnoverRow>? tableRows;
+  if (month.teams.isNotEmpty) {
+    tableRows = [];
+    final used = <String>{};
+    TurnoverRow renum(TurnoverRow r, int i) => TurnoverRow(
+        stt: '$i', code: r.code, name: r.name, target: r.target, today: r.today, mtd: r.mtd,
+        pct: r.pct, pctLabel: r.pctLabel, gap: r.gap, bq: r.bq);
+    for (final (teamLabel, names) in month.teams) {
+      final part = [for (final r in rows) if (names.contains(r.name) && !used.contains(r.name)) r];
+      if (part.isEmpty) continue;
+      used.addAll([for (final r in part) r.name]);
+      tableRows.addAll([for (final (i, r) in part.indexed) renum(r, i + 1)]);
+      tableRows.add(totalOf(part, teamLabel));
+    }
+    final rest = [for (final r in rows) if (!used.contains(r.name)) r];
+    tableRows.addAll([for (final (i, r) in rest.indexed) renum(r, i + 1)]);
+  }
 
   // Nhận xét: sort theo % đã làm tròn (như App.py đọc lại cột '% MTD'), giảm dần, bằng nhau giữ thứ tự gốc.
   double shown(TurnoverRow r) => double.tryParse(r.pctLabel.replaceAll('%', '')) ?? r.pct;
@@ -212,7 +246,8 @@ TurnoverReport buildTurnover(TurnoverMonth month, String isoDate, List<String> f
   final bottom3 = byPct.length <= 3 ? byPct.reversed.toList() : byPct.sublist(byPct.length - 3).reversed.toList();
   String fmt(List<TurnoverRow> l) => l.map((r) => '${r.name} (${r.pctLabel})').join(', ');
 
-  return TurnoverReport(rows, total, teamTgt, day.timegone, label, fmt(top3), fmt(bottom3));
+  return TurnoverReport(rows, total, teamTgt, day.timegone, label, fmt(top3), fmt(bottom3),
+      tableRows: tableRows);
 }
 
 /// Ngày mặc định giống Streamlit: hôm qua (giờ VN), kẹp trong tháng.

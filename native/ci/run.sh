@@ -14,6 +14,11 @@ TEAMS=${TEAMS:-"tan vy all"}
 STAGE=${STAGE:-all}
 
 prefix_of() { [ "$1" = tan ] && echo '' || echo "t/$1"; }
+# Sale Sup 'Cả 2': mỗi bảng tách theo team (dòng + Tổng từng team như xem riêng) + 1 dòng Total chung
+team_merge() {
+  [ -d _reports/t/all ] && [ -d _reports/t/vy ] || return 0
+  python $P/team_merge.py --tan _reports --vy _reports/t/vy --all _reports/t/all || true
+}
 
 if [ "$STAGE" = all ] || [ "$STAGE" = first ]; then
 echo "::group::Lấy bản reports trước"
@@ -39,6 +44,7 @@ else
   echo "::endgroup::"
 fi
 
+team_merge
 # Đưa data mới lên cho app NGAY, đối chiếu chạy sau: lệch thì job báo đỏ (để sửa) nhưng không
 # giữ data cũ lại cả buổi
 bash native/ci/publish.sh _reports "Lượt 1 từ ${GITHUB_SHA::7}"
@@ -54,6 +60,7 @@ if [ -d _probes ] && [ "$STAGE" != rest ]; then
     [ "$team" = tan ] && mv _probes/probe-[0-9]* "_pr/$team/" 2>/dev/null || true  # workflow cũ
     python $P/merge_probes.py --probes "_pr/$team" --out "_reports/$(prefix_of "$team")"
   done
+  team_merge
   echo "::endgroup::"
   bash native/ci/publish.sh _reports "Lượt 1 + bộ lọc từ ${GITHUB_SHA::7}"
 fi
@@ -73,6 +80,7 @@ for team in $TEAMS; do
     python $P/export_reports.py --app "$ROOT/App.py" --out "_reports/$PREFIX" --kpi --kpi-mode history \
       --prev "_reports/$PREFIX" --workers 4 )
   echo "::endgroup::"
+  [ "$team" = all ] && team_merge
   bash native/ci/publish.sh _reports "Đầy đủ ($team) từ ${GITHUB_SHA::7}"
 done
 

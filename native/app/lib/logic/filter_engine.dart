@@ -403,11 +403,13 @@ void _filterTable(Map<String, dynamic> t, int ti, Map<int, Set<String>> keepRows
   if (mask == null && myRules.isEmpty && nvCol == null) return;
 
   final kept = <List>[];
+  final keptIdx = <int>[]; // vị trí gốc của dòng giữ lại (bảng 'Cả 2' chia đoạn theo team: 'seg')
   var dataBefore = 0, dataAfter = 0;
-  for (final row in body) {
+  for (final (bi, row) in body.indexed) {
     final cells = bodyCells(row);
     if (isTotalRow(cells)) {
       kept.add(row);
+      keptIdx.add(bi);
       continue;
     }
     dataBefore++;
@@ -417,15 +419,40 @@ void _filterTable(Map<String, dynamic> t, int ti, Map<int, Set<String>> keepRows
     if (ok) ok = myRules.every((r) => r.keep(cells, names, key));
     if (ok) {
       kept.add(row);
+      keptIdx.add(bi);
       dataAfter++;
     }
   }
   if (dataAfter == dataBefore) return;
-  // đánh lại STT
+  final seg = (t['seg'] as List?)?.cast<int>();
+  if (seg != null && seg.length == 2) {
+    // Cả 2 Sale Sup: team không còn dòng nào → bỏ luôn dòng Tổng của team đó
+    int segOf(int bi) => bi < seg[0] ? 0 : (bi < seg[1] ? 1 : 2);
+    final hasData = <int>{
+      for (final (k, row) in kept.indexed)
+        if (!isTotalRow(bodyCells(row))) segOf(keptIdx[k])
+    };
+    final k2 = <List>[], i2 = <int>[];
+    for (final (k, row) in kept.indexed) {
+      final sg = segOf(keptIdx[k]);
+      if (sg < 2 && !hasData.contains(sg)) continue;
+      k2.add(row);
+      i2.add(keptIdx[k]);
+    }
+    kept
+      ..clear()
+      ..addAll(k2);
+    t['seg'] = [for (final s in seg) i2.where((bi) => bi < s).length];
+  }
+  // đánh lại STT (bảng 'Cả 2': đánh lại từ 1 sau mỗi dòng Tổng team, như xem riêng)
   var n = 0;
   for (final row in kept) {
     final cells = bodyCells(row);
-    if (isTotalRow(cells) || skip.isEmpty) continue;
+    if (isTotalRow(cells)) {
+      if (seg != null) n = 0;
+      continue;
+    }
+    if (skip.isEmpty) continue;
     n++;
     final first = (row.first as Map);
     if (skip.contains(0) && RegExp(r'^\d+$').hasMatch('${first['x']}'.trim())) first['x'] = '$n';
@@ -440,10 +467,28 @@ void _filterTable(Map<String, dynamic> t, int ti, Map<int, Set<String>> keepRows
 /// Cột không có công thức → để trống (không hiện số sai).
 void _recomputeTotals(Map<String, dynamic> t) {
   final body = (t['b'] as List).cast<List>();
+  final seg = (t['seg'] as List?)?.cast<int>();
+  if (seg != null && seg.length == 2) {
+    // Cả 2 Sale Sup: dòng Tổng team = dòng của team đó; dòng Total chung = mọi dòng
+    final ranges = [(0, seg[0]), (seg[0], seg[1]), (0, body.length)];
+    for (var i = 0; i < body.length; i++) {
+      if (!isTotalRow(bodyCells(body[i]))) continue;
+      final r = ranges[i < seg[0] ? 0 : (i < seg[1] ? 1 : 2)];
+      _recomputeTotalRow(t, i, [
+        for (var j = r.$1; j < r.$2; j++)
+          if (!isTotalRow(bodyCells(body[j]))) bodyCells(body[j])
+      ]);
+    }
+    return;
+  }
   final totIdx = body.indexWhere((r) => isTotalRow(bodyCells(r)));
   if (totIdx < 0) return;
+  _recomputeTotalRow(t, totIdx, [for (final r in body) if (!isTotalRow(bodyCells(r))) bodyCells(r)]);
+}
+
+void _recomputeTotalRow(Map<String, dynamic> t, int totIdx, List<List<String>> data) {
+  final body = (t['b'] as List).cast<List>();
   final tot = (t['tot'] as Map?)?.cast<String, dynamic>();
-  final data = [for (final r in body) if (!isTotalRow(bodyCells(r))) bodyCells(r)];
   final sums = <int, double>{};
   double? parse(String s, String th, String dec) {
     var x = s.trim().replaceAll(' ', '').replaceAll(' ', '');

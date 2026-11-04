@@ -77,8 +77,15 @@ def run_one(app_path, req, out):
     app = HeadlessApp(app_path)
     export_kpi._app = app
     t = time.time()
-    items, status = run_request.compute(app, export_kpi, report_doc, filters_probe, req,
-                                        req['name'], req.get('nav'))
+    parts = {k: os.environ.get(f'TEAM_PART_{k.upper()}') for k in ('tan', 'vy')}
+    if req.get('team') == 'all' and all(parts.values()):
+        # Sale Sup 'Cả 2': bảng tách theo team + Total chung (filter_run.sh đặt TEAM_PART_TAN/VY)
+        apps = {'all': app, **{k: HeadlessApp(os.path.join(r, 'App.py')) for k, r in parts.items()}}
+        items, status = run_request.compute_team(apps, export_kpi, report_doc, filters_probe, req,
+                                                 req['name'], req.get('nav'))
+    else:
+        items, status = run_request.compute(app, export_kpi, report_doc, filters_probe, req,
+                                            req['name'], req.get('nav'))
     k = _write(out, req['sc'], req, items, status)
     print(f'✓ {req["code"]} {k} ({time.time() - t:.0f}s) {status}', file=sys.stderr)
 

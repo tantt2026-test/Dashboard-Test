@@ -242,7 +242,15 @@ class LocalEngine {
 
   /// Tính 1 yêu cầu bộ lọc (như GitHub filter-run) → items.
   Future<List<Map<String, dynamic>>> compute(Map<String, dynamic> req) async {
-    final res = await _call(null, {'req': req}, root: await snapshotFor(req));
+    final root = await snapshotFor(req);
+    // Sale Sup 'Cả 2': tính thêm từng team → bảng tách theo team + dòng Total chung (team_merge.py)
+    final parts = req['team'] == 'all'
+        ? {
+            'tan': await snapshotFor({...req, 'team': 'tan'}),
+            'vy': await snapshotFor({...req, 'team': 'vy'}),
+          }
+        : null;
+    final res = await _call(null, {'req': req, 'parts': ?parts}, root: root);
     return [for (final i in res['items'] as List) (i as Map).cast<String, dynamic>()];
   }
 

@@ -34,7 +34,7 @@ Map<String, dynamic> turnoverTableData(TurnoverReport report) {
       [for (final c in cols) {'x': c, 'b': 1}]
     ],
     'b': [
-      for (final r in [...report.rows, report.total]) row(r)['cells']
+      for (final r in [...report.tableRows, report.total]) row(r)['cells']
     ],
   };
 }

@@ -30,12 +30,15 @@ _apps = {}
 _ns = {}
 
 
-def _app(root):
-    app = _apps.get(root)
+def _app(root, keep=1):
+    """keep: số bản giữ trong bộ nhớ (Sale Sup 'Cả 2' cần 3: data ghép + Tân + Vy)."""
+    app = _apps.pop(root, None)
     if app is None:
-        _apps.clear()  # commit dữ liệu mới → bỏ bản cũ cho nhẹ bộ nhớ
-        _ns.clear()
-        app = _apps[root] = HeadlessApp(os.path.join(root, 'App.py'))
+        while len(_apps) >= keep:  # commit dữ liệu mới → bỏ bản cũ cho nhẹ bộ nhớ
+            _apps.pop(next(iter(_apps)))
+            _ns.clear()
+        app = HeadlessApp(os.path.join(root, 'App.py'))
+    _apps[root] = app  # cuối dict = dùng gần nhất
     return app
 
 
@@ -76,7 +79,9 @@ def main():
                 out.write(json.dumps({'id': msg.get('id'), 'ok': True, 'secs': round(time.time() - t, 1)}) + '\n')
                 out.flush()
                 continue
-            app = _app(msg['root'])
+            parts = msg.get('parts') or {}
+            keep = 3 if parts else 1
+            app = _app(msg['root'], keep)
             export_kpi._app = app
             if op == 'plan':
                 res = {'id': msg.get('id'), 'plan': _plan(app, msg['root'], msg['month_key'])}
@@ -84,8 +89,13 @@ def main():
                 res = {'id': msg.get('id'), 'turnover': _turnover(msg['root'], msg['month_key'])}
             else:
                 req = msg['req']
-                items, status = run_request.compute(app, export_kpi, report_doc, filters_probe, req,
-                                                    req['name'], req.get('nav'))
+                if parts:  # Sale Sup 'Cả 2': tách bảng theo team + Total chung
+                    apps = {'all': app, **{k: _app(r, 3) for k, r in parts.items()}}
+                    items, status = run_request.compute_team(apps, export_kpi, report_doc, filters_probe,
+                                                             req, req['name'], req.get('nav'))
+                else:
+                    items, status = run_request.compute(app, export_kpi, report_doc, filters_probe, req,
+                                                        req['name'], req.get('nav'))
                 res = {'id': msg.get('id'), 'status': status, 'items': items}
             res['secs'] = round(time.time() - t, 1)
         except Exception as e:  # noqa: BLE001

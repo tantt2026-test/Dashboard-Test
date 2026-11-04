@@ -57,3 +57,30 @@ def compute(app, export_kpi, report_doc, filters_probe, req, name, nav=None):
     items = report_doc.convert(blocks)
     filters_probe.annotate_totals(items)
     return report_doc.strip_private(items), status
+
+
+def compute_team(apps, export_kpi, report_doc, filters_probe, req, name, nav=None):
+    """Sale Sup 'Cả 2': apps = {'all': app data ghép, 'tan': ..., 'vy': ...} → bảng tách theo team
+    + dòng Total chung (team_merge.py). Lọc 1 ĐDKD / thiếu app team → chỉ tính trên data ghép."""
+    def one(app):
+        export_kpi._app = app
+        return compute(app, export_kpi, report_doc, filters_probe, req, name, nav)
+    items, status = one(apps['all'])
+    if req.get('ddkd') or not apps.get('tan') or not apps.get('vy'):  # 1 NV chỉ thuộc 1 team
+        return items, status
+    import team_merge
+    it_t, _ = one(apps['tan'])
+    it_v, _ = one(apps['vy'])
+    export_kpi._app = apps['all']
+    import os
+    labels, cwd = [], os.getcwd()
+    for k in ('tan', 'vy'):
+        try:  # tên Sup đọc từ Target_KPI của team (đường dẫn data tương đối theo repo)
+            os.chdir(apps[k].repo)
+            labels.append('SS ' + apps[k].ns['_ss_name_m'](req['month_key']))
+        except Exception:  # noqa: BLE001  App.py cũ chưa có _ss_name_m
+            labels = None
+            break
+        finally:
+            os.chdir(cwd)
+    return team_merge.merge_items(it_t, it_v, items, labels), status

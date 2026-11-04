@@ -9,5 +9,10 @@ TEAM=$(python -c "import json,os;print(json.loads(os.environ['REQ']).get('team')
 DSC=$(python -c "import json,os;print(json.loads(os.environ['REQ']).get('dsc') or '')")
 export TEAM DSC
 source native/ci/team_env.sh
+if [ "$TEAM" = all ]; then
+  # 'Cả 2': tính thêm từng team để tách bảng theo team (team_merge.py)
+  python native/pipeline/team_data.py prepare vy _team/vy --app App.py --tan data --vy _vysrc/data
+  export TEAM_PART_TAN=. TEAM_PART_VY=_team/vy
+fi
 python native/pipeline/precompute_filters.py --app "$ROOT/App.py" --req "$REQ" --out _filters
 bash native/ci/filters_publish.sh _filters "Tính theo yêu cầu"
