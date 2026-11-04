@@ -2369,10 +2369,20 @@ def process_brand_sales(df_rpt, df_brand):
   if not brands_list:
     return df_brand
 
+  # MBS Brand T11: có dòng 'Others' = doanh số các nhãn còn lại của CH (để so chỉ tiêu cả CH)
+  others_b = next((b for b in brands_list if str(b).strip().lower() == 'others'), None)
+
   def match_brand(sku_str):
+    b = _match_brand(sku_str)
+    return others_b if (others_b and b == 'Khác') else b
+
+  def _match_brand(sku_str):
     if pd.isna(sku_str):
       return 'Khác'
     s = str(sku_str).lower()
+    # T11: Nam Ngư không tính Đệ Nhị, Siêu Tiết Kiệm
+    if others_b and ('nam ngư đệ' in s or 'nam ngư siêu tiết kiệm' in s):
+      return 'Khác'
     # Wake up xét trước: 'Wake up 247' = Nước tăng lực; 'Wake up' = Cà phê Wake up Sài Gòn
     # (nếu không, chữ 'Sài Gòn' bị luật Vinacafe bên dưới bắt nhầm)
     # Cà phê Phil cũng thuộc nhãn Wake up (chung với Cà phê Wake up Sài Gòn), dù tên có chữ Vinacafe
@@ -8107,6 +8117,40 @@ def check_mbs_mission(df_outlet, member_type, col_loai='_loai', col_actual='_act
 
 
 
+MBS_T11_BRANDS = ('chanté', 'chinsu', 'kokomi', 'nam ngư')
+# (% chỉ tiêu tối thiểu, mức, % thưởng) — xét từ mức cao xuống
+MBS_T11_LEVELS = ((105, 'Mức 3', 2.0), (100, 'Mức 2', 1.5), (95, 'Mức 1', 1.2))
+
+
+def is_mbs_t11_member(member_type):
+  return str(member_type or '').strip().upper().replace(' ', '') in (
+      'BRAND_VIP', 'BRAND_VIPDAISU')
+
+
+def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col_actual='_actual'):
+  """MBS Brand T11 (BRAND_VIP / BRAND_VIPDAISU), nhóm 4 nhãn Nam Ngư (trừ Đệ Nhị, Siêu Tiết Kiệm),
+  Chinsu, Kokomi, Chanté:
+    VIP: tổng DS 4 nhãn >= 500.000 | VIP Đại sứ: mua đủ 4 nhãn, mỗi nhãn >= 150.000
+    Đạt chỉ tiêu DS nền tảng 95% / 100% / 105% → thưởng 1,2% / 1,5% / 2% DS thực đạt.
+  Trả về (đạt nhiệm vụ, DS 4 nhãn, mức, % thưởng, điểm thưởng dự kiến)."""
+  b = df_outlet[col_brand].astype(str).str.strip().str.lower()
+  act = pd.to_numeric(df_outlet[col_actual], errors='coerce').fillna(0)
+  by_brand = act.groupby(b).sum()
+  ds4 = float(sum(by_brand.get(k, 0) for k in MBS_T11_BRANDS))
+  if str(member_type).strip().upper().replace(' ', '') == 'BRAND_VIPDAISU':
+    mission = all(by_brand.get(k, 0) >= 150000 for k in MBS_T11_BRANDS)
+  else:
+    mission = ds4 >= 500000
+  pct = (actual / target * 100) if target > 0 else 0.0
+  muc, rate = '', 0.0
+  if mission:
+    for lim, name, r in MBS_T11_LEVELS:
+      if pct >= lim:
+        muc, rate = name, r
+        break
+  return mission, ds4, muc, rate, round(actual * rate / 100)
+
+
 def render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm'):
   """Biểu đồ tròn tỷ lệ từng nhóm / tổng KH đang hiển thị."""
   try:
@@ -8412,6 +8456,8 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
     return empty
 
   sales_map = _mbs_rpt_sales_by_outlet(df_rpt, report_date)
+  # MBS Brand T11 (BRAND_VIP / VIPDAISU): đạt DS từ 95% chỉ tiêu + điểm thưởng dự kiến
+  t11 = 'Mức đạt' in det.columns
 
   def _norm_ma(x):
     s = str(x).strip()
@@ -8424,24 +8470,29 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
     actual = float(sales_map.get(ma, 0) or 0)
     mission = str(r.get('Đạt nhiệm vụ', '')).strip() in ('Có', 'CO', 'Yes', '1', 'True', '✓')
     pct = (actual / target * 100) if target > 0 else (100.0 if actual > 0 else 0.0)
+    dat_ds = pct >= 95 if t11 else actual >= target
     if actual <= 0:
       nhom = 5
-    elif actual >= target and mission:
+    elif dat_ds and mission:
       nhom = 1
-    elif actual >= target and not mission:
+    elif dat_ds and not mission:
       nhom = 2
-    elif pct >= 50 and actual < target and mission:
+    elif pct >= 50 and not dat_ds and mission:
       nhom = 3
-    elif pct >= 60 and actual < target and not mission:
+    elif pct >= 60 and not dat_ds and not mission:
       nhom = 4
     else:
       nhom = 6
+    rate = 0.0
+    if t11 and mission:
+      rate = next((r for lim, _, r in MBS_T11_LEVELS if pct >= lim), 0.0)
     rows.append({
         'Tên NVBH': str(r.get('Tên NVBH', '')).strip(),
         'Outlet Code': ma,
         'Actual': actual,
         'Target': target,
         'Nhóm': nhom,
+        'Điểm thưởng DK': round(actual * rate / 100),
     })
   d = pd.DataFrame(rows)
   if d.empty:
@@ -8467,6 +8518,7 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
         'Actual': act,
         'Target': tgt,
         '% TH': pct_th,
+        **({'Điểm thưởng DK': float(g['Điểm thưởng DK'].sum())} if t11 else {}),
     })
   out = pd.DataFrame(out_rows).sort_values('KH Đạt (N1)', ascending=False).reset_index(drop=True)
   out.insert(0, 'STT', range(1, len(out) + 1))
@@ -8482,6 +8534,7 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
       'Actual': float(out['Actual'].sum()),
       'Target': float(out['Target'].sum()),
       '% TH': round(out['Actual'].sum() / out['Target'].sum() * 100, 1) if out['Target'].sum() else 0.0,
+      **({'Điểm thưởng DK': float(out['Điểm thưởng DK'].sum())} if t11 else {}),
   }
   out = pd.concat([out, pd.DataFrame([tot])], ignore_index=True)
   return out
@@ -8537,7 +8590,11 @@ def compute_mbs_day_metric(df_detail, df_rpt, report_date):
     mission = str(r.get('Đạt nhiệm vụ', '')).strip() in (
         'Có', 'CO', 'Yes', '1', 'True', '✓', '✔'
     )
-    if mission and actual >= target and (target > 0 or actual > 0):
+    if 'Mức đạt' in det.columns:  # MBS Brand T11: đạt từ 95% chỉ tiêu
+      dat_ds = actual >= target * 0.95 and actual > 0
+    else:
+      dat_ds = actual >= target and (target > 0 or actual > 0)
+    if mission and dat_ds:
       n1 += 1
   pct = round(n1 / total * 100, 1) if total else 0.0
   return int(n1), int(total), float(pct)
@@ -8551,7 +8608,7 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
     return ''
   cols = [c for c in [
       'STT', 'Tên NVBH', 'Tổng KH', 'KH Đạt (N1)', '% Đạt',
-      'KH N2', 'KH N5', 'Actual', 'Target', '% TH',
+      'KH N2', 'KH N5', 'Actual', 'Target', '% TH', 'Điểm thưởng DK',
   ] if c in df.columns]
 
   max_name = 12
@@ -8637,7 +8694,7 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
         )
       else:
         val = raw
-        if c in ('Actual', 'Target') and val != '' and not isinstance(val, str):
+        if c in ('Actual', 'Target', 'Điểm thưởng DK') and val != '' and not isinstance(val, str):
           try:
             val = format_number_vn(float(val))
           except Exception:
@@ -8676,8 +8733,10 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
   c_ten = find_col(df, ['Outlet Name', 'Outlet_name', 'Tên CH'])
   c_member = find_col(df, ['Member type', 'Member Type', 'Phân loại CAT'])
   c_loai = find_col(
-      df, ['Phân loại brand', 'Phan loai brand', 'Phân loại cat', 'Loại brand']
+      df, ['Phân loại brand', 'Phan loai brand', 'Phân loại cat', 'Loại brand',
+           'Phân loại cat/brand']
   )
+  c_brand = find_col(df, ['Danh sách full brand', 'Danh sách full cat/brand'])
   c_target = find_col(
       df,
       [
@@ -8742,6 +8801,7 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
   df['_loai'] = (
       df[c_loai].astype(str).str.strip().str.upper() if c_loai else ''
   )
+  df['_brand'] = df[c_brand].astype(str).str.strip() if c_brand else ''
 
   thu_map = {}
   if mcp_df is not None and not mcp_df.empty:
@@ -8777,17 +8837,23 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
     pct = (actual / target * 100) if target > 0 else (100.0 if actual > 0 else 0.0)
     member = member_by_outlet.get(ma, '') if len(member_by_outlet) else ''
     df_out = df[df['_ma'] == ma]
-    has_mission = check_mbs_mission(df_out, member, col_actual='_actual')
+    t11 = is_mbs_t11_member(member)
+    if t11:
+      has_mission, ds4, muc, rate, diem = mbs_t11_eval(df_out, member, actual, target)
+      dat_ds = pct >= 95  # Mức 1 = 95% chỉ tiêu
+    else:
+      has_mission = check_mbs_mission(df_out, member, col_actual='_actual')
+      dat_ds = actual >= target
 
     if actual <= 0:
       nhom, nhom_name = 5, 'Nhóm 5 · Chưa phát sinh DS'
-    elif actual >= target and has_mission:
+    elif dat_ds and has_mission:
       nhom, nhom_name = 1, 'Nhóm 1 · Đã đạt MBS'
-    elif actual >= target and not has_mission:
+    elif dat_ds and not has_mission:
       nhom, nhom_name = 2, 'Nhóm 2 · Đạt DS, thiếu nhiệm vụ'
-    elif pct >= 50 and actual < target and has_mission:
+    elif pct >= 50 and not dat_ds and has_mission:
       nhom, nhom_name = 3, 'Nhóm 3 · Đạt nhiệm vụ, DS ≥50% Target'
-    elif pct >= 60 and actual < target and not has_mission:
+    elif pct >= 60 and not dat_ds and not has_mission:
       nhom, nhom_name = 4, 'Nhóm 4 · DS ≥60% Target, thiếu nhiệm vụ'
     else:
       nhom, nhom_name = 6, 'Nhóm 6 · Còn lại'
@@ -8805,6 +8871,8 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
         'Đạt nhiệm vụ': 'Có' if has_mission else 'Không',
         'Nhóm': nhom,
         'Tên nhóm': nhom_name,
+        **({'DS 4 nhãn': ds4, 'Mức đạt': muc, '% thưởng': rate,
+            'Điểm thưởng dự kiến': diem} if t11 else {}),
     })
 
   df_detail = pd.DataFrame(rows)
@@ -16922,15 +16990,39 @@ if _nav == '📊 BÁO CÁO KPI':
           except Exception:
             return '0%'
         df_show['% TH'] = df_show['% TH'].apply(_fmt_pct_brand)
+        # MBS Brand T11: DS 4 nhãn + mức đạt + điểm thưởng dự kiến
+        for _c in ('DS 4 nhãn', 'Điểm thưởng dự kiến'):
+          if _c in df_show.columns:
+            df_show[_c] = df_show[_c].apply(_fmt_num_b)
+        if '% thưởng' in df_show.columns:
+          df_show['% thưởng'] = df_show['% thưởng'].map(
+              lambda x: (f'{float(x):.1f}%'.replace('.', ',') if float(x or 0) > 0 else '')
+          )
         cols_show = [
             'STT', 'Tên nhóm', 'Outlet Code', 'Tên CH', 'Tên NVBH',
             'Thứ VT', 'Member type', 'Actual',
             'Actual (Not Cancel/Pending)', 'Target', '% TH',
-            'Đạt nhiệm vụ',
+            'DS 4 nhãn', 'Đạt nhiệm vụ', 'Mức đạt', '% thưởng', 'Điểm thưởng dự kiến',
         ]
         df_html = df_show[[c for c in cols_show if c in df_show.columns]].copy()
         st.markdown(render_html_table(df_html), unsafe_allow_html=True)
         st.caption(f'Hiển thị: {len(df_show):,} / {total_kh:,} KH')
+        if 'Điểm thưởng dự kiến' in df_detail.columns:
+          _sel = df_detail[df_detail['Outlet Code'].isin(df_show['Outlet Code'])]
+          _diem = float(pd.to_numeric(_sel['Điểm thưởng dự kiến'], errors='coerce').fillna(0).sum())
+          _lv = _sel['Mức đạt'].astype(str).value_counts()
+          st.markdown(
+              '<div style="background:#f0fff4;border:1px solid #9ae6b4;border-radius:8px;'
+              'padding:8px 12px;margin:6px 0;font-size:13px;color:#22543d;">'
+              '<b>🎁 ĐIỂM THƯỞNG DỰ KIẾN (MBS BRAND T11): ' + format_number_vn(_diem) + '</b>'
+              ' &nbsp;|&nbsp; Mức 1 (≥95% CT, 1,2%): <b>' + str(int(_lv.get('Mức 1', 0))) + '</b> KH'
+              ' &nbsp;|&nbsp; Mức 2 (≥100% CT, 1,5%): <b>' + str(int(_lv.get('Mức 2', 0))) + '</b> KH'
+              ' &nbsp;|&nbsp; Mức 3 (≥105% CT, 2%): <b>' + str(int(_lv.get('Mức 3', 0))) + '</b> KH'
+              '<br><span style="font-size:11.5px;color:#2f855a;">Điểm thưởng = % thưởng × Actual (DS thực đạt'
+              ' của CH). VIP: tổng DS 4 nhãn (Nam Ngư trừ Đệ Nhị &amp; Siêu Tiết Kiệm, Chinsu, Kokomi,'
+              ' Chanté) ≥ 500.000 | VIP Đại sứ: đủ 4 nhãn, mỗi nhãn ≥ 150.000.</span></div>',
+              unsafe_allow_html=True,
+          )
         try:
           df_nv_sum = build_mbs_nv_summary_asof(
               df_detail, df, report_date, filter_nv=filter_nv
@@ -16949,7 +17041,10 @@ if _nav == '📊 BÁO CÁO KPI':
             st.caption(
                 'Actual = Doanh số RPT từ đầu tháng → ngày BC | '
                 'Target & Nhiệm vụ lấy từ Data_Brand | '
-                'KH Đạt (N1) = Actual ≥ Target và đạt nhiệm vụ'
+                + ('KH Đạt (N1) = Actual ≥ 95% Target và đạt nhiệm vụ | '
+                   'Điểm thưởng DK = 1,2% / 1,5% / 2% Actual (đạt 95% / 100% / 105%)'
+                   if 'Mức đạt' in df_detail.columns else
+                   'KH Đạt (N1) = Actual ≥ Target và đạt nhiệm vụ')
             )
         except Exception as _e_mbs_nv:
           st.warning(f'Không dựng được bảng tổng hợp NV MBS BRAND: {_e_mbs_nv}')
@@ -16978,8 +17073,11 @@ if _nav == '📊 BÁO CÁO KPI':
           '<li><b>Chưa phát sinh DS (Nhóm 5):</b> ' + str(g5['kh'])
           + ' KH (' + str(g5['pct_kh'])
           + '%) — cần đôn đốc mở đơn ngay.</li>'
-          '<li><b>Đề xuất:</b> Ưu tiên đẩy nhiệm vụ Brand NEW ≥ 200.000 cho'
-          ' Nhóm 2 &amp; 4; kích hoạt Nhóm 5 chưa phát sinh.</li>'
+          + ('<li><b>Đề xuất:</b> Đẩy 4 nhãn Nam Ngư · Chinsu · Kokomi · Chanté (VIP: tổng ≥ 500.000;'
+             ' VIP Đại sứ: mỗi nhãn ≥ 150.000) cho Nhóm 2 &amp; 4; kích hoạt Nhóm 5 chưa phát sinh.</li>'
+             if 'Mức đạt' in df_detail.columns else
+             '<li><b>Đề xuất:</b> Ưu tiên đẩy nhiệm vụ Brand NEW ≥ 200.000 cho'
+             ' Nhóm 2 &amp; 4; kích hoạt Nhóm 5 chưa phát sinh.</li>') +
           '</ul></div>'
       )
       st.markdown(note_html, unsafe_allow_html=True)
@@ -19123,13 +19221,17 @@ def build_mbs_data_summary(df_source, kind='CAT'):
     col_code = find_col(df_s, ['Outlet Code', 'Outlet_code', 'Mã CH', 'Mã khách hàng'])
     col_name = find_col(df_s, ['Outlet Name', 'Outlet_name', 'Tên CH', 'Tên khách hàng'])
     col_target = find_col(df_s, ['Doanh số nền tảng của OUTLET', 'Doanh so nen tang', 'Target', 'Chỉ tiêu'])
-    col_actual = find_col(df_s, ['Doanh số thực đạt của brand', 'Doanh số thực đạt BRAND'])
+    col_actual = find_col(df_s, ['Doanh số thực đạt của brand', 'Doanh số thực đạt BRAND',
+                                 'Doanh số thực đạt của CAT/BRAND'])
     col_actual_nc = find_col(df_s, [
         'Doanh số thực đạt của brand (Not Cancel/Pending)',
         'Doanh số thực đạt của brand(Not Cancel/Pending)',
+        'Doanh số thực đạt của CAT/BRAND(Not Cancel/Pending)',
+        'Doanh số thực đạt của CAT/BRAND (Not Cancel/Pending)',
     ])
-    col_type = find_col(df_s, ['Phân loại brand', 'Phan loai brand', 'Loại brand'])
-    col_bonus = find_col(df_s, ['Điểm thưởng dự kiến'])
+    col_type = find_col(df_s, ['Phân loại brand', 'Phan loai brand', 'Loại brand',
+                               'Phân loại cat/brand'])
+    col_bonus = find_col(df_s, ['Điểm thưởng dự kiến', 'Điểm thưởng dự kiến của OUTLET'])
   else:
     col_uid = find_col(df_s, ['SM UID'])
     col_nv = find_col(df_s, ['Tên NVBH', 'SM Name', 'SM name', 'Nhân viên'])
@@ -19165,6 +19267,9 @@ def build_mbs_data_summary(df_source, kind='CAT'):
       if col_type else ''
   )
   df_s['_summary_bought'] = df_s['_summary_actual'] > 0
+  # MBS Brand T11 (BRAND_VIP / VIPDAISU): app tự tính điểm thưởng dự kiến
+  col_member = find_col(df_s, ['Member type', 'Member Type'])
+  col_brand = find_col(df_s, ['Danh sách full brand', 'Danh sách full cat/brand'])
 
   rows = []
   for code, sub in df_s.groupby('_summary_code', sort=False):
@@ -19195,6 +19300,14 @@ def build_mbs_data_summary(df_source, kind='CAT'):
     actual = float(sub['_summary_actual'].sum() or 0)
     actual_nc = float(sub['_summary_actual_nc'].sum() or 0)
     pct = round(actual / target * 100, 1) if target else 0.0
+    member = first[col_member] if col_member else ''
+    if kind_u == 'BRAND' and col_brand and is_mbs_t11_member(member):
+      bonus = float(mbs_t11_eval(sub, member, actual, target,
+                                 col_brand=col_brand, col_actual='_summary_actual')[4])
+    elif col_bonus and not pd.to_numeric(sub[col_bonus], errors='coerce').dropna().empty:
+      bonus = float(pd.to_numeric(sub[col_bonus], errors='coerce').dropna().iloc[0])
+    else:
+      bonus = 0.0
 
     rows.append({
         'SM UID': first[col_uid] if col_uid else '',
@@ -19210,11 +19323,7 @@ def build_mbs_data_summary(df_source, kind='CAT'):
         'SL ngành/nhãn hàng mới đã mở thêm': new_opened,
         'Tổng SL ngành/nhãn hàng mới duy trì/mở thành công': successful_new,
         'Tổng SL ngành/nhãn hàng đã mua': total_bought,
-        'Điểm thưởng dự kiến': (
-            float(pd.to_numeric(sub[col_bonus], errors='coerce').dropna().iloc[0])
-            if col_bonus and not pd.to_numeric(sub[col_bonus], errors='coerce').dropna().empty
-            else 0.0
-        ),
+        'Điểm thưởng dự kiến': bonus,
     })
 
   out = pd.DataFrame(rows)
