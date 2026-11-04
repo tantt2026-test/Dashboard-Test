@@ -1,0 +1,45 @@
+# Workflow: build app KPI Dashboard cho Windows (máy Windows của GitHub — Mac không build được .exe)
+# Bản gốc của .github/workflows/build-windows.yml (token của máy không có quyền sửa workflow →
+# dán file này vào GitHub web). Cần secret KPI_GH_TOKEN = token GitHub giới hạn (giống token build APK).
+# Kết quả: artifact "KPIDashboard-windows" (file zip) ở trang lượt chạy Actions — giải nén, chạy KPIDashboard.exe.
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'native/app/pubspec.yaml'   # tăng version app → build bản Windows mới
+      - 'native/app/windows/**'
+
+concurrency:
+  group: build-windows
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: native/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.8
+          cache: true
+      - run: flutter pub get
+      - name: Build
+        run: flutter build windows --release --dart-define=GH_TOKEN=${{ secrets.KPI_GH_TOKEN }}
+      - name: Đóng gói zip
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)').Matches[0].Groups[1].Value
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "KPIDashboard-windows-$ver.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KPIDashboard-windows
+          path: native/app/KPIDashboard-windows-*.zip
+          retention-days: 30
