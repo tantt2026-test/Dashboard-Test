@@ -6,6 +6,10 @@ project(kpi_native LANGUAGES CXX)
 # the on-disk name of your application.
 set(BINARY_NAME "KPIDashboard")
 
+# local_auth_windows (Windows Hello) còn dùng <experimental/coroutine>: Visual Studio mới báo lỗi
+# STL1011 nếu không bật cờ này (áp cho mọi plugin thêm sau dòng này)
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
