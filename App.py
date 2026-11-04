@@ -2385,9 +2385,6 @@ def process_brand_sales(df_rpt, df_brand):
     if pd.isna(sku_str):
       return 'Khác'
     s = str(sku_str).lower()
-    # T11: Nam Ngư không tính Đệ Nhị, Siêu Tiết Kiệm
-    if others_b and ('nam ngư đệ' in s or 'nam ngư siêu tiết kiệm' in s):
-      return 'Khác'
     # Wake up xét trước: 'Wake up 247' = Nước tăng lực; 'Wake up' = Cà phê Wake up Sài Gòn
     # (nếu không, chữ 'Sài Gòn' bị luật Vinacafe bên dưới bắt nhầm)
     # Cà phê Phil cũng thuộc nhãn Wake up (chung với Cà phê Wake up Sài Gòn), dù tên có chữ Vinacafe
@@ -8204,7 +8201,7 @@ def is_mbs_t11_member(member_type):
 
 def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col_actual='_actual',
                  col_loai='_loai'):
-  """MBS Brand T11 (BRAND_VIP / BRAND_VIPDAISU), nhóm 4 nhãn Nam Ngư (trừ Đệ Nhị, Siêu Tiết Kiệm),
+  """MBS Brand T11 (BRAND_VIP / BRAND_VIPDAISU), nhóm 4 nhãn Nam Ngư (gồm cả Đệ Nhị, Siêu Tiết Kiệm),
   Chinsu, Kokomi, Chanté:
     VIP: tổng DS 4 nhãn >= 500.000 | VIP Đại sứ: mua đủ 4 nhãn, mỗi nhãn >= 150.000
     Đạt chỉ tiêu DS nền tảng 95% / 100% / 105% → thưởng 1,2% / 1,5% / 2% DS thực đạt.
@@ -17230,7 +17227,7 @@ if _nav == '📊 BÁO CÁO KPI':
               ' &nbsp;|&nbsp; Mức 2 (≥100% CT, 1,5%): <b>' + str(int(_lv.get('Mức 2', 0))) + '</b> KH'
               ' &nbsp;|&nbsp; Mức 3 (≥105% CT, 2%): <b>' + str(int(_lv.get('Mức 3', 0))) + '</b> KH'
               '<br><span style="font-size:11.5px;color:#2f855a;">Điểm thưởng = % thưởng × Actual (DS thực đạt'
-              ' của CH). VIP: tổng DS 4 nhãn (Nam Ngư trừ Đệ Nhị &amp; Siêu Tiết Kiệm, Chinsu, Kokomi,'
+              ' của CH). VIP: tổng DS 4 nhãn (Nam Ngư gồm cả Đệ Nhị &amp; Siêu Tiết Kiệm, Chinsu, Kokomi,'
               ' Chanté) ≥ 500.000 | VIP Đại sứ: đủ 4 nhãn, mỗi nhãn ≥ 150.000.</span></div>',
               unsafe_allow_html=True,
           )
