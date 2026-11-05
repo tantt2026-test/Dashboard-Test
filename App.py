@@ -9432,6 +9432,7 @@ def build_performance_report(
     ct_combo_off = int(_combo_ct_off.get(nv_name, 0))
     ct_combo_on = int(_combo_ct_on.get(nv_name, 0))
     th_combo_off, th_combo_on = 0, 0
+    ds_combo_off = ds_combo_on = 0.0  # DS các ĐH Combo trong ngày (Thành tiền trước CK, như TH SO)
     try:
       _combo_day = tag_combo_orders_t10(d_nv, mcp_df=df_mcp) if not d_nv.empty else pd.DataFrame()
       if _combo_day is not None and not _combo_day.empty:
@@ -9443,6 +9444,10 @@ def build_performance_report(
         if 'channel' not in _combo_day.columns:
           _combo_day['channel'] = 'OFF'
         _ch = _combo_day['channel'].astype(str).str.upper()
+        if '_sales' in _combo_day.columns:
+          _on_m = _ch.str.contains('ON', na=False) & ~_ch.str.contains('OFF', na=False)
+          ds_combo_off = float(_combo_day.loc[_ch.str.contains('OFF', na=False), '_sales'].sum())
+          ds_combo_on = float(_combo_day.loc[_on_m, '_sales'].sum())
         # Đồng bộ Báo Cáo ĐH Combo: unique Mã CH có ĐH Combo trong ngày
         _ma_col = 'Mã CH' if 'Mã CH' in _combo_day.columns else None
         if _ma_col is None:
@@ -9467,6 +9472,7 @@ def build_performance_report(
           )
     except Exception:
       th_combo_off, th_combo_on = 0, 0
+      ds_combo_off = ds_combo_on = 0.0
 
     # ----- Chỉ số giữa ngày (RPT < 13h) -----
     d_mid_off = (
@@ -9636,6 +9642,8 @@ def build_performance_report(
         'CT Combo ON': ct_combo_on,
         'TH Combo ON': th_combo_on,
         '% TH Combo ON': f'{round(th_combo_on / ct_combo_on * 100, 1) if ct_combo_on else 0}%',
+        'DS Combo OFF': int(round(ds_combo_off)),
+        'DS Combo ON': int(round(ds_combo_on)),
         'Số CH TB PER': int(_tb_per_map.get(nv_name, 0) or 0),
         'Chụp hình bởi ĐDKD': int(_tb_chup_map.get(nv_name, 0) or 0),
         '% TH TB': (
@@ -9723,6 +9731,8 @@ def build_performance_report(
       '% TH Combo OFF': f'{round(tot_th_c_off / tot_c_off * 100, 1) if tot_c_off else 0}%',
       'CT Combo ON': tot_c_on,
       'TH Combo ON': tot_th_c_on,
+      'DS Combo OFF': _sum('DS Combo OFF'),
+      'DS Combo ON': _sum('DS Combo ON'),
       '% TH Combo ON': f'{round(tot_th_c_on / tot_c_on * 100, 1) if tot_c_on else 0}%',
       'Số CH TB PER': _sum('Số CH TB PER'),
       'Chụp hình bởi ĐDKD': _sum('Chụp hình bởi ĐDKD'),
@@ -14974,7 +14984,36 @@ def _pct_color(pct, timegone=None):
   return '#e53e3e'
 
 
-def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None, mbs_cat=None, mbs_brand=None):
+def compute_hv_day_metrics(df_detail, df_rpt, report_date):
+  """Hội Viên Tết 2027 (MBS Brand T11) theo lịch VT ngày BC, tách BRAND_VIP / BRAND_VIPDAISU:
+  {member: {'tong': KH có lịch VT ngày BC, 'mua': KH đó có ĐH trong ngày BC (không tính Đã hủy),
+            'nv': KH đó đạt nhiệm vụ}}.  Thứ 2→2&25 | 3→3&36 | 4→4&47 | 5→5&25 | 6→6&36 | 7→7&47."""
+  out = {m: {'tong': 0, 'mua': 0, 'nv': 0} for m in ('BRAND_VIP', 'BRAND_VIPDAISU')}
+  if df_detail is None or df_detail.empty or report_date is None or 'Thứ VT' not in df_detail.columns:
+    return out
+  thu_by_wd = {0: {'2', '25'}, 1: {'3', '36'}, 2: {'4', '47'}, 3: {'5', '25'}, 4: {'6', '36'}, 5: {'7', '47'}}
+  valid = thu_by_wd.get(report_date.weekday(), set())
+  det = df_detail[df_detail['Thứ VT'].astype(str).str.strip().isin(valid)]
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  bought = set()
+  if df_rpt is not None and not df_rpt.empty and 'date' in df_rpt.columns and 'Mã CH' in df_rpt.columns:
+    day = df_rpt[df_rpt['date'] == rd]
+    c_st = find_col(day, ['Tình trạng đơn hàng'])
+    if c_st:
+      day = day[~day[c_st].astype(str).str.contains('hủy|huỷ', case=False, na=False)]
+    bought = set(day['Mã CH'].map(_norm_code))
+  for _, r in det.iterrows():
+    m = str(r.get('Member type', '')).strip().upper().replace(' ', '')
+    if m not in out:
+      continue
+    out[m]['tong'] += 1
+    out[m]['mua'] += int(_norm_code(r.get('Outlet Code', '')) in bought)
+    out[m]['nv'] += int(str(r.get('Đạt nhiệm vụ', '')).strip() == 'Có')
+  return out
+
+
+def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None, mbs_cat=None, mbs_brand=None,
+                                 hv=None):
   """Bảng 1: Metric card KPI theo ngày — 2 hàng × 6 card, responsive mobile."""
   if df_perf is None or df_perf.empty:
     return ''
@@ -15086,12 +15125,17 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       f'{int(th_co)}/{int(ct_co)}/{pct_co:.0f}%',
       'TH/CT/%TH',
       '#2b6cb0',
+      # dòng 2: DS ĐH Combo / Total DS ngày / %
+      [(f'{_fmt_trieu(g("DS Combo OFF"))}/{_fmt_trieu(th_so)}/'
+        f'{(g("DS Combo OFF") / th_so * 100) if th_so else 0:.0f}%', 'DS Combo/DS Ngày/% (Triệu đồng)')],
     ),
     (
       'COMBO ON',
       f'{int(th_cn)}/{int(ct_cn)}/{pct_cn:.0f}%',
       'TH/CT/%TH',
       '#c05621',
+      [(f'{_fmt_trieu(g("DS Combo ON"))}/{_fmt_trieu(th_so)}/'
+        f'{(g("DS Combo ON") / th_so * 100) if th_so else 0:.0f}%', 'DS Combo/DS Ngày/% (Triệu đồng)')],
     ),
   ]
   # MBS Cat / Brand — theo lịch VT ngày BC
@@ -15109,7 +15153,20 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   _bn = get_month_cfg().get('mbs_brand_name')
   if not get_month_cfg().get('no_mbs_cat'):
     cards.append(_mbs_card('MBS CAT', mbs_cat, '#9f7aea'))
-  cards.append(_mbs_card(_bn or 'MBS BRAND', mbs_brand, '#ed64a6'))
+  if hv:
+    # Hội Viên Tết 2027: 4 card — KH mua hàng / KH đạt nhiệm vụ, tách VIP & VIP Đại sứ (KH lịch VT ngày BC)
+    def _hv_card(title, m, k, sub, color):
+      x = hv.get(m) or {}
+      n, t = int(x.get(k, 0)), int(x.get('tong', 0))
+      return (title, f'{n}/{t}/{(n / t * 100) if t else 0:.1f}%'.replace('.', ','), sub, color)
+    cards += [
+        _hv_card('HV TẾT · VIP · MUA HÀNG', 'BRAND_VIP', 'mua', 'KH mua/Tổng KH VT/%', '#ed64a6'),
+        _hv_card('HV TẾT · VIP ĐẠI SỨ · MUA HÀNG', 'BRAND_VIPDAISU', 'mua', 'KH mua/Tổng KH VT/%', '#b83280'),
+        _hv_card('HV TẾT · VIP · ĐẠT NV', 'BRAND_VIP', 'nv', 'KH đạt NV/Tổng KH VT/%', '#d53f8c'),
+        _hv_card('HV TẾT · VIP ĐẠI SỨ · ĐẠT NV', 'BRAND_VIPDAISU', 'nv', 'KH đạt NV/Tổng KH VT/%', '#97266d'),
+    ]
+  else:
+    cards.append(_mbs_card(_bn or 'MBS BRAND', mbs_brand, '#ed64a6'))
 
   wd = report_date.strftime('%d/%m') if hasattr(report_date, 'strftime') else str(report_date)
   try:
@@ -15134,12 +15191,16 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     f'border-radius:12px;margin-left:6px;">{thu}</span></div>'
     f'<div class="hs-day-grid">'
   ]
-  for title, main, sub, color in cards:
+  for card in cards:
+    title, main, sub, color = card[:4]
+    extra = ''.join(  # dòng phụ (vd DS ĐH Combo / DS ngày)
+        f'<div class="m" style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px;">{m2}</div>'
+        f'<div class="s">{s2}</div>' for m2, s2 in (card[4] if len(card) > 4 else []))
     html.append(
       f'<div class="hs-day-card" style="border-top-color:{color};">'
       f'<div class="t" style="color:{color};">{title}</div>'
       f'<div class="m">{main}</div>'
-      f'<div class="s">{sub}</div></div>'
+      f'<div class="s">{sub}</div>{extra}</div>'
     )
   html.append('</div></div>')
   return ''.join(html)
@@ -17743,7 +17804,7 @@ if _nav == '📊 BÁO CÁO KPI':
             pass
 
           # MBS Cat/Brand metric theo Thứ VT ngày BC
-          _mbs_cat_m = _mbs_brand_m = None
+          _mbs_cat_m = _mbs_brand_m = _hv_m = None
           try:
             if df_cat is not None and not df_cat.empty:
               _rc = build_mbs_cat_report(df_cat, filter_nv, mcp_df=mcp)
@@ -17755,12 +17816,14 @@ if _nav == '📊 BÁO CÁO KPI':
               _mbs_brand_m = compute_mbs_day_metric(
                   _rb.get('df_detail'), df, report_date
               )
+              if 'Mức đạt' in _rb.get('df_detail', pd.DataFrame()).columns:  # Hội Viên Tết 2027 (T11)
+                _hv_m = compute_hv_day_metrics(_rb.get('df_detail'), df, report_date)
           except Exception:
             pass
           _html_day = render_hs_daily_metric_cards(
               df_perf, report_date, lppc_moc=_moc,
               aso_off=_aso_off, aso_on=_aso_on,
-              mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m,
+              mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m, hv=_hv_m,
           )
         except Exception as _e_daily:
           _html_day = ''
