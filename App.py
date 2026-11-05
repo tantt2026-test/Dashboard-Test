@@ -15028,6 +15028,39 @@ def _pct_color(pct, timegone=None):
   return '#e53e3e'
 
 
+def hs_day_cat_sellout(df_rpt, report_date, filter_nv, df_perf, n_max=8):
+  """Thẻ SELL OUT BY CAT (Kết quả ngày): [(Sub Division, TH ngày, CT ngày)] — cùng nguồn Báo Cáo Performance:
+  TH = RPT ngày BC theo Sub Division (Thành tiền trước CK, bỏ Đã hủy); CT ngày = TARGET tháng của Sub Division
+  (đã căn theo Target Turnover) × CT Ngày SO / tổng TARGET tháng. Lấy tối đa 8 Sub Division có chỉ tiêu lớn nhất."""
+  try:
+    df_sku = load_perf_sku_data()
+    if df_sku is None or df_sku.empty or df_rpt is None or df_rpt.empty or df_perf is None or df_perf.empty:
+      return []
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
+    fnv = None
+    if nv_selected(filter_nv):
+      fnv = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+    mat, cats = build_perf_nv_matrix(df_sku, _month_key_from_date(report_date), fnv,
+                                     df_rpt=df_rpt, report_date=report_date)
+    if mat is None or mat.empty:
+      return []
+    tot = mat.iloc[-1]
+    tg_all = float(tot.get('TOTAL|TARGET', 0) or 0)
+    ct_day = float(pd.to_numeric(df_perf.iloc[-1].get('CT Ngày SO', 0), errors='coerce') or 0)
+    day = df_rpt[df_rpt['date'] == rd]
+    if fnv and 'Tên NVBH' in day.columns:
+      day = filter_df_by_nv(day, 'Tên NVBH', fnv)
+    by_cat, _ = build_rpt_sellout_maps(day, report_date)
+    rows = []
+    for c in cats:
+      tg = float(tot.get(f'{c}|TARGET', 0) or 0)
+      if tg > 0:
+        rows.append((c, float(by_cat.get(c, 0) or 0), tg * ct_day / tg_all if tg_all else 0.0))
+    return rows[:n_max]
+  except Exception:
+    return []
+
+
 def compute_hv_day_metrics(df_detail, df_rpt, report_date):
   """Hội Viên Tết 2027 (MBS Brand T11) theo lịch VT ngày BC, tách BRAND_VIP / BRAND_VIPDAISU:
   {member: {'tong': KH có lịch VT ngày BC, 'mua': KH đó có ĐH trong ngày BC (không tính Đã hủy),
@@ -15046,22 +15079,61 @@ def compute_hv_day_metrics(df_detail, df_rpt, report_date):
     if c_st:
       day = day[~day[c_st].astype(str).str.contains('hủy|huỷ', case=False, na=False)]
     bought = set(day['Mã CH'].map(_norm_code))
+  by_nv = {m: {} for m in out}  # xếp hạng Top/Bottom NVBH trên thẻ
   for _, r in det.iterrows():
     m = str(r.get('Member type', '')).strip().upper().replace(' ', '')
     if m not in out:
       continue
+    mua = int(_norm_code(r.get('Outlet Code', '')) in bought)
+    dat = int(str(r.get('Đạt nhiệm vụ', '')).strip() == 'Có')
     out[m]['tong'] += 1
-    out[m]['mua'] += int(_norm_code(r.get('Outlet Code', '')) in bought)
-    out[m]['nv'] += int(str(r.get('Đạt nhiệm vụ', '')).strip() == 'Có')
+    out[m]['mua'] += mua
+    out[m]['nv'] += dat
+    x = by_nv[m].setdefault(str(r.get('Tên NVBH', '')).strip(), {'tong': 0, 'mua': 0, 'nv': 0})
+    x['tong'] += 1
+    x['mua'] += mua
+    x['nv'] += dat
+  out['by_nv'] = by_nv
   return out
 
 
 def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None, mbs_cat=None, mbs_brand=None,
-                                 hv=None, aso_extra=None):
+                                 hv=None, aso_extra=None, cat_rows=None):
   """Bảng 1: Metric card KPI theo ngày — 2 hàng × 6 card, responsive mobile."""
   if df_perf is None or df_perf.empty:
     return ''
   tot = df_perf.iloc[-1]
+  body = df_perf.iloc[:-1]
+  _names = body['Tên NVBH'].astype(str).str.strip() if 'Tên NVBH' in body.columns else pd.Series(dtype=str)
+
+  def _short(n):
+    """Tên gọi NVBH (chữ cuối): 'Huỳnh Tấn Lý' → 'Lý'."""
+    return str(n).strip().split()[-1] if str(n).strip() else ''
+
+  def _rank(vals):
+    """{Tên NVBH: % đạt} → 2 dòng chú thích Top 3 / Bottom 3 NVBH (bỏ vị trí trống như 10KF1326-CDGT-SMVL)."""
+    items = [(n, float(v)) for n, v in (vals or {}).items()
+             if n and not re.search(r'\d', str(n)) and v is not None and pd.notna(v)]
+    if not items or len({v for _, v in items}) == 1:  # chưa có ai / mọi NV bằng nhau → không xếp hạng
+      return ['Top 3 NVBH: -', 'Bottom 3 NVBH: -']
+    srt = sorted(items, key=lambda x: -x[1])  # bằng nhau giữ thứ tự gốc
+    top = srt[:3]
+    bot = [x for x in srt[::-1] if x not in top][:3]  # ít NV: không lặp tên đã ở Top
+    return [f"Top 3 NVBH: {', '.join(_short(n) for n, _ in top)}",
+            f"Bottom 3 NVBH: {', '.join(_short(n) for n, _ in bot) or '-'}"]
+
+  def _col(c):
+    return pd.to_numeric(body[c], errors='coerce').fillna(0) if c in body.columns else pd.Series(0.0, index=body.index)
+
+  def _rk(th_col, *ct_cols):
+    """% = TH / CT từng NV (CT lấy cột đầu tiên > 0); NV không có CT không xếp hạng."""
+    th = _col(th_col)
+    out = {}
+    for i in body.index:
+      ct = next((float(_col(c)[i]) for c in ct_cols if float(_col(c)[i]) > 0), 0.0)
+      if ct > 0:
+        out[_names[i]] = float(th[i]) / ct * 100
+    return _rank(out)
 
   def g(col, default=0):
     try:
@@ -15119,62 +15191,62 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     (
       'DOANH SỐ NGÀY (Triệu đồng)',
       f'{_fmt_trieu(th_so)}/{_fmt_trieu(ct_so)}/{pct_so:.0f}%',
-      'TH/CT/%TH',
+      _rk('TH SO', 'CT Ngày SO'),
       '#e53e3e',
     ),
     (
       'PC BT / PC OFF',
       f'{int(pc_off)}/{int(plan_off)}/{pct_pc_off:.0f}%',
-      'TH/CT/%TH',
+      _rk('PC OFF', 'Đã VT OFF', 'Plan VT OFF'),
       '#3182ce',
     ),
     (
       'PC ON',
       f'{int(pc_on)}/{int(plan_on)}/{pct_pc_on:.0f}%',
-      'TH/CT/%TH',
+      _rk('PC ON', 'Plan VT ON', 'Đã VT ON'),
       '#dd6b20',
     ),
     (
       'LPPC OFF',
       f'{lppc:.2f}'.replace('.', ',') + f'/{str(lppc_moc).replace(".", ",")}/{pct_lppc:.0f}%',
-      'TH/CT/%TH',
+      _rank(dict(zip(_names, _col('LPPC OFF')))),
       '#38a169',
     ),
     (
       'ASO ALL OFF',
       f'{ao_th}/{ao_mtd}/{ao_ct}/{pct_ao:.0f}%',
-      'TH ngày/MTD/CT/%MTD',
+      _rank(ao.get('nv')),
       '#805ad5',
     ),
     (
       'ASO ALL ON',
       f'{an_th}/{an_mtd}/{an_ct}/{pct_an:.0f}%',
-      'TH ngày/MTD/CT/%MTD',
+      _rank(an.get('nv')),
       '#d53f8c',
     ),
     (
       'ASO TRẬN XANH',
       f'{int(th_x)}/{int(ct_x)}/{pct_x:.0f}%',
-      'TH/CT/%TH',
+      _rk('TH Xanh', 'CT Xanh'),
       '#319795',
     ),
     (
       'ASO TRẬN VÀNG',
       f'{int(th_v)}/{int(ct_v)}/{pct_v:.0f}%',
-      'TH/CT/%TH',
+      _rk('TH Vàng', 'CT Vàng'),
       '#d69e2e',
     ),
   ]
   # T11: ASO Trà Phúc Long / ASO Xốt Gia Vị — TH ngày/MTD/CT tháng/%MTD (như ASO ALL)
-  for _lab, _x, _col in (aso_extra or []):
+  for _lab, _x, _clr in (aso_extra or []):
     _ct = int(_x.get('ct', 0) or 0)
     cards.append((_lab, f"{int(_x.get('th', 0))}/{int(_x.get('mtd', 0))}/{_ct}/"
-                        f"{(int(_x.get('mtd', 0)) / _ct * 100) if _ct else 0:.0f}%", 'TH ngày/MTD/CT/%MTD', _col))
+                        f"{(int(_x.get('mtd', 0)) / _ct * 100) if _ct else 0:.0f}%", _rank(_x.get('nv')), _clr))
   cards += [
     (
       'COMBO OFF',
       f'{int(th_co)}/{int(ct_co)}/{pct_co:.0f}%',
-      'TH/CT/%TH',
+      _rk('TH Combo OFF', 'CT Combo OFF'),
       '#2b6cb0',
       # dòng 2: DS ĐH Combo / Total DS ngày / %
       [(f'{_fmt_trieu(g("DS Combo OFF"))}/{_fmt_trieu(th_so)}/'
@@ -15183,7 +15255,7 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     (
       'COMBO ON',
       f'{int(th_cn)}/{int(ct_cn)}/{pct_cn:.0f}%',
-      'TH/CT/%TH',
+      _rk('TH Combo ON', 'CT Combo ON'),
       '#c05621',
       [(f'{_fmt_trieu(g("DS Combo ON"))}/{_fmt_trieu(th_so)}/'
         f'{(g("DS Combo ON") / th_so * 100) if th_so else 0:.0f}%', 'DS Combo/DS Ngày/% (Triệu đồng)')],
@@ -15209,7 +15281,8 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     def _hv_card(title, m, k, sub, color):
       x = hv.get(m) or {}
       n, t = int(x.get(k, 0)), int(x.get('tong', 0))
-      return (title, f'{n}/{t}/{(n / t * 100) if t else 0:.1f}%'.replace('.', ','), sub, color)
+      _by = {nv: (v[k] / v['tong'] * 100) for nv, v in (hv.get('by_nv', {}).get(m) or {}).items() if v.get('tong')}
+      return (title, f'{n}/{t}/{(n / t * 100) if t else 0:.1f}%'.replace('.', ','), _rank(_by), color)
     cards += [  # tiêu đề 2 dòng: HV TẾT - <Member type> / MUA HÀNG | ĐẠT NHIỆM VỤ
         _hv_card('HV TẾT - BRAND_VIP<br>MUA HÀNG', 'BRAND_VIP', 'mua', 'KH mua/Tổng KH VT/%', '#ed64a6'),
         _hv_card('HV TẾT - BRAND_VIPDAISU<br>MUA HÀNG', 'BRAND_VIPDAISU', 'mua', 'KH mua/Tổng KH VT/%', '#b83280'),
@@ -15247,11 +15320,30 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     extra = ''.join(  # dòng phụ (vd DS ĐH Combo / DS ngày)
         f'<div class="m" style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px;">{m2}</div>'
         f'<div class="s">{s2}</div>' for m2, s2 in (card[4] if len(card) > 4 else []))
+    subs = ''.join(f'<div class="s">{x}</div>' for x in (sub if isinstance(sub, list) else [sub]))
     html.append(
       f'<div class="hs-day-card" style="border-top-color:{color};">'
       f'<div class="t" style="color:{color};">{title}</div>'
       f'<div class="m">{main}</div>'
-      f'<div class="s">{sub}</div>{extra}</div>'
+      f'{subs}{extra}</div>'
+    )
+  if cat_rows:
+    # SELL OUT BY CAT (dòng cuối, rộng cả hàng): Sub Division TH ngày / CT ngày / %TH — chia 2 cột
+    half = (len(cat_rows) + 1) // 2
+    cols = []
+    for part in (cat_rows[:half], cat_rows[half:]):
+      cells = ''.join(
+          f'<div class="cat-row" style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;'
+          f'border-bottom:1px dashed #e2e8f0;"><span class="cat-l" style="font-weight:700;color:#4a5568;">{c}</span>'
+          f'<span class="cat-v" style="font-weight:800;color:#2c5282;">{_fmt_trieu(th)}/{_fmt_trieu(ct)}/'
+          f'{(th / ct * 100) if ct else 0:.0f}%</span></div>'
+          for c, th, ct in part)
+      cols.append(f'<div class="cat-col" style="flex:1;min-width:0;">{cells}</div>')
+    html.append(
+      '<div class="hs-day-card hs-cat-card" style="grid-column:1/-1;border-top-color:#2c5282;">'
+      '<div class="t" style="color:#2c5282;">SELL OUT BY CAT (Triệu đồng)</div>'
+      f'<div style="display:flex;gap:24px;margin-top:6px;">{"".join(cols)}</div>'
+      '<div class="s" style="margin-top:4px;">TH/CT/%TH</div></div>'
     )
   html.append('</div></div>')
   return ''.join(html)
@@ -17786,6 +17878,7 @@ if _nav == '📊 BÁO CÁO KPI':
 
             # --- CT + tập CH lịch VT ngày (OFF/ON) từ MCP ---
             _route_off, _route_on = set(), set()
+            _route_nv = {}
             if mcp is not None and not mcp.empty:
               c_ch = find_col(mcp, ['Outlet_code', 'Outlet Code', 'Mã CH'])
               c_l1 = find_col(mcp, ['L1', 'Loại hình', 'Kênh'])
@@ -17806,6 +17899,8 @@ if _nav == '📊 BÁO CÁO KPI':
                   _mday = _m[_on_day]
                 else:
                   _mday = _m
+                if c_nv and not _mday.empty:  # CH lịch VT ngày → NVBH (xếp hạng Top/Bottom)
+                  _route_nv = dict(zip(_mday[c_ch].map(_nma), _mday[c_nv].astype(str).str.strip()))
                 if c_l1 and not _mday.empty:
                   _ml1 = _mday[c_l1].astype(str)
                   _route_off = set(
@@ -17866,6 +17961,17 @@ if _nav == '📊 BÁO CÁO KPI':
                   else:
                     _aso_on['th'] = _th
                     _aso_on['mtd'] = _mtd_n
+                  # % từng NV = CH lịch VT ngày của NV đã có đơn trong tháng / CH lịch VT ngày của NV
+                  if _route and _route_nv:
+                    _bought = set(_sub['_ma'])
+                    _tot_nv, _ok_nv = {}, {}
+                    for _o in _route:
+                      _n = _route_nv.get(_o)
+                      if _n:
+                        _tot_nv[_n] = _tot_nv.get(_n, 0) + 1
+                        _ok_nv[_n] = _ok_nv.get(_n, 0) + int(_o in _bought)
+                    (_aso_off if _key == 'off' else _aso_on)['nv'] = {
+                        _n: _ok_nv[_n] / _t * 100 for _n, _t in _tot_nv.items() if _t}
           except Exception:
             pass
 
@@ -17895,14 +18001,19 @@ if _nav == '📊 BÁO CÁO KPI':
             try:
               _ra, _, _ = build_report(df, report_date, targets, _code, filter_nv, mcp_df=mcp)
               _tr = _ra.iloc[-1]
+              _b = _ra.iloc[:-1]
               _aso_extra.append((_lab, {'th': _tr.get('Thực Hiện Ngày', 0), 'mtd': _tr.get('MTD', 0),
-                                        'ct': _tr.get('Chỉ Tiêu KPI', 0)}, _col))
+                                        'ct': _tr.get('Chỉ Tiêu KPI', 0),
+                                        'nv': {str(r['Tên NVBH']).strip(): (float(r['MTD']) / float(r['Chỉ Tiêu KPI']) * 100)
+                                               for _, r in _b.iterrows() if float(r.get('Chỉ Tiêu KPI', 0) or 0) > 0}},
+                                 _col))
             except Exception:
               pass
           _html_day = render_hs_daily_metric_cards(
               df_perf, report_date, lppc_moc=_moc,
               aso_off=_aso_off, aso_on=_aso_on,
               mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m, hv=_hv_m, aso_extra=_aso_extra,
+              cat_rows=hs_day_cat_sellout(df, report_date, filter_nv, df_perf),
           )
         except Exception as _e_daily:
           _html_day = ''

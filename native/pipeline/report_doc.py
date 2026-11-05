@@ -205,13 +205,36 @@ class Converter:
     def _child_tags(tag):
         return [c for c in tag.children if isinstance(c, Tag)]
 
+    def grid_card_of(self, tag):
+        """Thẻ nhiều cột (App.py: div.hs-cat-card — SELL OUT BY CAT): {'l', 'grid': [[[nhãn, số], ...], ...],
+        's', 'full': 1} → app vẽ rộng cả hàng, mỗi cột 1 danh sách nhãn — số."""
+        if tag.name != 'div' or 'hs-cat-card' not in (tag.get('class') or []):
+            return None
+        t = tag.find(class_='t')
+        cols = []
+        for col in tag.find_all(class_='cat-col'):
+            rows = []
+            for r in col.find_all(class_='cat-row'):
+                l, v = r.find(class_='cat-l'), r.find(class_='cat-v')
+                if l and v:
+                    rows.append([tidy(clean_text(l.get_text(' '))), tidy(clean_text(v.get_text(' ')))])
+            cols.append(rows)
+        card = {'l': tidy(clean_text(t.get_text(' '))) if t else '', 'v': '', 'grid': cols, 'full': 1}
+        subs = [tidy(clean_text(x.get_text(' '))) for x in tag.find_all(class_='s', recursive=False)]
+        if subs:
+            card['s'] = subs
+        ac = norm_color(parse_style(tag.get('style')).get('border-top-color'))
+        if ac:
+            card['ac'] = ac
+        return card
+
     def card_of(self, tag):
         """Thẻ số: render_metric_card (<div bg><div>nhãn</div><div>số</div></div>),
         hoặc div class *card* (mbs-card, hs-day-card) có 2–5 dòng con."""
         if tag.name != 'div' or tag.find('table'):
             return None
         kids = self._child_tags(tag)
-        if not 2 <= len(kids) <= 5 or any(k.name != 'div' or k.find('div') for k in kids):
+        if not 2 <= len(kids) <= 7 or any(k.name != 'div' or k.find('div') for k in kids):
             return None
         st = parse_style(tag.get('style'))
         cls = ' '.join(tag.get('class') or [])
@@ -368,7 +391,7 @@ class Converter:
             if t:
                 self.emit(t)
             return
-        card = self.card_of(node)
+        card = self.grid_card_of(node) or self.card_of(node)
         if card:
             self.emit({'t': 'cards', 'it': [card]})
             return

@@ -156,6 +156,9 @@ class _Cards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // thẻ 'full' (vd SELL OUT BY CAT): rộng cả hàng, nằm dưới cùng
+    final cards = [for (final c in this.cards) if (c['full'] == null) c];
+    final full = [for (final c in this.cards) if (c['full'] != null) c];
     return LayoutBuilder(builder: (ctx, c) {
       final perRow = perRowFor(cards.length, c.maxWidth, wide);
       final w = (c.maxWidth - 8 * (perRow - 1)) / perRow;
@@ -172,6 +175,11 @@ class _Cards extends StatelessWidget {
                 ],
               ]),
             ),
+          ),
+        for (final (k, f) in full.indexed)
+          Padding(
+            padding: EdgeInsets.only(top: cards.isEmpty && k == 0 ? 0 : 8),
+            child: SizedBox(width: c.maxWidth, child: _card(f)),
           ),
       ]);
     });
@@ -214,6 +222,46 @@ class _Cards extends StatelessWidget {
             : null,
       ),
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        if (card['grid'] is List) ...[
+          // thẻ nhiều cột: tiêu đề + các cột "nhãn — số" (tự co vừa ô) + chú thích
+          fit(Text(card['l'] as String,
+              maxLines: 1,
+              style: TextStyle(color: hexColor(card['ac']) ?? Brand.cardText, fontWeight: FontWeight.w800, fontSize: 12.5))),
+          const SizedBox(height: 6),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final (ci, col) in (card['grid'] as List).indexed) ...[
+              if (ci > 0) const SizedBox(width: 20),
+              Expanded(
+                child: Column(children: [
+                  for (final r in (col as List))
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Brand.cardBorder))),
+                      child: Row(children: [
+                        Expanded(
+                            child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: fit(Text('${(r as List)[0]}',
+                                    style: const TextStyle(fontWeight: FontWeight.w700, color: Brand.muted, fontSize: 13))))),
+                        const SizedBox(width: 8),
+                        Flexible(
+                            child: fit(Text('${r[1]}',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                    color: hexColor(card['ac']) ?? Brand.cardText,
+                                    fontFeatures: const [FontFeature.tabularFigures()])))),
+                      ]),
+                    ),
+                ]),
+              ),
+            ],
+          ]),
+          for (final s in (card['s'] as List? ?? const []))
+            Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: fit(Text('$s', style: const TextStyle(fontSize: 11.5, color: Brand.muted)))),
+        ] else ...[
         // tiêu đề: mỗi dòng (xuống dòng bằng <br> bên App.py) tự co vừa 1 dòng
         for (final line in (card['l'] as String).split('\n'))
           fit(Text(line,
@@ -238,6 +286,7 @@ class _Cards extends StatelessWidget {
                 return (s.length <= 40 && !s.contains('\n')) ? fit(t) : t;
               }(),
             ),
+        ],
       ]),
     );
   }
