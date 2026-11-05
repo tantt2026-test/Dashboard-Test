@@ -9342,6 +9342,7 @@ def build_performance_report(
     da_off, da_on = set(), set()
     pc_off, pc_on = set(), set()
     trai_off, trai_on = set(), set()
+    bo_sung = set()  # CH có ĐH ngoài lịch VT ngày nhưng thuộc DSKH bổ sung (không tính trái tuyến)
     vip_ko, ko_off, ko_on = set(), set(), set()
 
     # Tập CH có trên lịch VT đúng ngày BC
@@ -9389,6 +9390,7 @@ def build_performance_report(
           if (not on_plan) or is_trai_flag:
             if check_dskh_bo_sung(ma, rd, _perf_dskh_rules):
               (pc_on if is_on else pc_off).add(ma)  # coi như đúng tuyến bổ sung
+              bo_sung.add(ma)
             else:
               (trai_on if is_on else trai_off).add(ma)
           else:
@@ -9406,6 +9408,7 @@ def build_performance_report(
             continue
           if ma not in plan_set_all:
             if check_dskh_bo_sung(ma, rd, _perf_dskh_rules):
+              bo_sung.add(ma)
               continue  # ngoại lệ DSKH bổ sung
             is_on = _is_on(ma)
             (trai_on if is_on else trai_off).add(ma)
@@ -9691,6 +9694,7 @@ def build_performance_report(
         'VIP KO ĐH': len(vip_ko),
         'KO ĐH OFF': len(ko_off),
         'PC Trái Tuyến OFF': len(trai_off),
+        'ĐH DS Bổ Sung': len(bo_sung),
         'Plan VT ON': len(plan_on),
         'Đã VT ON': len(da_on),
         'PC ON': len(pc_on),
@@ -9781,6 +9785,7 @@ def build_performance_report(
       'VIP KO ĐH': _sum('VIP KO ĐH'),
       'KO ĐH OFF': _sum('KO ĐH OFF'),
       'PC Trái Tuyến OFF': _sum('PC Trái Tuyến OFF'),
+      'ĐH DS Bổ Sung': _sum('ĐH DS Bổ Sung'),
       'Plan VT ON': _sum('Plan VT ON'),
       'Đã VT ON': tot_da_on,
       'PC ON': tot_pc_on,
@@ -15242,7 +15247,9 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       f'{int(tr_n)}/{int(tr_pc)}/{(tr_n / tr_pc * 100) if tr_pc else 0:.0f}%',
       [('Top 3: ' + (', '.join(f'{_short(n)} ({int(v)})' for n, v in sorted(
           ((n, int(v)) for n, v in zip(_names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'))
-           if int(v) > 0 and not re.search(r'\d', n)), key=lambda x: -x[1])[:3]) or '-'))],
+           if int(v) > 0 and not re.search(r'\d', n)), key=lambda x: -x[1])[:3]) or '-')),
+       # ĐH ngoài lịch VT ngày: thuộc DSKH bổ sung (được tính đúng tuyến) / ngoài DSKH bổ sung (= trái tuyến)
+       f"DS Bổ Sung: {int(g('ĐH DS Bổ Sung'))} / Ngoài DS Bổ Sung: {int(tr_n)}"],
       '#c53030',
     ),
     (
