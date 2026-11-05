@@ -470,6 +470,8 @@ MONTH_OPTIONS = {
         'aso_focus_target': 20,
         # CV 26 (T11): ASO_Focus_2 = Hạt nêm Chinsu ngọt thanh xương hầm cô đặc 170/400/900gr, 15 ASO/ĐDKD
         'aso_focus2_pat': r'(?=.*h[aạ]t\s*n[eê]m)(?=.*ng[oọ]t\s*thanh)(?=.*x[uư][oơ]ng\s*h[aầ]m\s*c[oô]\s*[dđ][aặ]c)(?=.*(?<!\d)(?:170|400|900)\s*g)',
+        # T11: Báo Cáo ASO Trà Phúc Long (vị trí số 9) — CH mua SP Phúc Long, dòng SP đạt MOQ 6; 12 ASO/ĐDKD
+        'aso_pl': {'name': 'BÁO CÁO ASO TRÀ PHÚC LONG', 'moq': 6, 'target': 12},
         # T11: không còn MBS Cat; MBS Brand đổi tên Hội Viên Tết 2027
         'no_mbs_cat': True,
         'mbs_brand_name': 'HỘI VIÊN TẾT 2027',
@@ -1232,6 +1234,7 @@ KPI_SALARY_MIN_PCT = {
     'ASO_FOCUS_2': 90.0,
     'PC_ON': 100.0,
     'LPPC_MEAT': 100.0,
+    'ASO_PL': 100.0,      # ASO Trà Phúc Long (T11): tô màu theo Timegone
 }
 
 # Mốc mặc định (%). LPPC/LPPC_Meat: mốc tuyệt đối (4.3 / 3.8) — xử lý riêng khi set.
@@ -3411,6 +3414,26 @@ def build_report(
       ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
     key, title = 'LPPC_MEAT', 'LPPC_Meat - Bình quân line/PC (Processed Meats)'
 
+  elif report_type == 'ASO_PL':
+    # ASO Trà Phúc Long (T11): CH có ≥1 dòng SP Phúc Long đạt MOQ (SL lẻ ≥ 6) trên đơn;
+    # ngày = ngày CH lần đầu mua đạt MOQ
+    _pl = get_month_cfg().get('aso_pl') or {}
+    key = 'ASO_PL'
+    title = f"ASO Trà Phúc Long - CH mua SP Phúc Long đạt MOQ {_pl.get('moq', 6)}"
+    d = df_mtd
+    if d is not None and not d.empty and 'Tên sản phẩm' in d.columns:
+      d = d[d['Tên sản phẩm'].astype(str).str.lower().str.contains('phúc long|phuc long', na=False)]
+    if d is None or d.empty:
+      mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
+    else:
+      d = d[d.apply(lambda r: _qty_for_moq(r, 'le') >= float(_pl.get('moq', 6)), axis=1)]
+      if d.empty:
+        mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
+      else:
+        mtd = d.groupby('Mã NVBH')['Mã CH'].nunique()
+        first = d.groupby(['Mã NVBH', 'Mã CH'])['date'].min().reset_index()
+        ngay = first[first['date'] == report_date].groupby('Mã NVBH')['Mã CH'].nunique()
+
   else:
     return pd.DataFrame(), 0, ''
 
@@ -3418,6 +3441,7 @@ def build_report(
   DEFAULT_TGT = {
       'ASO_FOCUS': get_month_cfg().get('aso_focus_target', 72),
       'ASO_FOCUS_2': get_month_cfg().get('aso_focus2_target', 26),
+      'ASO_PL': (get_month_cfg().get('aso_pl') or {}).get('target', 12),
       'LPPC': 4.7,
       'LPPC_MEAT': 3.8,
   }
@@ -15928,10 +15952,13 @@ with f2:
       '17. BÁO CÁO PERFORMANCE': 'PERF_CAT',
       '18. WEEKLY PREVIEW - MCP / ASO / %COV': 'WEEKLY_PREVIEW',
   }
-  if _cfg.get('no_mbs_cat') or _cfg.get('mbs_brand_name'):
-    # T11: bỏ MBS Cat, MBS Brand đổi tên (Hội Viên Tết 2027) → đánh lại số thứ tự
+  if _cfg.get('no_mbs_cat') or _cfg.get('mbs_brand_name') or _cfg.get('aso_pl'):
+    # T11: bỏ MBS Cat, MBS Brand đổi tên (Hội Viên Tết 2027), thêm ASO Trà Phúc Long ở số 9
+    # → đánh lại số thứ tự
     _items = []
     for _lab, _code in kpi_map.items():
+      if _code == 'COMBO' and _cfg.get('aso_pl'):
+        _items.append((_cfg['aso_pl']['name'], 'ASO_PL'))
       if _code == 'MBS_CAT' and _cfg.get('no_mbs_cat'):
         continue
       if _code == 'MBS_BRAND' and _cfg.get('mbs_brand_name'):
@@ -18924,10 +18951,11 @@ if _nav == '📊 BÁO CÁO KPI':
     st.caption(
         f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {nv_label(filter_nv)}"
     )
-    st.markdown(
-        f'<div style="text-align:center; font-size:12px; color:#7a1f1f; font-weight:700; margin:2px 0 8px;">💰 Mức lương KPI: {KPI_SALARY_LABEL.get(selected_kpi, "")}</div>',
-        unsafe_allow_html=True,
-    )
+    if selected_kpi != 'ASO_PL':  # ASO Trà Phúc Long: chưa có mức lương KPI
+      st.markdown(
+          f'<div style="text-align:center; font-size:12px; color:#7a1f1f; font-weight:700; margin:2px 0 8px;">💰 Mức lương KPI: {KPI_SALARY_LABEL.get(selected_kpi, "")}</div>',
+          unsafe_allow_html=True,
+      )
     if selected_kpi == 'ASO_ALL':
       _aso_off_only = get_month_cfg().get('aso_all_channel') == 'OFF'
       if _aso_off_only:
