@@ -471,11 +471,11 @@ MONTH_OPTIONS = {
         # CV 26 (T11): ASO_Focus_2 = Hạt nêm Chinsu ngọt thanh xương hầm cô đặc 170/400/900gr, 15 ASO/ĐDKD
         'aso_focus2_pat': r'(?=.*h[aạ]t\s*n[eê]m)(?=.*ng[oọ]t\s*thanh)(?=.*x[uư][oơ]ng\s*h[aầ]m\s*c[oô]\s*[dđ][aặ]c)(?=.*(?<!\d)(?:170|400|900)\s*g)',
         # T11: Báo Cáo ASO Trà Phúc Long (vị trí số 9) — CH phát sinh mua SP Phúc Long (không xét MOQ);
-        # 12 ASO/ĐDKD
-        'aso_pl': {'name': 'BÁO CÁO ASO TRÀ PHÚC LONG', 'moq': 0, 'target': 12},
+        # 20 ASO/ĐDKD
+        'aso_pl': {'name': 'BÁO CÁO ASO TRÀ PHÚC LONG', 'moq': 0, 'target': 20},
         # T11: Báo Cáo ASO Xốt Gia Vị (vị trí số 10) — đúng mã Combo Xốt mỹ vị CHIN-SU của CV 483, CH phát sinh
-        # ≥ 1 hộp là đạt ASO (thưởng CV 483 cần ≥ 2 hộp/ĐH, tối thiểu 5 ASO → chỉ tiêu 5 ASO/ĐDKD)
-        'aso_xot': {'name': 'BÁO CÁO ASO XỐT GIA VỊ', 'codes': ['03MR00045'], 'moq': 0, 'target': 5},
+        # ≥ 1 hộp là đạt ASO (thưởng CV 483 cần ≥ 2 hộp/ĐH); chỉ tiêu 15 ASO/ĐDKD
+        'aso_xot': {'name': 'BÁO CÁO ASO XỐT GIA VỊ', 'codes': ['03MR00045'], 'moq': 0, 'target': 15},
         # T11: không còn MBS Cat; MBS Brand đổi tên Hội Viên Tết 2027
         'no_mbs_cat': True,
         'mbs_brand_name': 'HỘI VIÊN TẾT 2027',
