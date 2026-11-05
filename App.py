@@ -2895,6 +2895,7 @@ def build_report(
   on_targets = {}
   mcp_off_tgt, mcp_on_tgt = {}, {}
   mtd_off = ngay_off = mtd_on = ngay_on = pd.Series(dtype=float)
+  _aso_ds = None  # ASO Phúc Long / Xốt Gia Vị: Doanh Số MTD các SP của báo cáo theo NV (thay cột Bình quân ngày)
 
   if df is None:
     df = pd.DataFrame()
@@ -3438,6 +3439,11 @@ def build_report(
       c_st = find_col(d, ['Tình trạng đơn hàng'])
       if c_st:
         d = d[~d[c_st].astype(str).str.contains('hủy|huỷ', case=False, na=False)]
+    _aso_ds = {}
+    if d is not None and not d.empty:
+      _vc = find_col(d, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Tổng tiền'])
+      if _vc:
+        _aso_ds = pd.to_numeric(d[_vc], errors='coerce').fillna(0).groupby(d['Mã NVBH']).sum().to_dict()
     if d is None or d.empty:
       mtd, ngay = pd.Series(dtype=int), pd.Series(dtype=int)
     else:
@@ -3521,7 +3527,10 @@ def build_report(
       if report_type not in ('LPPC', 'LPPC_MEAT'):
         _g, _b = _gap_and_bq_day(tgt, m, _remain_days, as_int=True)
         row['GAP'] = _g
-        row['Bình quân ngày'] = _b
+        if _aso_ds is not None:
+          row['Doanh Số MTD'] = int(round(float(_aso_ds.get(sm, 0) or 0)))
+        else:
+          row['Bình quân ngày'] = _b
 
     if report_type == 'ASO_ALL':
       # Chỉ Tiêu MCP lấy từ Target_KPI (key ASO_ALL)
@@ -3733,7 +3742,10 @@ def build_report(
   if report_type not in ('LPPC', 'LPPC_MEAT'):
     _g, _b = _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=True)
     _tot['GAP'] = _g
-    _tot['Bình quân ngày'] = _b
+    if _aso_ds is not None:
+      _tot['Doanh Số MTD'] = int(df_out['Doanh Số MTD'].sum()) if 'Doanh Số MTD' in df_out.columns else 0
+    else:
+      _tot['Bình quân ngày'] = _b
   total_row = pd.DataFrame([_tot])
   df_out = filter_out_cdgt_smvl(df_out)
   return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
@@ -19109,7 +19121,7 @@ if _nav == '📊 BÁO CÁO KPI':
       with c4:
         render_metric_card('🆕 Ngày', f'+{total_ngay}')
     _df_show = df_r.copy()
-    for _c in ['GAP']:
+    for _c in ['GAP', 'Doanh Số MTD']:
       if _c in _df_show.columns:
         _df_show[_c] = _df_show[_c].apply(
             lambda x: f'{int(round(float(x))):,}'.replace(',', '.')
