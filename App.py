@@ -15246,12 +15246,12 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     ),
     (
       # ĐH Trái Tuyến ngày: số ĐH trái tuyến / Tổng PC (đúng tuyến + trái tuyến) / % + NV có nhiều ĐH trái tuyến nhất
-      # gồm cả ĐH ngoài lịch VT thuộc DSKH bổ sung (ghi chú 'DS BS' cạnh tên NV)
+      # gồm cả ĐH ngoài lịch VT thuộc DSKH bổ sung (tách số ở dòng ghi chú bên dưới)
       'ĐH TRÁI TUYẾN',
       f'{int(tr_n + tr_bs)}/{int(tr_pc)}/{((tr_n + tr_bs) / tr_pc * 100) if tr_pc else 0:.0f}%',
       # mọi NV có ĐH trái tuyến (nhiều → ít), cộng lại = số trên thẻ
       [('NV: ' + (', '.join(
-          f'{_short(n)} ({t + b}' + (f', DS BS {b}' if b else '') + ')' for n, t, b in sorted(
+          f'{_short(n)} ({t + b})' for n, t, b in sorted(
               ((n, int(t), int(b)) for n, t, b in zip(
                   _names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'), _col('ĐH DS Bổ Sung'))
                if int(t) + int(b) > 0 and not re.search(r'\d', n)), key=lambda x: -(x[1] + x[2]))) or '-')),
