@@ -473,6 +473,9 @@ MONTH_OPTIONS = {
         # T11: Báo Cáo ASO Trà Phúc Long (vị trí số 9) — CH phát sinh mua SP Phúc Long (không xét MOQ);
         # 12 ASO/ĐDKD
         'aso_pl': {'name': 'BÁO CÁO ASO TRÀ PHÚC LONG', 'moq': 0, 'target': 12},
+        # T11: Báo Cáo ASO Xốt Gia Vị (vị trí số 10) — đúng mã Combo Xốt mỹ vị CHIN-SU của CV 483, CH phát sinh
+        # ≥ 1 hộp là đạt ASO (thưởng CV 483 cần ≥ 2 hộp/ĐH, tối thiểu 5 ASO → chỉ tiêu 5 ASO/ĐDKD)
+        'aso_xot': {'name': 'BÁO CÁO ASO XỐT GIA VỊ', 'codes': ['03MR00045'], 'moq': 0, 'target': 5},
         # T11: không còn MBS Cat; MBS Brand đổi tên Hội Viên Tết 2027
         'no_mbs_cat': True,
         'mbs_brand_name': 'HỘI VIÊN TẾT 2027',
@@ -1236,6 +1239,7 @@ KPI_SALARY_MIN_PCT = {
     'PC_ON': 100.0,
     'LPPC_MEAT': 100.0,
     'ASO_PL': 100.0,      # ASO Trà Phúc Long (T11): tô màu theo Timegone
+    'ASO_XOT': 100.0,     # ASO Xốt Gia Vị (T11): tô màu theo Timegone
 }
 
 # Mốc mặc định (%). LPPC/LPPC_Meat: mốc tuyệt đối (4.3 / 3.8) — xử lý riêng khi set.
@@ -3415,17 +3419,22 @@ def build_report(
       ngay = (tl / tp).replace([float('inf')], 0).fillna(0)
     key, title = 'LPPC_MEAT', 'LPPC_Meat - Bình quân line/PC (Processed Meats)'
 
-  elif report_type == 'ASO_PL':
-    # ASO Trà Phúc Long (T11): CH phát sinh mua SP Phúc Long (không tính đơn Đã hủy; 'moq' > 0 thì dòng SP
-    # phải đạt SL lẻ ≥ moq); ngày = ngày CH lần đầu mua
-    _pl = get_month_cfg().get('aso_pl') or {}
+  elif report_type in ('ASO_PL', 'ASO_XOT'):
+    # ASO Trà Phúc Long / Xốt Gia Vị (T11): CH phát sinh mua SP (không tính đơn Đã hủy; 'moq' > 0 thì dòng SP
+    # phải đạt SL lẻ ≥ moq); ngày = ngày CH lần đầu mua. Phúc Long: mọi SP tên 'Phúc Long'; Xốt: đúng mã 'codes'
+    _pl = get_month_cfg().get('aso_pl' if report_type == 'ASO_PL' else 'aso_xot') or {}
     _moq = float(_pl.get('moq') or 0)
-    key = 'ASO_PL'
-    title = (f'ASO Trà Phúc Long - CH mua SP Phúc Long đạt MOQ {_moq:g}' if _moq
-             else 'ASO Trà Phúc Long - CH phát sinh mua SP Phúc Long')
+    key = report_type
+    _sp = 'SP Phúc Long' if report_type == 'ASO_PL' else 'Combo Xốt mỹ vị CHIN-SU ' + ', '.join(_pl.get('codes') or [])
+    _nm = 'ASO Trà Phúc Long' if report_type == 'ASO_PL' else 'ASO Xốt Gia Vị'
+    title = (f'{_nm} - CH mua {_sp} đạt MOQ {_moq:g}' if _moq else f'{_nm} - CH phát sinh mua {_sp}')
     d = df_mtd
     if d is not None and not d.empty and 'Tên sản phẩm' in d.columns:
-      d = d[d['Tên sản phẩm'].astype(str).str.lower().str.contains('phúc long|phuc long', na=False)]
+      if _pl.get('codes'):
+        _cs = {str(c).strip().upper() for c in _pl['codes']}
+        d = d[d['Mã sản phẩm'].astype(str).str.strip().str.upper().isin(_cs)] if 'Mã sản phẩm' in d.columns else d.iloc[0:0]
+      else:
+        d = d[d['Tên sản phẩm'].astype(str).str.lower().str.contains('phúc long|phuc long', na=False)]
       c_st = find_col(d, ['Tình trạng đơn hàng'])
       if c_st:
         d = d[~d[c_st].astype(str).str.contains('hủy|huỷ', case=False, na=False)]
@@ -3448,6 +3457,7 @@ def build_report(
       'ASO_FOCUS': get_month_cfg().get('aso_focus_target', 72),
       'ASO_FOCUS_2': get_month_cfg().get('aso_focus2_target', 26),
       'ASO_PL': (get_month_cfg().get('aso_pl') or {}).get('target', 12),
+      'ASO_XOT': (get_month_cfg().get('aso_xot') or {}).get('target', 5),
       'LPPC': 4.7,
       'LPPC_MEAT': 3.8,
   }
@@ -15019,7 +15029,7 @@ def compute_hv_day_metrics(df_detail, df_rpt, report_date):
 
 
 def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=None, aso_on=None, mbs_cat=None, mbs_brand=None,
-                                 hv=None):
+                                 hv=None, aso_extra=None):
   """Bảng 1: Metric card KPI theo ngày — 2 hàng × 6 card, responsive mobile."""
   if df_perf is None or df_perf.empty:
     return ''
@@ -15126,6 +15136,13 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       'TH/CT/%TH',
       '#d69e2e',
     ),
+  ]
+  # T11: ASO Trà Phúc Long / ASO Xốt Gia Vị — TH ngày/MTD/CT tháng/%MTD (như ASO ALL)
+  for _lab, _x, _col in (aso_extra or []):
+    _ct = int(_x.get('ct', 0) or 0)
+    cards.append((_lab, f"{int(_x.get('th', 0))}/{int(_x.get('mtd', 0))}/{_ct}/"
+                        f"{(int(_x.get('mtd', 0)) / _ct * 100) if _ct else 0:.0f}%", 'TH ngày/MTD/CT/%MTD', _col))
+  cards += [
     (
       'COMBO OFF',
       f'{int(th_co)}/{int(ct_co)}/{pct_co:.0f}%',
@@ -16037,13 +16054,15 @@ with f2:
       '17. BÁO CÁO PERFORMANCE': 'PERF_CAT',
       '18. WEEKLY PREVIEW - MCP / ASO / %COV': 'WEEKLY_PREVIEW',
   }
-  if _cfg.get('no_mbs_cat') or _cfg.get('mbs_brand_name') or _cfg.get('aso_pl'):
+  if _cfg.get('no_mbs_cat') or _cfg.get('mbs_brand_name') or _cfg.get('aso_pl') or _cfg.get('aso_xot'):
     # T11: bỏ MBS Cat, MBS Brand đổi tên (Hội Viên Tết 2027), thêm ASO Trà Phúc Long ở số 9
     # → đánh lại số thứ tự
     _items = []
     for _lab, _code in kpi_map.items():
       if _code == 'COMBO' and _cfg.get('aso_pl'):
         _items.append((_cfg['aso_pl']['name'], 'ASO_PL'))
+      if _code == 'COMBO' and _cfg.get('aso_xot'):
+        _items.append((_cfg['aso_xot']['name'], 'ASO_XOT'))
       if _code == 'MBS_CAT' and _cfg.get('no_mbs_cat'):
         continue
       if _code == 'MBS_BRAND' and _cfg.get('mbs_brand_name'):
@@ -17844,10 +17863,23 @@ if _nav == '📊 BÁO CÁO KPI':
                 _hv_m = compute_hv_day_metrics(_rb.get('df_detail'), df, report_date)
           except Exception:
             pass
+          # T11: ASO Trà Phúc Long / Xốt Gia Vị (dòng Tổng của báo cáo ASO tương ứng)
+          _aso_extra = []
+          for _code, _ck, _lab, _col in (('ASO_PL', 'aso_pl', 'ASO PHÚC LONG', '#2f855a'),
+                                         ('ASO_XOT', 'aso_xot', 'ASO XỐT GIA VỊ', '#c53030')):
+            if not get_month_cfg().get(_ck):
+              continue
+            try:
+              _ra, _, _ = build_report(df, report_date, targets, _code, filter_nv, mcp_df=mcp)
+              _tr = _ra.iloc[-1]
+              _aso_extra.append((_lab, {'th': _tr.get('Thực Hiện Ngày', 0), 'mtd': _tr.get('MTD', 0),
+                                        'ct': _tr.get('Chỉ Tiêu KPI', 0)}, _col))
+            except Exception:
+              pass
           _html_day = render_hs_daily_metric_cards(
               df_perf, report_date, lppc_moc=_moc,
               aso_off=_aso_off, aso_on=_aso_on,
-              mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m, hv=_hv_m,
+              mbs_cat=_mbs_cat_m, mbs_brand=_mbs_brand_m, hv=_hv_m, aso_extra=_aso_extra,
           )
         except Exception as _e_daily:
           _html_day = ''
@@ -19038,7 +19070,7 @@ if _nav == '📊 BÁO CÁO KPI':
     st.caption(
         f"⚡ Ngày: {report_date.strftime('%d/%m/%Y')} | Lọc: {nv_label(filter_nv)}"
     )
-    if selected_kpi != 'ASO_PL':  # ASO Trà Phúc Long: chưa có mức lương KPI
+    if selected_kpi not in ('ASO_PL', 'ASO_XOT'):  # ASO Trà Phúc Long / Xốt Gia Vị: chưa có mức lương KPI
       st.markdown(
           f'<div style="text-align:center; font-size:12px; color:#7a1f1f; font-weight:700; margin:2px 0 8px;">💰 Mức lương KPI: {KPI_SALARY_LABEL.get(selected_kpi, "")}</div>',
           unsafe_allow_html=True,
