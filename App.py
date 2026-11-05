@@ -15190,6 +15190,7 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   pct_pc_on = (pc_on / plan_on * 100) if plan_on else 0
   lppc = g('LPPC OFF')
   tr_n = g('PC Trái Tuyến OFF') + g('PC Trái Tuyến ON')
+  tr_bs = g('ĐH DS Bổ Sung')  # ĐH ngoài lịch VT nhưng thuộc DSKH bổ sung (đã nằm trong PC OFF)
   tr_pc = pc_off + pc_on + tr_n
   th_x, ct_x = g('TH Xanh'), g('CT Xanh') or 5
   th_v, ct_v = g('TH Vàng'), g('CT Vàng') or 3
@@ -15245,12 +15246,15 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     ),
     (
       # ĐH Trái Tuyến ngày: số ĐH trái tuyến / Tổng PC (đúng tuyến + trái tuyến) / % + NV có nhiều ĐH trái tuyến nhất
+      # gồm cả ĐH ngoài lịch VT thuộc DSKH bổ sung (ghi chú 'DS BS' cạnh tên NV)
       'ĐH TRÁI TUYẾN',
-      f'{int(tr_n)}/{int(tr_pc)}/{(tr_n / tr_pc * 100) if tr_pc else 0:.0f}%',
+      f'{int(tr_n + tr_bs)}/{int(tr_pc)}/{((tr_n + tr_bs) / tr_pc * 100) if tr_pc else 0:.0f}%',
       # mọi NV có ĐH trái tuyến (nhiều → ít), cộng lại = số trên thẻ
-      [('NV: ' + (', '.join(f'{_short(n)} ({int(v)})' for n, v in sorted(
-          ((n, int(v)) for n, v in zip(_names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'))
-           if int(v) > 0 and not re.search(r'\d', n)), key=lambda x: -x[1])) or '-')),
+      [('NV: ' + (', '.join(
+          f'{_short(n)} ({t + b}' + (f', DS BS {b}' if b else '') + ')' for n, t, b in sorted(
+              ((n, int(t), int(b)) for n, t, b in zip(
+                  _names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'), _col('ĐH DS Bổ Sung'))
+               if int(t) + int(b) > 0 and not re.search(r'\d', n)), key=lambda x: -(x[1] + x[2]))) or '-')),
        # ĐH kênh OFF ngoài lịch VT ngày: thuộc DSKH bổ sung (được tính đúng tuyến) / ngoài DSKH bổ sung (= trái tuyến OFF)
        f"OFF · DS Bổ Sung: {int(g('ĐH DS Bổ Sung'))} · Ngoài DS: {int(g('PC Trái Tuyến OFF'))}"],
       '#c53030',
