@@ -950,12 +950,40 @@ def _load_cat_data_m(month_key):
   return pd.DataFrame()
 
 
+# Data_Brand mẫu mới (Onetech 05/11/2026, Hội Viên Tết 2027) → tên cột mẫu cũ để mọi báo cáo dùng chung 1 logic
+_BRAND_NEW_COLS = {
+    'Mã KH': 'Outlet Code',
+    'Tên KH': 'Outlet Name',
+    'Phân loại KH': 'Member type',
+    'Nhãn hàng': 'Danh sách full cat/brand',
+    'Phân loại nhãn hàng': 'Phân loại cat/brand',
+    'Doanh số Paid/Invoiced theo từng nhãn hàng': 'Doanh số thực đạt của CAT/BRAND',
+    'Doanh số trừ canceled & pending theo từng nhãn hàng': 'Doanh số thực đạt của CAT/BRAND(Not Cancel/Pending)',
+    'Chỉ tiêu nền': 'Doanh số nền tảng của OUTLET',  # Chỉ tiêu nền = mốc 100%
+    'Điểm thưởng dự kiến': 'Điểm thưởng dự kiến của OUTLET',
+    'Month': 'MONTH',
+}
+_BRAND_CT95 = 'Chỉ tiêu nền (Chỉ tiêu mức 1 = 95% chỉ tiêu nền)'
+
+
+def _norm_brand_cols(df):
+  """Đổi tên cột Data_Brand mẫu mới về mẫu cũ (mẫu cũ giữ nguyên). Cột 'Chỉ tiêu mức 1' = 95% Chỉ tiêu nền."""
+  if df is None or df.empty or 'Mã KH' not in df.columns or 'Outlet Code' in df.columns:
+    return df
+  df = df.rename(columns={k: v for k, v in _BRAND_NEW_COLS.items() if k in df.columns})
+  if _BRAND_CT95 in df.columns:
+    df = df.rename(columns={_BRAND_CT95: 'Chỉ tiêu mức 1 (95% chỉ tiêu nền)'})
+    df['Chỉ tiêu mức 1 (95% chỉ tiêu nền)'] = (
+        pd.to_numeric(df['Doanh số nền tảng của OUTLET'], errors='coerce').fillna(0) * 0.95).round()
+  return df
+
+
 @st.cache_data(ttl=600)
 def _load_brand_data_m(month_key):
   for path in [BRAND_PATH, os.path.join(get_data_dir(), 'Data_Brand.xlsx')]:
     if os.path.exists(path):
       try:
-        return _clean_mbs_df(pd.read_excel(path))
+        return _clean_mbs_df(_norm_brand_cols(pd.read_excel(path)))
       except:
         pass
   return pd.DataFrame()
@@ -15877,6 +15905,10 @@ def fill_mbs_t11_bonus(df):
     return df
   df = df.copy()
   df[c_bonus] = pd.to_numeric(df[c_bonus], errors='coerce').astype(float)
+  if 'Mức đạt' in df.columns:
+    df['Mức đạt'] = df['Mức đạt'].astype(object)
+  if 'Doanh số được tính thưởng' in df.columns:
+    df['Doanh số được tính thưởng'] = pd.to_numeric(df['Doanh số được tính thưởng'], errors='coerce').astype(float)
   key = df[c_ma].astype(str).str.strip()
   for _, idx in df.groupby(key).groups.items():
     sub = df.loc[idx]
@@ -15885,8 +15917,14 @@ def fill_mbs_t11_bonus(df):
       continue
     actual = float(pd.to_numeric(sub[c_act], errors='coerce').fillna(0).sum())
     target = float(pd.to_numeric(sub[c_tgt], errors='coerce').fillna(0).iloc[0])
-    df.loc[idx, c_bonus] = float(mbs_t11_eval(sub, member, actual, target, col_brand=c_brand,
-                                              col_actual=c_act, col_loai=c_loai or '_loai')[4])
+    _, _, muc, _, diem = mbs_t11_eval(sub, member, actual, target, col_brand=c_brand,
+                                      col_actual=c_act, col_loai=c_loai or '_loai')
+    df.loc[idx, c_bonus] = float(diem)
+    # Data_Brand mẫu mới: cột Mức đạt + Doanh số được tính thưởng (= DS thực đạt của CH khi đạt mức)
+    if 'Mức đạt' in df.columns:
+      df.loc[idx, 'Mức đạt'] = muc or 0
+    if 'Doanh số được tính thưởng' in df.columns:
+      df.loc[idx, 'Doanh số được tính thưởng'] = actual if muc else 0
   return df
 
 
