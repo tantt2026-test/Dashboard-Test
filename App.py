@@ -9342,7 +9342,7 @@ def build_performance_report(
     da_off, da_on = set(), set()
     pc_off, pc_on = set(), set()
     trai_off, trai_on = set(), set()
-    bo_sung = set()  # CH có ĐH ngoài lịch VT ngày nhưng thuộc DSKH bổ sung (không tính trái tuyến)
+    bo_sung = set()  # CH kênh OFF có ĐH ngoài lịch VT ngày nhưng thuộc DSKH bổ sung (không tính trái tuyến)
     vip_ko, ko_off, ko_on = set(), set(), set()
 
     # Tập CH có trên lịch VT đúng ngày BC
@@ -9390,7 +9390,8 @@ def build_performance_report(
           if (not on_plan) or is_trai_flag:
             if check_dskh_bo_sung(ma, rd, _perf_dskh_rules):
               (pc_on if is_on else pc_off).add(ma)  # coi như đúng tuyến bổ sung
-              bo_sung.add(ma)
+              if not is_on:
+                bo_sung.add(ma)
             else:
               (trai_on if is_on else trai_off).add(ma)
           else:
@@ -9408,7 +9409,8 @@ def build_performance_report(
             continue
           if ma not in plan_set_all:
             if check_dskh_bo_sung(ma, rd, _perf_dskh_rules):
-              bo_sung.add(ma)
+              if not _is_on(ma):
+                bo_sung.add(ma)
               continue  # ngoại lệ DSKH bổ sung
             is_on = _is_on(ma)
             (trai_on if is_on else trai_off).add(ma)
@@ -15248,8 +15250,8 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       [('Top 3: ' + (', '.join(f'{_short(n)} ({int(v)})' for n, v in sorted(
           ((n, int(v)) for n, v in zip(_names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'))
            if int(v) > 0 and not re.search(r'\d', n)), key=lambda x: -x[1])[:3]) or '-')),
-       # ĐH ngoài lịch VT ngày: thuộc DSKH bổ sung (được tính đúng tuyến) / ngoài DSKH bổ sung (= trái tuyến)
-       f"DS Bổ Sung: {int(g('ĐH DS Bổ Sung'))} / Ngoài DS Bổ Sung: {int(tr_n)}"],
+       # ĐH kênh OFF ngoài lịch VT ngày: thuộc DSKH bổ sung (được tính đúng tuyến) / ngoài DSKH bổ sung (= trái tuyến OFF)
+       f"OFF · DS Bổ Sung: {int(g('ĐH DS Bổ Sung'))} / Ngoài DS Bổ Sung: {int(g('PC Trái Tuyến OFF'))}"],
       '#c53030',
     ),
     (
