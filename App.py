@@ -15247,11 +15247,12 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       # ĐH Trái Tuyến ngày: số ĐH trái tuyến / Tổng PC (đúng tuyến + trái tuyến) / % + NV có nhiều ĐH trái tuyến nhất
       'ĐH TRÁI TUYẾN',
       f'{int(tr_n)}/{int(tr_pc)}/{(tr_n / tr_pc * 100) if tr_pc else 0:.0f}%',
-      [('Top 3: ' + (', '.join(f'{_short(n)} ({int(v)})' for n, v in sorted(
+      # mọi NV có ĐH trái tuyến (nhiều → ít), cộng lại = số trên thẻ
+      [('NV: ' + (', '.join(f'{_short(n)} ({int(v)})' for n, v in sorted(
           ((n, int(v)) for n, v in zip(_names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'))
-           if int(v) > 0 and not re.search(r'\d', n)), key=lambda x: -x[1])[:3]) or '-')),
+           if int(v) > 0 and not re.search(r'\d', n)), key=lambda x: -x[1])) or '-')),
        # ĐH kênh OFF ngoài lịch VT ngày: thuộc DSKH bổ sung (được tính đúng tuyến) / ngoài DSKH bổ sung (= trái tuyến OFF)
-       f"OFF · DS Bổ Sung: {int(g('ĐH DS Bổ Sung'))} / Ngoài DS Bổ Sung: {int(g('PC Trái Tuyến OFF'))}"],
+       f"OFF · DS Bổ Sung: {int(g('ĐH DS Bổ Sung'))} · Ngoài DS: {int(g('PC Trái Tuyến OFF'))}"],
       '#c53030',
     ),
     (
@@ -15765,9 +15766,11 @@ def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter
       rows.append({'name': label, 'th': th, 'ct': ct, 'pct': pct, 'fmt': fmt})
     except Exception:
       rows.append({'name': label, 'th': 0, 'ct': 0, 'pct': 0, 'fmt': fmt})
-  # ĐH Trái Tuyến / Tổng PC tháng — Kênh OFF (dòng chữ đỏ in đậm)
+  # ĐH Trái Tuyến / Tổng PC tháng — Kênh OFF (dòng chữ đỏ in đậm). Tổng PC OFF = số dòng PC BT ở trên
+  # (đơn hàng RPT) cho 2 dòng khớp nhau; lịch VT có thể thiếu CH có đơn nhưng không ghi 'Có đơn hàng'
   try:
     _tr, _pc = hs_trai_tuyen_mtd(report_date, filter_nv)
+    _pc = next((float(r['th']) for r in rows if r.get('name') == 'PC BT' and float(r.get('th') or 0) > 0), _pc)
     rows.append({'name': 'ĐH Trái Tuyến OFF / Tổng PC OFF', 'th': _tr, 'ct': _pc,
                  'pct': (_tr / _pc * 100 if _pc else 0), 'fmt': 'num', 'red': True})
   except Exception:
