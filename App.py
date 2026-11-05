@@ -15377,13 +15377,13 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   for card in cards:
     title, main, sub, color = card[:4]
     extra = ''.join(  # dòng phụ (vd DS ĐH Combo / DS ngày)
-        f'<div class="m" style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px;">{m2}</div>'
+        f'<div class="m" style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px;color:#1a202c;">{m2}</div>'
         f'<div class="s">{s2}</div>' for m2, s2 in (card[4] if len(card) > 4 else []))
     subs = ''.join(f'<div class="s">{x}</div>' for x in (sub if isinstance(sub, list) else [sub]))
     html.append(
       f'<div class="hs-day-card" style="border-top-color:{color};">'
       f'<div class="t" style="color:{color};">{title}</div>'
-      f'<div class="m">{main}</div>'
+      f'<div class="m" style="color:#1a202c;">{main}</div>'  # dòng số TH/CT/%: chữ đen in đậm
       f'{subs}{extra}</div>'
     )
   if cat_rows:
@@ -15394,7 +15394,7 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       cells = ''.join(
           f'<div class="cat-row" style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;'
           f'border-bottom:1px dashed #e2e8f0;"><span class="cat-l" style="font-weight:700;color:#4a5568;">{c}</span>'
-          f'<span class="cat-v" style="font-weight:800;color:#2c5282;">{_fmt_trieu(th)}/{_fmt_trieu(ct)}/'
+          f'<span class="cat-v" style="font-weight:800;color:#1a202c;">{_fmt_trieu(th)}/{_fmt_trieu(ct)}/'
           f'{(th / ct * 100) if ct else 0:.0f}%</span></div>'
           for c, th, ct in part)
       cols.append(f'<div class="cat-col" style="flex:1;min-width:0;">{cells}</div>')

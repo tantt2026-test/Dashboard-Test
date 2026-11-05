@@ -246,11 +246,11 @@ class _Cards extends StatelessWidget {
                         const SizedBox(width: 8),
                         Flexible(
                             child: fit(Text('${r[1]}',
-                                style: TextStyle(
+                                style: const TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 16,
-                                    color: hexColor(card['ac']) ?? Brand.cardText,
-                                    fontFeatures: const [FontFeature.tabularFigures()])))),
+                                    color: Color(0xFF1A202C), // số TH/CT/%: đen in đậm
+                                    fontFeatures: [FontFeature.tabularFigures()])))),
                       ]),
                     ),
                 ]),
