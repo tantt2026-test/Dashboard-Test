@@ -180,6 +180,23 @@ class _Cards extends StatelessWidget {
   Widget _card(Map<String, dynamic> card) {
     // 1 dòng, tự co chữ cho vừa thẻ (tiêu đề / dòng phụ ngắn)
     Widget fit(Widget t) => FittedBox(fit: BoxFit.scaleDown, child: t);
+    final sv = {for (final i in (card['sv'] as List? ?? const [])) (i as num).toInt()};
+    // số ngắn: to, tự co cho vừa thẻ; nội dung dài (vd "OFF: 458/1188 CH ... ON: ..."):
+    // cỡ vừa, xuống dòng — tránh chữ bị co quá nhỏ
+    Widget value(String v) {
+      final color = hexColor(card['c']) ?? (card['ac'] != null ? const Color(0xFF1A202C) : Brand.cardText);
+      final long = v.length > 22 || v.contains('\n');
+      final text = Text(v,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: long ? 14 : 20,
+              height: long ? 1.35 : null,
+              fontFeatures: const [FontFeature.tabularFigures()]));
+      return long ? text : fit(text);
+    }
+
     return Container(
       padding: EdgeInsets.fromLTRB(8, card['ac'] != null ? 13 : 10, 8, 10),
       decoration: BoxDecoration(
@@ -207,31 +224,20 @@ class _Cards extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                   fontSize: 12.5))),
         const SizedBox(height: 4),
-        // số ngắn: to, tự co cho vừa thẻ; nội dung dài (vd "OFF: 458/1188 CH ... ON: ..."):
-        // cỡ vừa, xuống dòng — tránh chữ bị co quá nhỏ
-        () {
-          final v = card['v'] as String;
-          final color = hexColor(card['c']) ?? (card['ac'] != null ? const Color(0xFF1A202C) : Brand.cardText);
-          final long = v.length > 22 || v.contains('\n');
-          final text = Text(v,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.w800,
-                  fontSize: long ? 14 : 20,
-                  height: long ? 1.35 : null,
-                  fontFeatures: const [FontFeature.tabularFigures()]));
-          return long ? text : fit(text);
-        }(),
-        for (final s in (card['s'] as List? ?? const []))
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: () {
-              final t = Text(s as String,
-                  textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.5, color: Brand.muted));
-              return (s.length <= 40 && !s.contains('\n')) ? fit(t) : t;
-            }(),
-          ),
+        value(card['v'] as String),
+        for (final (i, s) in (card['s'] as List? ?? const []).indexed)
+          if (sv.contains(i))
+            // dòng số phụ (vd DS Combo/DS Ngày/%): cùng cỡ/màu dòng số chính, tự co vừa thẻ
+            Padding(padding: const EdgeInsets.only(top: 6), child: value(s as String))
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: () {
+                final t = Text(s as String,
+                    textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.5, color: Brand.muted));
+                return (s.length <= 40 && !s.contains('\n')) ? fit(t) : t;
+              }(),
+            ),
       ]),
     );
   }

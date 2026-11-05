@@ -9,6 +9,7 @@ List<Map<String, dynamic>> cards(int n) => [
           'l': i.isEven ? 'HV TẾT - BRAND_VIPDAISU\nĐẠT NHIỆM VỤ' : 'PC ON',
           'v': '123/122/231/53%',
           's': ['TH ngày/MTD/CT/%MTD', if (i % 3 == 0) ...['28,9/288,2/10%', 'DS Combo/DS Ngày/% (Triệu đồng)']],
+          if (i % 3 == 0) 'sv': [1], // dòng số phụ: cùng cỡ dòng số chính
           'ac': '#d53f8c',
         }
     ];
@@ -31,6 +32,8 @@ void main() {
       await pump(t, w, n, wide);
       expect(t.takeException(), isNull);
       if (n > 2) expect(find.text('ĐẠT NHIỆM VỤ'), findsWidgets); // tiêu đề 2 dòng
+      final main = t.widget<Text>(find.text('123/122/231/53%').first).style!.fontSize;
+      expect(t.widget<Text>(find.text('28,9/288,2/10%').first).style!.fontSize, main);
       final rows = find.byType(IntrinsicHeight).evaluate().length;
       // ignore: avoid_print
       print('w=$w n=$n → $rows hàng');

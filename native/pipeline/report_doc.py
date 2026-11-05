@@ -229,6 +229,11 @@ class Converter:
         card = {'l': lines[0], 'v': lines[1]}
         if len(lines) > 2:
             card['s'] = [l for l in lines[2:] if l]
+            # dòng phụ là số (class "m" như dòng số chính, vd DS Combo/DS Ngày/%) → app vẽ cùng cỡ/màu
+            sv = [i for i, (k, l) in enumerate([(k, l) for k, l in zip(kids[2:], lines[2:]) if l])
+                  if 'm' in (k.get('class') or [])]
+            if sv:
+                card['sv'] = sv
         c = norm_color(parse_style(kids[1].get('style')).get('color')) or \
             norm_color(parse_style(kids[0].get('style')).get('color'))
         if c:
