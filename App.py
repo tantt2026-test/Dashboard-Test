@@ -15182,6 +15182,8 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   plan_on = g('Plan VT ON') or g('Đã VT ON')
   pct_pc_on = (pc_on / plan_on * 100) if plan_on else 0
   lppc = g('LPPC OFF')
+  tr_n = g('PC Trái Tuyến OFF') + g('PC Trái Tuyến ON')
+  tr_pc = pc_off + pc_on + tr_n
   th_x, ct_x = g('TH Xanh'), g('CT Xanh') or 5
   th_v, ct_v = g('TH Vàng'), g('CT Vàng') or 3
   th_co, ct_co = g('TH Combo OFF'), g('CT Combo OFF') or 5
@@ -15233,6 +15235,15 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       f'{int(pc_on)}/{int(plan_on)}/{pct_pc_on:.0f}%',
       _rk('PC ON', 'Plan VT ON', 'Đã VT ON'),
       '#dd6b20',
+    ),
+    (
+      # ĐH Trái Tuyến ngày: số ĐH trái tuyến / Tổng PC (đúng tuyến + trái tuyến) / % + NV có nhiều ĐH trái tuyến nhất
+      'ĐH TRÁI TUYẾN',
+      f'{int(tr_n)}/{int(tr_pc)}/{(tr_n / tr_pc * 100) if tr_pc else 0:.0f}%',
+      [('Top 3: ' + (', '.join(f'{_short(n)} ({int(v)})' for n, v in sorted(
+          ((n, int(v)) for n, v in zip(_names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'))
+           if int(v) > 0 and not re.search(r'\d', n)), key=lambda x: -x[1])[:3]) or '-'))],
+      '#c53030',
     ),
     (
       'LPPC OFF',
@@ -15424,11 +15435,14 @@ def render_hs_monthly_kpi_table(
     bar_w = max(0, min(100, float(pct)))
     tg_pos = max(0, min(100, tg))
     bg = '#f0f7fc' if i % 2 == 0 else '#ffffff'
+    _red = 'color:#c53030;font-weight:800;' if r.get('red') else ''  # dòng ĐH Trái Tuyến: chữ đỏ in đậm
+    if r.get('red'):
+      color, bar_color = '#c53030', '#c53030'
     html.append(
       f'<tr style="background:{bg};">'
-      f'<td style="text-align:left;font-weight:600;padding-left:10px;">{name}</td>'
-      f'<td style="text-align:center;font-weight:700;">{th_s}</td>'
-      f'<td style="text-align:center;font-weight:800;">{ct_s}</td>'
+      f'<td style="text-align:left;font-weight:600;padding-left:10px;{_red}">{name}</td>'
+      f'<td style="text-align:center;font-weight:700;{_red}">{th_s}</td>'
+      f'<td style="text-align:center;font-weight:800;{_red}">{ct_s}</td>'
       f'<td style="text-align:center;font-weight:800;color:{color};">{pct:.1f}%</td>'
       f'<td style="padding:8px 12px;">'
       f'<div style="position:relative;height:12px;background:#e2e8f0;border-radius:6px;">'
@@ -15515,6 +15529,43 @@ def render_hs_monthly_kpi_table(
   )
   html.append('</div></div>')
   return ''.join(html)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _hs_trai_tuyen_day(month_key, date_iso, fnv_key):
+  """ĐH Trái Tuyến 1 ngày — đúng logic Báo Cáo Hiệu Suất (CH có ĐH không nằm lịch VT ngày, trừ DSKH bổ sung):
+  {'trai': số ĐH trái tuyến, 'pc': Tổng PC (đúng tuyến + trái tuyến), 'nv': {Tên NVBH: số trái tuyến}}."""
+  out = {'trai': 0, 'pc': 0, 'nv': {}}
+  try:
+    df, mcp = load_prepared_core(month_key)
+    vis = load_visit_schedule(month_key)
+    fnv = [x for x in fnv_key.split('||') if x] if fnv_key and fnv_key != '__ALL__' else None
+    p, _ = build_performance_report(df, mcp, vis, date.fromisoformat(date_iso), get_turnover_targets(), fnv)
+    if p is None or p.empty:
+      return out
+    b = p.iloc[:-1]
+    n = lambda c: pd.to_numeric(b[c], errors='coerce').fillna(0) if c in b.columns else pd.Series(0, index=b.index)
+    tr = n('PC Trái Tuyến OFF') + n('PC Trái Tuyến ON')
+    out['trai'] = int(tr.sum())
+    out['pc'] = int((n('PC OFF') + n('PC ON')).sum()) + out['trai']
+    out['nv'] = {str(nm).strip(): int(v) for nm, v in zip(b['Tên NVBH'], tr) if int(v) > 0}
+  except Exception:
+    pass
+  return out
+
+
+def hs_trai_tuyen_mtd(report_date, filter_nv):
+  """Lũy kế tháng ĐH Trái Tuyến / Tổng PC: cộng từng ngày từ đầu tháng → ngày BC (mỗi ngày tính 1 lần, cache)."""
+  mk = get_month_key()
+  fnv_key = ('||'.join(str(x) for x in filter_nv) if isinstance(filter_nv, list) else str(filter_nv or '')) \
+      if nv_selected(filter_nv) else '__ALL__'
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  trai = pc = 0
+  for d in range(1, rd.day + 1):
+    x = _hs_trai_tuyen_day(mk, date(rd.year, rd.month, d).isoformat(), fnv_key)
+    trai += x['trai']
+    pc += x['pc']
+  return trai, pc
 
 
 def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter_nv, mcp_df):
@@ -15702,6 +15753,13 @@ def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter
       rows.append({'name': label, 'th': th, 'ct': ct, 'pct': pct, 'fmt': fmt})
     except Exception:
       rows.append({'name': label, 'th': 0, 'ct': 0, 'pct': 0, 'fmt': fmt})
+  # ĐH Trái Tuyến / Tổng PC tháng (dòng chữ đỏ in đậm)
+  try:
+    _tr, _pc = hs_trai_tuyen_mtd(report_date, filter_nv)
+    rows.append({'name': 'ĐH Trái Tuyến / Tổng PC', 'th': _tr, 'ct': _pc,
+                 'pct': (_tr / _pc * 100 if _pc else 0), 'fmt': 'num', 'red': True})
+  except Exception:
+    pass
   return rows
 
 
