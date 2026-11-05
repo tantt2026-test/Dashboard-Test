@@ -15478,8 +15478,8 @@ def render_hs_monthly_kpi_table(
 
   html.append(
     f'<div style="background:linear-gradient(135deg,#ebf8ff,#fff);border:1px solid #90cdf4;'
-    f'border-left:4px solid #3182ce;border-radius:12px;padding:14px;">'
-    f'<div style="font-size:12px;font-weight:800;color:#2b6cb0;margin-bottom:6px;">ĐH COMBO</div>'
+    f'border-left:4px solid #3182ce;border-top-color:#2f855a;border-radius:12px;padding:14px;">'
+    f'<div style="font-size:12px;font-weight:800;color:#2f855a;margin-bottom:6px;">ĐH COMBO</div>'
     f'<div style="font-size:13px;color:#2d3748;line-height:1.6;">'
     f'<span style="color:#3182ce;font-weight:700;">OFF:</span> '
     f'<b>{co.get("th",0)}</b> / {co.get("ct",0)} CH '
@@ -15517,8 +15517,8 @@ def render_hs_monthly_kpi_table(
                       for k, v in info.get('groups', {}).items())
     html.append(
       f'<div class="hs-mbs-card" style="background:linear-gradient(135deg,#faf5ff,#fff);border:1px solid #d6bcfa;'
-      f'border-left:4px solid #805ad5;border-radius:12px;padding:14px;">'
-      f'<div style="font-size:12px;font-weight:800;color:#6b46c1;margin-bottom:6px;">{_mbs_bn_t}</div>'
+      f'border-left:4px solid #805ad5;border-top-color:#2f855a;border-radius:12px;padding:14px;">'
+      f'<div style="font-size:12px;font-weight:800;color:#2f855a;margin-bottom:6px;">{_mbs_bn_t}</div>'
       f'<div style="font-size:13px;color:#2d3748;line-height:1.6;"><b>{dat}/{total}</b> đạt NV '
       f'(<span style="color:{_pct_color(pct, tg)};font-weight:700;">{pct:.1f}%</span>)</div>'
       f'<div style="font-size:12px;color:#4a5568;">{_grp or "không có data"}</div>'
@@ -15543,8 +15543,9 @@ def render_hs_monthly_kpi_table(
 @st.cache_data(ttl=600, show_spinner=False)
 def _hs_trai_tuyen_day(month_key, date_iso, fnv_key):
   """ĐH Trái Tuyến 1 ngày — đúng logic Báo Cáo Hiệu Suất (CH có ĐH không nằm lịch VT ngày, trừ DSKH bổ sung):
-  {'trai': số ĐH trái tuyến, 'pc': Tổng PC (đúng tuyến + trái tuyến), 'nv': {Tên NVBH: số trái tuyến}}."""
-  out = {'trai': 0, 'pc': 0, 'nv': {}}
+  {'trai': số ĐH trái tuyến, 'pc': Tổng PC (đúng tuyến + trái tuyến), 'nv': {Tên NVBH: số trái tuyến},
+   'trai_off' / 'pc_off': như trên, chỉ Kênh OFF}."""
+  out = {'trai': 0, 'pc': 0, 'nv': {}, 'trai_off': 0, 'pc_off': 0}
   try:
     df, mcp = load_prepared_core(month_key)
     vis = load_visit_schedule(month_key)
@@ -15558,13 +15559,15 @@ def _hs_trai_tuyen_day(month_key, date_iso, fnv_key):
     out['trai'] = int(tr.sum())
     out['pc'] = int((n('PC OFF') + n('PC ON')).sum()) + out['trai']
     out['nv'] = {str(nm).strip(): int(v) for nm, v in zip(b['Tên NVBH'], tr) if int(v) > 0}
+    out['trai_off'] = int(n('PC Trái Tuyến OFF').sum())
+    out['pc_off'] = int(n('PC OFF').sum()) + out['trai_off']
   except Exception:
     pass
   return out
 
 
 def hs_trai_tuyen_mtd(report_date, filter_nv):
-  """Lũy kế tháng ĐH Trái Tuyến / Tổng PC: cộng từng ngày từ đầu tháng → ngày BC (mỗi ngày tính 1 lần, cache)."""
+  """Lũy kế tháng ĐH Trái Tuyến / Tổng PC Kênh OFF: cộng từng ngày từ đầu tháng → ngày BC (mỗi ngày tính 1 lần, cache)."""
   mk = get_month_key()
   fnv_key = ('||'.join(str(x) for x in filter_nv) if isinstance(filter_nv, list) else str(filter_nv or '')) \
       if nv_selected(filter_nv) else '__ALL__'
@@ -15572,8 +15575,8 @@ def hs_trai_tuyen_mtd(report_date, filter_nv):
   trai = pc = 0
   for d in range(1, rd.day + 1):
     x = _hs_trai_tuyen_day(mk, date(rd.year, rd.month, d).isoformat(), fnv_key)
-    trai += x['trai']
-    pc += x['pc']
+    trai += x.get('trai_off', 0)
+    pc += x.get('pc_off', 0)
   return trai, pc
 
 
@@ -15762,10 +15765,10 @@ def build_hs_monthly_kpi_rows(df, report_date, targets, turnover_targets, filter
       rows.append({'name': label, 'th': th, 'ct': ct, 'pct': pct, 'fmt': fmt})
     except Exception:
       rows.append({'name': label, 'th': 0, 'ct': 0, 'pct': 0, 'fmt': fmt})
-  # ĐH Trái Tuyến / Tổng PC tháng (dòng chữ đỏ in đậm)
+  # ĐH Trái Tuyến / Tổng PC tháng — Kênh OFF (dòng chữ đỏ in đậm)
   try:
     _tr, _pc = hs_trai_tuyen_mtd(report_date, filter_nv)
-    rows.append({'name': 'ĐH Trái Tuyến / Tổng PC', 'th': _tr, 'ct': _pc,
+    rows.append({'name': 'ĐH Trái Tuyến OFF / Tổng PC OFF', 'th': _tr, 'ct': _pc,
                  'pct': (_tr / _pc * 100 if _pc else 0), 'fmt': 'num', 'red': True})
   except Exception:
     pass
