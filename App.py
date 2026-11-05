@@ -10539,6 +10539,11 @@ def build_trai_tuyen_orders(df_rpt, df_visit, df_mcp, report_date, filter_nv=Non
     # lọc theo NV sau
     pass
 
+  # Chỉ tính L1 Kênh OFF (bỏ CH Kênh ON theo Data_MCP)
+  _ch_l1 = build_mcp_channel_map(df_mcp)
+  _ch_l1 = {(str(k)[:-2] if str(k).endswith('.0') else str(k)): v for k, v in _ch_l1.items()}
+  trai_ma = {m for m in trai_ma if _ch_l1.get(m) != 'ON'}
+
   if not trai_ma:
     return empty
 
@@ -15189,9 +15194,10 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   plan_on = g('Plan VT ON') or g('Đã VT ON')
   pct_pc_on = (pc_on / plan_on * 100) if plan_on else 0
   lppc = g('LPPC OFF')
-  tr_n = g('PC Trái Tuyến OFF') + g('PC Trái Tuyến ON')
+  # ĐH Trái Tuyến: chỉ L1 Kênh OFF (khớp bảng Chi tiết ĐH Trái Tuyến)
+  tr_n = g('PC Trái Tuyến OFF')
   tr_bs = g('ĐH DS Bổ Sung')  # ĐH ngoài lịch VT nhưng thuộc DSKH bổ sung (đã nằm trong PC OFF)
-  tr_pc = pc_off + pc_on + tr_n
+  tr_pc = pc_off + tr_n
   th_x, ct_x = g('TH Xanh'), g('CT Xanh') or 5
   th_v, ct_v = g('TH Vàng'), g('CT Vàng') or 3
   th_co, ct_co = g('TH Combo OFF'), g('CT Combo OFF') or 5
@@ -15253,7 +15259,7 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       [('NV: ' + (', '.join(
           f'{_short(n)} ({t + b})' for n, t, b in sorted(
               ((n, int(t), int(b)) for n, t, b in zip(
-                  _names, _col('PC Trái Tuyến OFF') + _col('PC Trái Tuyến ON'), _col('ĐH DS Bổ Sung'))
+                  _names, _col('PC Trái Tuyến OFF'), _col('ĐH DS Bổ Sung'))
                if int(t) + int(b) > 0 and not re.search(r'\d', n)), key=lambda x: -(x[1] + x[2]))) or '-')),
        # ĐH kênh OFF ngoài lịch VT ngày: thuộc DSKH bổ sung (được tính đúng tuyến) / ngoài DSKH bổ sung (= trái tuyến OFF)
        f"OFF · DS Bổ Sung: {int(g('ĐH DS Bổ Sung'))} · Ngoài DS: {int(g('PC Trái Tuyến OFF'))}"],
