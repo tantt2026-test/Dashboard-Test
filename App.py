@@ -15115,12 +15115,12 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
     items = [(n, float(v)) for n, v in (vals or {}).items()
              if n and not re.search(r'\d', str(n)) and v is not None and pd.notna(v)]
     if not items or len({v for _, v in items}) == 1:  # chưa có ai / mọi NV bằng nhau → không xếp hạng
-      return ['Top 3 NVBH: -', 'Bottom 3 NVBH: -']
+      return ['Top 3: -', 'Bottom 3: -']
     srt = sorted(items, key=lambda x: -x[1])  # bằng nhau giữ thứ tự gốc
     top = srt[:3]
     bot = [x for x in srt[::-1] if x not in top][:3]  # ít NV: không lặp tên đã ở Top
-    return [f"Top 3 NVBH: {', '.join(_short(n) for n, _ in top)}",
-            f"Bottom 3 NVBH: {', '.join(_short(n) for n, _ in bot) or '-'}"]
+    return [f"Top 3: {', '.join(_short(n) for n, _ in top)}",
+            f"Bottom 3: {', '.join(_short(n) for n, _ in bot) or '-'}"]
 
   def _col(c):
     return pd.to_numeric(body[c], errors='coerce').fillna(0) if c in body.columns else pd.Series(0.0, index=body.index)
