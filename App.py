@@ -15320,6 +15320,24 @@ def render_hs_monthly_kpi_table(
 
   _mbs_bn_t = get_month_cfg().get('mbs_brand_name')  # T11: Hội Viên Tết 2027, không còn MBS Cat
   _no_cat = bool(get_month_cfg().get('no_mbs_cat'))
+  if _no_cat and _mbs_bn_t:
+    # Dạng thẻ (tiêu đề / số / dòng phụ) → app native xếp chung 1 hàng với thẻ ĐH COMBO
+    info = mbs_brand or {}
+    dat, total = info.get('dat', 0), info.get('total', 0)
+    pct = (dat / total * 100) if total else 0
+    _grp = ' · '.join(f'{k.replace("BRAND_VIPDAISU", "VIP Đại sứ").replace("BRAND_VIP", "VIP")}: {v}'
+                      for k, v in info.get('groups', {}).items())
+    html.append(
+      f'<div class="hs-mbs-card" style="background:linear-gradient(135deg,#faf5ff,#fff);border:1px solid #d6bcfa;'
+      f'border-left:4px solid #805ad5;border-radius:12px;padding:14px;">'
+      f'<div style="font-size:12px;font-weight:800;color:#6b46c1;margin-bottom:6px;">{_mbs_bn_t}</div>'
+      f'<div style="font-size:13px;color:#2d3748;line-height:1.6;"><b>{dat}/{total}</b> đạt NV '
+      f'(<span style="color:{_pct_color(pct, tg)};font-weight:700;">{pct:.1f}%</span>)</div>'
+      f'<div style="font-size:12px;color:#4a5568;">{_grp or "không có data"}</div>'
+      f'</div>'
+    )
+    html.append('</div></div>')
+    return ''.join(html)
   html.append(
     f'<div style="background:linear-gradient(135deg,#faf5ff,#fff);border:1px solid #d6bcfa;'
     f'border-left:4px solid #805ad5;border-radius:12px;padding:14px;">'
