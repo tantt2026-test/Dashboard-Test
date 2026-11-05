@@ -6,7 +6,7 @@ import 'package:kpi_native/ui/report_view.dart';
 List<Map<String, dynamic>> cards(int n) => [
       for (var i = 0; i < n; i++)
         {
-          'l': i.isEven ? 'HV TẾT · VIP ĐẠI SỨ · MUA HÀNG' : 'PC ON',
+          'l': i.isEven ? 'HV TẾT - BRAND_VIPDAISU\nĐẠT NHIỆM VỤ' : 'PC ON',
           'v': '123/122/231/53%',
           's': ['TH ngày/MTD/CT/%MTD', if (i % 3 == 0) ...['28,9/288,2/10%', 'DS Combo/DS Ngày/% (Triệu đồng)']],
           'ac': '#d53f8c',
@@ -30,6 +30,7 @@ void main() {
     testWidgets('w=$w n=$n không tràn', (t) async {
       await pump(t, w, n, wide);
       expect(t.takeException(), isNull);
+      if (n > 2) expect(find.text('ĐẠT NHIỆM VỤ'), findsWidgets); // tiêu đề 2 dòng
       final rows = find.byType(IntrinsicHeight).evaluate().length;
       // ignore: avoid_print
       print('w=$w n=$n → $rows hàng');

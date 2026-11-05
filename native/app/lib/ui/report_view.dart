@@ -197,13 +197,15 @@ class _Cards extends StatelessWidget {
             : null,
       ),
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        fit(Text(card['l'] as String,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            style: TextStyle(
-                color: hexColor(card['ac']) ?? hexColor(card['c']) ?? Brand.cardText,
-                fontWeight: FontWeight.w800,
-                fontSize: 12.5))),
+        // tiêu đề: mỗi dòng (xuống dòng bằng <br> bên App.py) tự co vừa 1 dòng
+        for (final line in (card['l'] as String).split('\n'))
+          fit(Text(line,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              style: TextStyle(
+                  color: hexColor(card['ac']) ?? hexColor(card['c']) ?? Brand.cardText,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5))),
         const SizedBox(height: 4),
         // số ngắn: to, tự co cho vừa thẻ; nội dung dài (vd "OFF: 458/1188 CH ... ON: ..."):
         // cỡ vừa, xuống dòng — tránh chữ bị co quá nhỏ

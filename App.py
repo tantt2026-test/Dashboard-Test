@@ -15194,11 +15194,11 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
       x = hv.get(m) or {}
       n, t = int(x.get(k, 0)), int(x.get('tong', 0))
       return (title, f'{n}/{t}/{(n / t * 100) if t else 0:.1f}%'.replace('.', ','), sub, color)
-    cards += [
-        _hv_card('HV TẾT · VIP · MUA HÀNG', 'BRAND_VIP', 'mua', 'KH mua/Tổng KH VT/%', '#ed64a6'),
-        _hv_card('HV TẾT · VIP ĐẠI SỨ · MUA HÀNG', 'BRAND_VIPDAISU', 'mua', 'KH mua/Tổng KH VT/%', '#b83280'),
-        _hv_card('HV TẾT · VIP · ĐẠT NV', 'BRAND_VIP', 'nv', 'KH đạt NV/Tổng KH VT/%', '#d53f8c'),
-        _hv_card('HV TẾT · VIP ĐẠI SỨ · ĐẠT NV', 'BRAND_VIPDAISU', 'nv', 'KH đạt NV/Tổng KH VT/%', '#97266d'),
+    cards += [  # tiêu đề 2 dòng: HV TẾT - <Member type> / MUA HÀNG | ĐẠT NHIỆM VỤ
+        _hv_card('HV TẾT - BRAND_VIP<br>MUA HÀNG', 'BRAND_VIP', 'mua', 'KH mua/Tổng KH VT/%', '#ed64a6'),
+        _hv_card('HV TẾT - BRAND_VIPDAISU<br>MUA HÀNG', 'BRAND_VIPDAISU', 'mua', 'KH mua/Tổng KH VT/%', '#b83280'),
+        _hv_card('HV TẾT - BRAND_VIP<br>ĐẠT NHIỆM VỤ', 'BRAND_VIP', 'nv', 'KH đạt NV/Tổng KH VT/%', '#d53f8c'),
+        _hv_card('HV TẾT - BRAND_VIPDAISU<br>ĐẠT NHIỆM VỤ', 'BRAND_VIPDAISU', 'nv', 'KH đạt NV/Tổng KH VT/%', '#97266d'),
     ]
   else:
     cards.append(_mbs_card(_bn or 'MBS BRAND', mbs_brand, '#ed64a6'))
