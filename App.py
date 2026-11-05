@@ -15351,6 +15351,22 @@ def render_hs_daily_metric_cards(df_perf, report_date, lppc_moc=4.3, aso_off=Non
   else:
     cards.append(_mbs_card(_bn or 'MBS BRAND', mbs_brand, '#ed64a6'))
 
+  # Bộ lọc chỉ số hiển thị (chọn nhiều; trống = tất cả). Giá trị = đúng tiêu đề thẻ (xuống dòng '\n') để app
+  # native lọc thẻ theo tiêu đề (filters_probe mode 'subset')
+  _opts = [str(c[0]).replace('<br>', '\n') for c in cards] + (['SELL OUT BY CAT'] if cat_rows else [])
+  try:
+    st.markdown('<p class="filter-label">📊 Chọn chỉ số hiển thị (Kết quả ngày)</p>', unsafe_allow_html=True)
+    _sel = st.multiselect(
+        '', _opts, default=[], key='hs_day_kpis', placeholder='Tất cả chỉ số',
+        format_func=lambda o: o.replace('\n', ' '), label_visibility='collapsed',
+    )
+  except Exception:
+    _sel = []
+  if _sel:
+    cards = [c for c in cards if str(c[0]).replace('<br>', '\n') in _sel]
+    if 'SELL OUT BY CAT' not in _sel:
+      cat_rows = None
+
   wd = report_date.strftime('%d/%m') if hasattr(report_date, 'strftime') else str(report_date)
   try:
     thu_map = {0: 'Thứ Hai', 1: 'Thứ Ba', 2: 'Thứ Tư', 3: 'Thứ Năm', 4: 'Thứ Sáu', 5: 'Thứ Bảy', 6: 'Chủ Nhật'}
