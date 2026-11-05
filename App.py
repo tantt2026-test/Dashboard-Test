@@ -8305,6 +8305,8 @@ def render_mbs_pie_chart(df_show, title='Tỷ lệ KH theo Nhóm'):
         5: '#e53e3e',  # đỏ
         6: '#805ad5',  # tím
     }
+    if 'Mức đạt' in df_show.columns:  # Hội Viên Tết 2027: Nhóm 6 = Chưa phát sinh DS (giữ màu đỏ)
+      colors[5], colors[6] = colors[6], colors[5]
     fallback = ['#2b6cb0', '#c05621', '#276749', '#b7791f', '#c53030', '#6b46c1']
     marker_colors = []
     for i, g in enumerate(cnt.index):
@@ -8612,6 +8614,8 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
       nhom = 4
     else:
       nhom = 6
+    if t11 and nhom in (5, 6):  # Hội Viên Tết 2027: Nhóm 5 = Còn lại, Nhóm 6 = Chưa phát sinh DS
+      nhom = 11 - nhom
     rate = 0.0
     if t11 and mission:
       rate = next((r for lim, _, r in MBS_T11_LEVELS if pct >= lim), 0.0)
@@ -8632,7 +8636,7 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
     total = len(g)
     n1 = int((g['Nhóm'] == 1).sum())
     n2 = int((g['Nhóm'] == 2).sum())
-    n5 = int((g['Nhóm'] == 5).sum())
+    n5 = int((g['Nhóm'] == (6 if t11 else 5)).sum())  # KH chưa phát sinh DS
     act = float(g['Actual'].sum())
     tgt = float(g['Target'].sum())
     pct_dat = round(n1 / total * 100, 1) if total else 0.0
@@ -8643,7 +8647,7 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
         'KH Đạt (N1)': n1,
         '% Đạt': pct_dat,
         'KH N2': n2,
-        'KH N5': n5,
+        ('KH N6' if t11 else 'KH N5'): n5,
         'Actual': act,
         'Target': tgt,
         '% TH': pct_th,
@@ -8659,7 +8663,7 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
       'KH Đạt (N1)': int(out['KH Đạt (N1)'].sum()),
       '% Đạt': round(out['KH Đạt (N1)'].sum() / out['Tổng KH'].sum() * 100, 1) if out['Tổng KH'].sum() else 0.0,
       'KH N2': int(out['KH N2'].sum()),
-      'KH N5': int(out['KH N5'].sum()),
+      ('KH N6' if t11 else 'KH N5'): int(out['KH N6' if t11 else 'KH N5'].sum()),
       'Actual': float(out['Actual'].sum()),
       'Target': float(out['Target'].sum()),
       '% TH': round(out['Actual'].sum() / out['Target'].sum() * 100, 1) if out['Target'].sum() else 0.0,
@@ -8737,7 +8741,7 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
     return ''
   cols = [c for c in [
       'STT', 'Tên NVBH', 'Tổng KH', 'KH Đạt (N1)', '% Đạt',
-      'KH N2', 'KH N5', 'Actual', 'Target', '% TH', 'Điểm thưởng DK',
+      'KH N2', 'KH N5', 'KH N6', 'Actual', 'Target', '% TH', 'Điểm thưởng DK',
   ] if c in df.columns]
 
   max_name = 12
@@ -8844,6 +8848,22 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
   html.append('</tbody></table></div>')
   return ''.join(html)
 
+
+
+def mbs_group_meta(hv=False):
+  """Tên + màu 6 nhóm MBS. hv=True (Hội Viên Tết 2027, T11): Nhóm 5 = Còn lại, Nhóm 6 = Chưa phát sinh DS."""
+  m = {
+      1: ('Nhóm 1 · Đã đạt MBS', '#c6f6d5', '#22543d'),
+      2: ('Nhóm 2 · Đạt DS, thiếu nhiệm vụ', '#edf2f7', '#2d3748'),
+      3: ('Nhóm 3 · Đạt nhiệm vụ, DS ≥50% Target', '#edf2f7', '#2d3748'),
+      4: ('Nhóm 4 · DS ≥60% Target, thiếu nhiệm vụ', '#e6fffa', '#234e52'),
+      5: ('Nhóm 5 · Chưa phát sinh DS', '#fff5f5', '#c53030'),
+      6: ('Nhóm 6 · Còn lại', '#ebf8ff', '#2b6cb0'),
+  }
+  if hv:
+    m[5] = ('Nhóm 5 · Còn lại', '#ebf8ff', '#2b6cb0')
+    m[6] = ('Nhóm 6 · Chưa phát sinh DS', '#fff5f5', '#c53030')
+  return m
 
 
 def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
@@ -8986,6 +9006,9 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
       nhom, nhom_name = 4, 'Nhóm 4 · DS ≥60% Target, thiếu nhiệm vụ'
     else:
       nhom, nhom_name = 6, 'Nhóm 6 · Còn lại'
+    if t11 and nhom in (5, 6):  # Hội Viên Tết 2027: Nhóm 5 = Còn lại, Nhóm 6 = Chưa phát sinh DS
+      nhom = 11 - nhom
+      nhom_name = mbs_group_meta(True)[nhom][0]
 
     rows.append({
         'Outlet Code': ma,
@@ -9007,14 +9030,7 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
   df_detail = pd.DataFrame(rows)
   total_kh = len(df_detail)
 
-  group_meta = {
-      1: ('Nhóm 1 · Đã đạt MBS', '#c6f6d5', '#22543d'),
-      2: ('Nhóm 2 · Đạt DS, thiếu nhiệm vụ', '#edf2f7', '#2d3748'),
-      3: ('Nhóm 3 · Đạt nhiệm vụ, DS ≥50% Target', '#edf2f7', '#2d3748'),
-      4: ('Nhóm 4 · DS ≥60% Target, thiếu nhiệm vụ', '#e6fffa', '#234e52'),
-      5: ('Nhóm 5 · Chưa phát sinh DS', '#fff5f5', '#c53030'),
-      6: ('Nhóm 6 · Còn lại', '#ebf8ff', '#2b6cb0'),
-  }
+  group_meta = mbs_group_meta('Mức đạt' in df_detail.columns)
 
   groups = {}
   for g in range(1, 7):
@@ -17143,14 +17159,7 @@ if _nav == '📊 BÁO CÁO KPI':
         mask = mask | thu_s.isin(valid_set)
       df_detail = df_detail[mask].copy()
       total_kh = len(df_detail)
-      group_meta = {
-          1: ('Nhóm 1 · Đã đạt MBS', '#c6f6d5', '#22543d'),
-          2: ('Nhóm 2 · Đạt DS, thiếu nhiệm vụ', '#edf2f7', '#2d3748'),
-          3: ('Nhóm 3 · Đạt nhiệm vụ, DS ≥50% Target', '#edf2f7', '#2d3748'),
-          4: ('Nhóm 4 · DS ≥60% Target, thiếu nhiệm vụ', '#e6fffa', '#234e52'),
-          5: ('Nhóm 5 · Chưa phát sinh DS', '#fff5f5', '#c53030'),
-          6: ('Nhóm 6 · Còn lại', '#ebf8ff', '#2b6cb0'),
-      }
+      group_meta = mbs_group_meta('Mức đạt' in df_detail.columns)
       groups = {}
       for g in range(1, 7):
         sub = df_detail[df_detail['Nhóm'] == g]
@@ -17410,7 +17419,9 @@ if _nav == '📊 BÁO CÁO KPI':
       else:
         st.info('Không có KH phù hợp bộ lọc hiện tại.')
 
-      g1, g5 = groups[1], groups[5]
+      _hv = 'Mức đạt' in df_detail.columns  # Hội Viên Tết 2027: Chưa phát sinh DS = Nhóm 6
+      _gc = 6 if _hv else 5
+      g1, g5 = groups[1], groups[_gc]
       note_html = (
           '<div class="note-box">'
           '<div style="font-weight:800; color:#034ea2; margin-bottom:8px;'
@@ -17421,11 +17432,11 @@ if _nav == '📊 BÁO CÁO KPI':
           + format_trieu(g1['actual']) + ' Tr / Target '
           + format_trieu(g1['target']) + ' Tr (' + str(g1['pct_th'])
           + '% TH).</li>'
-          '<li><b>Chưa phát sinh DS (Nhóm 5):</b> ' + str(g5['kh'])
+          '<li><b>Chưa phát sinh DS (Nhóm ' + str(_gc) + '):</b> ' + str(g5['kh'])
           + ' KH (' + str(g5['pct_kh'])
           + '%) — cần đôn đốc mở đơn ngay.</li>'
           + ('<li><b>Đề xuất:</b> Đẩy 4 nhãn Nam Ngư · Chinsu · Kokomi · Chanté (VIP: tổng ≥ 500.000;'
-             ' VIP Đại sứ: mỗi nhãn ≥ 150.000) cho Nhóm 2 &amp; 4; kích hoạt Nhóm 5 chưa phát sinh.</li>'
+             ' VIP Đại sứ: mỗi nhãn ≥ 150.000) cho Nhóm 2 &amp; 4; kích hoạt Nhóm 6 chưa phát sinh.</li>'
              if 'Mức đạt' in df_detail.columns else
              '<li><b>Đề xuất:</b> Ưu tiên đẩy nhiệm vụ Brand NEW ≥ 200.000 cho'
              ' Nhóm 2 &amp; 4; kích hoạt Nhóm 5 chưa phát sinh.</li>') +
