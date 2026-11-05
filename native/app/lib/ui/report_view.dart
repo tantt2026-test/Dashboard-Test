@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'charts.dart';
@@ -143,63 +145,92 @@ class _Cards extends StatelessWidget {
   final bool wide;
   const _Cards({required this.cards, required this.wide});
 
+  /// Số thẻ / hàng: chia đều các hàng (16 thẻ → 2 hàng × 8, 18 → 3 × 6, 2 → 2 thẻ rộng nửa màn hình),
+  /// mỗi thẻ rộng tối thiểu ~170px; điện thoại 2 thẻ / hàng.
+  static int perRowFor(int n, double width, bool wide) {
+    if (n <= 1) return 1;
+    final maxCols = wide ? (width / 170).floor().clamp(2, 8) : 2;
+    final rows = (n / maxCols).ceil();
+    return (n / rows).ceil();
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (ctx, c) {
-      final perRow = wide ? (cards.length >= 6 ? 6 : 4) : 2;
+      final perRow = perRowFor(cards.length, c.maxWidth, wide);
       final w = (c.maxWidth - 8 * (perRow - 1)) / perRow;
-      return Wrap(spacing: 8, runSpacing: 8, children: [
-        for (final card in cards)
-          Container(
-            width: w,
-            padding: EdgeInsets.fromLTRB(8, card['ac'] != null ? 13 : 10, 8, 10),
-            decoration: BoxDecoration(
-              color: hexColor(card['bg']) ?? Brand.cardBg,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Brand.cardBorder),
-              // vạch màu nhấn ở mép trên (border-top-color của App.py)
-              gradient: card['ac'] != null
-                  ? LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: const [0, 0.035, 0.035],
-                      colors: [hexColor(card['ac'])!, hexColor(card['ac'])!, hexColor(card['bg']) ?? Colors.white],
-                    )
-                  : null,
+      return Column(children: [
+        for (var i = 0; i < cards.length; i += perRow)
+          Padding(
+            padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
+            // cùng hàng cao bằng nhau; hàng thiếu thẻ: giữ độ rộng, căn giữa
+            child: IntrinsicHeight(
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                for (var j = i; j < math.min(i + perRow, cards.length); j++) ...[
+                  if (j > i) const SizedBox(width: 8),
+                  SizedBox(width: w, child: _card(cards[j])),
+                ],
+              ]),
             ),
-            child: Column(children: [
-              Text(card['l'] as String,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: hexColor(card['ac']) ?? hexColor(card['c']) ?? Brand.cardText,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12.5)),
-              const SizedBox(height: 4),
-              // số ngắn: to, tự co cho vừa thẻ; nội dung dài (vd "OFF: 458/1188 CH ... ON: ..."):
-              // cỡ vừa, xuống dòng — tránh chữ bị co quá nhỏ
-              () {
-                final v = card['v'] as String;
-                final color = hexColor(card['c']) ?? (card['ac'] != null ? const Color(0xFF1A202C) : Brand.cardText);
-                final long = v.length > 22 || v.contains('\n');
-                final text = Text(v,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.w800,
-                        fontSize: long ? 14 : 20,
-                        height: long ? 1.35 : null,
-                        fontFeatures: const [FontFeature.tabularFigures()]));
-                return long ? text : FittedBox(fit: BoxFit.scaleDown, child: text);
-              }(),
-              for (final s in (card['s'] as List? ?? const []))
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(s as String,
-                      textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.5, color: Brand.muted)),
-                ),
-            ]),
           ),
       ]);
     });
+  }
+
+  Widget _card(Map<String, dynamic> card) {
+    // 1 dòng, tự co chữ cho vừa thẻ (tiêu đề / dòng phụ ngắn)
+    Widget fit(Widget t) => FittedBox(fit: BoxFit.scaleDown, child: t);
+    return Container(
+      padding: EdgeInsets.fromLTRB(8, card['ac'] != null ? 13 : 10, 8, 10),
+      decoration: BoxDecoration(
+        color: hexColor(card['bg']) ?? Brand.cardBg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Brand.cardBorder),
+        // vạch màu nhấn ở mép trên (border-top-color của App.py)
+        gradient: card['ac'] != null
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0, 0.035, 0.035],
+                colors: [hexColor(card['ac'])!, hexColor(card['ac'])!, hexColor(card['bg']) ?? Colors.white],
+              )
+            : null,
+      ),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        fit(Text(card['l'] as String,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            style: TextStyle(
+                color: hexColor(card['ac']) ?? hexColor(card['c']) ?? Brand.cardText,
+                fontWeight: FontWeight.w800,
+                fontSize: 12.5))),
+        const SizedBox(height: 4),
+        // số ngắn: to, tự co cho vừa thẻ; nội dung dài (vd "OFF: 458/1188 CH ... ON: ..."):
+        // cỡ vừa, xuống dòng — tránh chữ bị co quá nhỏ
+        () {
+          final v = card['v'] as String;
+          final color = hexColor(card['c']) ?? (card['ac'] != null ? const Color(0xFF1A202C) : Brand.cardText);
+          final long = v.length > 22 || v.contains('\n');
+          final text = Text(v,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: long ? 14 : 20,
+                  height: long ? 1.35 : null,
+                  fontFeatures: const [FontFeature.tabularFigures()]));
+          return long ? text : fit(text);
+        }(),
+        for (final s in (card['s'] as List? ?? const []))
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: () {
+              final t = Text(s as String,
+                  textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.5, color: Brand.muted));
+              return (s.length <= 40 && !s.contains('\n')) ? fit(t) : t;
+            }(),
+          ),
+      ]),
+    );
   }
 }
