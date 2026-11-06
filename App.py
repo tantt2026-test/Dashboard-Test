@@ -29,6 +29,35 @@ st.set_page_config(
 )
 
 
+# Mọi ô chọn nhiều (multiselect) có thêm lựa chọn "Tất cả" ở đầu: chọn "Tất cả" = chọn hết các lựa chọn.
+# Chỉ trên Streamlit thật — app native (headless, st._rec) tự có dòng "Tất cả" trong danh sách chọn.
+_MS_ALL = 'Tất cả'
+if not hasattr(st, '_rec') and not getattr(st.multiselect, '_with_all', False):
+  _st_multiselect_orig = st.multiselect
+
+  def _multiselect_with_all(label, options=(), default=None, *a, **k):
+    opts = list(options) if options is not None else []
+    if not opts or any(str(o).strip().lower().startswith('tất cả') for o in opts):
+      return _st_multiselect_orig(label, opts, default, *a, **k)
+    fmt = k.pop('format_func', None) or str
+    k['format_func'] = lambda o: _MS_ALL if (isinstance(o, str) and o == _MS_ALL) else fmt(o)
+    res = _st_multiselect_orig(label, [_MS_ALL] + opts, default, *a, **k)
+    if any(isinstance(x, str) and x == _MS_ALL for x in (res or [])):
+      return list(opts)
+    return res
+
+  _multiselect_with_all._with_all = True
+  st.multiselect = _multiselect_with_all
+
+
+def _ms_value(key, default):
+  """Giá trị ô chọn nhiều đọc từ session_state (đổi "Tất cả" → mọi lựa chọn)."""
+  v = st.session_state.get(key, default)
+  if isinstance(v, list) and any(isinstance(x, str) and x == _MS_ALL for x in v):
+    return list(default)
+  return v
+
+
 # Streamlit fragment (1.33+): bọc phần báo cáo để widget trong report ít rerun toàn trang
 def _maybe_fragment(fn):
   try:
@@ -17264,9 +17293,7 @@ if _nav == '📊 BÁO CÁO KPI':
               label_visibility='collapsed',
           )
 
-      nhom_selected = st.session_state.get(
-          'mbs_cat_nhom_filter', [1, 2, 3, 4, 5, 6]
-      )
+      nhom_selected = _ms_value('mbs_cat_nhom_filter', [1, 2, 3, 4, 5, 6])
       if not nhom_selected:
         nhom_selected = [1, 2, 3, 4, 5, 6]
 
@@ -17564,9 +17591,7 @@ if _nav == '📊 BÁO CÁO KPI':
               label_visibility='collapsed',
           )
 
-      nhom_selected = st.session_state.get(
-          'mbs_brand_nhom_filter', [1, 2, 3, 4, 5, 6]
-      )
+      nhom_selected = _ms_value('mbs_brand_nhom_filter', [1, 2, 3, 4, 5, 6])
       if not nhom_selected:
         nhom_selected = [1, 2, 3, 4, 5, 6]
 

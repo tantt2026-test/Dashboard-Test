@@ -231,6 +231,18 @@ class _MultiSheetState extends State<_MultiSheet> {
                 ),
               ),
             const Divider(height: 1),
+            // Tất cả: chọn hết / bỏ hết các lựa chọn của ô lọc
+            CheckboxListTile(
+              dense: true,
+              value: widget.opts.isNotEmpty && widget.opts.every(_sel.contains),
+              title: const Text('Tất cả', style: TextStyle(fontWeight: FontWeight.w700)),
+              onChanged: (v) => setState(() {
+                _sel
+                  ..clear()
+                  ..addAll(v == true ? widget.opts : const <String>[]);
+              }),
+            ),
+            const Divider(height: 1),
             Flexible(
               child: ListView.builder(
                 shrinkWrap: true,
