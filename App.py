@@ -768,6 +768,19 @@ def _read_sales_excel(path):
   return df.reset_index(drop=True)
 
 
+def _norm_mcp_cols(mcp):
+  """Data_MCP mẫu mới (T11) không còn cột 'VIP MCH' — nhóm VIP (LẺ / VIP3 / VIP5 / VIPSI) nằm ở
+  'Type Outlet2' / 'Type Outlet' → tạo lại cột 'VIP MCH' cho mọi báo cáo dùng chung."""
+  if mcp is None or mcp.empty or 'VIP MCH' in mcp.columns:
+    return mcp
+  for c in ('Type Outlet2', 'Type Outlet'):
+    if c in mcp.columns and mcp[c].astype(str).str.upper().str.contains('VIP', na=False).any():
+      mcp = mcp.copy()
+      mcp['VIP MCH'] = mcp[c]
+      break
+  return mcp
+
+
 @st.cache_data(ttl=600)
 def load_main_data(_month_key='Thang10'):
   """_month_key: cache riêng theo tháng."""
@@ -803,7 +816,7 @@ def load_main_data(_month_key='Thang10'):
       df = df.drop_duplicates(subset=_dedup_cols, keep='first')
   except Exception:
     pass
-  mcp = pd.read_excel(MCP_PATH)
+  mcp = _norm_mcp_cols(pd.read_excel(MCP_PATH))
 
   rename = {}
   for c in df.columns:
