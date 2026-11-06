@@ -7804,6 +7804,33 @@ def build_summary_report(
             except Exception:
               pass
 
+    # Xem theo ngày (lọc Thứ/Chu kỳ): Doanh Số, PC BT, PC ON = số THỰC HIỆN NGÀY BC của cả team (không lọc CH
+    # theo Thứ) — khớp Báo Cáo TURNOVER / PC BT / PC ON; CT ngày = CT tháng / số ngày làm việc (đã tính ở trên)
+    if effective_thu_list:
+      def _day_th(rep_df, c_th):
+        if rep_df is None or rep_df.empty or 'Tên NVBH' not in rep_df.columns or 'Thực Hiện Ngày' not in rep_df.columns:
+          return
+        body = rep_df[~rep_df['Tên NVBH'].astype(str).str.upper().str.contains('TOTAL|TỔNG', na=False, regex=True)]
+        th_map = {' '.join(str(n).strip().lower().split()): float(pd.to_numeric(v, errors='coerce') or 0)
+                  for n, v in zip(body['Tên NVBH'], body['Thực Hiện Ngày'])}
+        for i, nv in df_out['Tên NV'].astype(str).items():
+          df_out.at[i, c_th] = int(round(th_map.get(' '.join(nv.strip().lower().split()), 0.0)))
+      try:
+        _day_th(build_turnover_report(df, report_date, _to_tgt, filter_nv)[0], 'TH DS')
+      except Exception:
+        pass
+      for _rt, _c_th in (('PC_BT', 'TH PC_BT'), ('PC_ON', 'TH PC_ON')):
+        try:
+          _day_th(build_report(df, report_date, targets, _rt, filter_nv, mcp_df=mcp_df)[0], _c_th)
+        except Exception:
+          pass
+      for i, row in df_out.iterrows():
+        for c_ct, c_th, c_pct in (('CT DS', 'TH DS', '% MTD DS'), ('CT PC_BT', 'TH PC_BT', '% MTD PC_BT'),
+                                  ('CT PC_ON', 'TH PC_ON', '% MTD PC_ON')):
+          ct_use = float(row.get(c_ct, 0) or 0)
+          th0 = float(df_out.at[i, c_th] or 0)
+          df_out.at[i, c_pct] = f'{round(th0 / ct_use * 100, 1)}%' if ct_use else '0%'
+
     tot_v_tgt = int(df_out['VIP MCH'].sum())
     tot_v_act = int(df_out['Đã Mua (VIP)'].sum())
     tot_v_pct = round(tot_v_act / tot_v_tgt * 100, 1) if tot_v_tgt else 0
