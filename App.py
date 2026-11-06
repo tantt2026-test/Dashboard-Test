@@ -6745,12 +6745,13 @@ def tag_all_orders_with_combo_flag(df_day, mcp_df=None):
   return d
 
 
-def combo_day_targets(df_master, df_visit, report_date):
-  """MT Ngày Combo: số CH trong DSKH Combo (OFF hoặc ON) có trên lịch VT đúng ngày BC → {Tên NV: số CH}."""
+def combo_day_targets(df_master, df_visit, report_date, as_set=False):
+  """MT Ngày Combo: số CH trong DSKH Combo (OFF hoặc ON) có trên lịch VT đúng ngày BC → {Tên NV: số CH}.
+  as_set=True → tập Mã CH đó (lọc 'Đã mua' chỉ tính CH đúng tuyến ngày)."""
   if (df_master is None or df_master.empty or df_visit is None or df_visit.empty
       or 'outlet_code' not in df_master.columns or 'Tên NV' not in df_master.columns
       or 'Mã Cửa hàng' not in df_visit.columns):
-    return {}
+    return set() if as_set else {}
   rd = report_date.date() if hasattr(report_date, 'date') else report_date
   if '_plan_date' in df_visit.columns:
     plan = df_visit['_plan_date']
@@ -6758,6 +6759,8 @@ def combo_day_targets(df_master, df_visit, report_date):
     plan = pd.to_datetime(df_visit.get('Ngày lịch VT'), dayfirst=True, errors='coerce').dt.date
   on_day = set(df_visit.loc[plan == rd, 'Mã Cửa hàng'].map(_norm_code))
   m = df_master[df_master['outlet_code'].map(_norm_code).isin(on_day)]
+  if as_set:
+    return set(m['outlet_code'].map(_norm_code))
   return m.groupby(m['Tên NV'].astype(str).str.strip())['outlet_code'].nunique().to_dict()
 
 
@@ -7329,18 +7332,26 @@ def build_summary_report(
       df_on_sub['MA'] = df_on_sub[c_ma_on].astype(str).str.strip()
       on_target_map = df_on_sub.groupby('NV')['MA'].nunique().to_dict()
 
-  # Combo OFF/ON THEO NGÀY BC (như MT Ngày / Phát sinh ngày của Báo Cáo ĐH Combo):
-  # CT = số CH trong DSKH Combo có lịch VT đúng ngày BC; TH = số CH (không phải số suất) có ĐH Combo trong ngày BC
+  # Combo OFF/ON — xem theo ngày (có lọc Thứ/Chu kỳ): như MT Ngày / Phát sinh ngày của Báo Cáo ĐH Combo:
+  # CT = số CH trong DSKH Combo có lịch VT đúng ngày BC; TH = số CH (không phải số suất) có ĐH Combo trong ngày BC.
+  # Bỏ lọc Thứ (xem cả tháng): CT = cả DSKH Combo, TH = số CH có ĐH Combo từ đầu tháng (MTD)
+  _combo_day = bool(effective_thu_list)
+  _off_route = _on_route = None
   try:
+    if not _combo_day:
+      raise StopIteration
     _vis_c = load_visit_schedule()
     off_target_map = combo_day_targets(df_combo_off_raw, _vis_c, report_date)
     on_target_map = combo_day_targets(df_combo_on_raw, _vis_c, report_date)
+    # Đã mua chỉ tính CH thuộc KH theo tuyến ngày (DSKH Combo + lịch VT ngày BC), bỏ ĐH Combo trái tuyến
+    _off_route = combo_day_targets(df_combo_off_raw, _vis_c, report_date, as_set=True)
+    _on_route = combo_day_targets(df_combo_on_raw, _vis_c, report_date, as_set=True)
   except Exception:
-    pass
+    _off_route = _on_route = None
   _rd_c = report_date.date() if hasattr(report_date, 'date') else report_date
   off_actual_dict, on_actual_dict = {}, {}
   try:
-    combo_df = tag_combo_orders_t10(df_mtd[df_mtd['date'] == _rd_c], mcp_df=mcp_df)
+    combo_df = tag_combo_orders_t10(df_mtd[df_mtd['date'] == _rd_c] if _combo_day else df_mtd, mcp_df=mcp_df)
     if combo_df is not None and not combo_df.empty and 'Tên NVBH' in combo_df.columns and 'Mã CH' in combo_df.columns:
       if 'channel' in combo_df.columns:
         off_sub = combo_df[combo_df['channel'].astype(str).str.upper() == 'OFF']
@@ -7348,6 +7359,9 @@ def build_summary_report(
       else:
         off_sub = combo_df
         on_sub = pd.DataFrame()
+      if _off_route is not None:
+        off_sub = off_sub[off_sub['Mã CH'].map(_norm_code).isin(_off_route)]
+        on_sub = on_sub[on_sub['Mã CH'].map(_norm_code).isin(_on_route)] if not on_sub.empty else on_sub
       if not off_sub.empty:
         off_actual_dict = off_sub.groupby('Tên NVBH')['Mã CH'].nunique().to_dict()
       if not on_sub.empty:
