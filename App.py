@@ -1689,7 +1689,8 @@ def filter_df_by_nv(df, col, filter_nv):
 def filter_by_thu_multi(df, col_thu, f_thu_list):
   if not f_thu_list or not col_thu:
     return df
-  thu_s = df[col_thu].astype(str).str.strip()
+  # Thứ dạng số thực ('4.0', '25.0' — vd Data_Brand mẫu mới) → '4', '25'
+  thu_s = df[col_thu].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
   mask = pd.Series(False, index=df.index)
 
   mapping_rules = {
@@ -7450,7 +7451,8 @@ def build_summary_report(
     )
     c_mtd_brand = find_col(
         brand_filtered,
-        ['Doanh số thực đạt của brand', 'Doanh số thực đạt brand'],
+        ['Doanh số thực đạt của brand', 'Doanh số thực đạt brand',
+         'Doanh số thực đạt của CAT/BRAND'],  # Hội Viên Tết 2027 (T11)
     )
 
     if c_nv_brand and c_ma_brand:
