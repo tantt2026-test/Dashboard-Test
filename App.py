@@ -11410,7 +11410,7 @@ def build_rpt_sellout_maps(df_rpt, report_date):
   return by_cat, by_nv_cat
 
 def build_perf_by_month(df_raw, filter_nv=None, n_months=4, df_rpt=None, report_date=None):
-  """4 tháng gần nhất: bảng CAT / Target / SellOut / %MTD.
+  """Các tháng có data (n_months: giới hạn số tháng gần nhất, None = tất cả): bảng CAT / Target / SellOut / %MTD.
 
   Tháng T (tháng report_date): SellOut lấy từ RPT (DanhSachChiTietDonHang).
   Các tháng trước: SellOut lấy từ file TARGETACTUAL (cột SO).
@@ -11441,7 +11441,8 @@ def build_perf_by_month(df_raw, filter_nv=None, n_months=4, df_rpt=None, report_
     except Exception:
       return (0, 0)
   months = sorted(d['_month'].dropna().unique().tolist(), key=_mk, reverse=True)
-  months = months[:n_months]
+  if n_months:
+    months = months[:n_months]
   # RPT sellout tháng T
   cur_m = _month_key_from_date(report_date) if report_date is not None else ''
   rpt_by_cat, _ = build_rpt_sellout_maps(df_rpt, report_date)
@@ -18828,7 +18829,8 @@ if _nav == '📊 BÁO CÁO KPI':
           'Upload lên GitHub rồi **Xóa Cache & Reload**.'
       )
     else:
-      data_by_m, months = build_perf_by_month(df_perf, filter_nv, n_months=4, df_rpt=df, report_date=report_date)
+      # hiện tất cả các tháng có data trong file TARGETACTUAL (mới → cũ)
+      data_by_m, months = build_perf_by_month(df_perf, filter_nv, n_months=None, df_rpt=df, report_date=report_date)
       if not months:
         st.info('Không có dữ liệu tháng để hiển thị.')
       else:
