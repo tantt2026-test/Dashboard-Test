@@ -1175,10 +1175,25 @@ def _get_turnover_targets_m(month_key):
     return {}
 
 
-def get_turnover_targets_by_name():
-  """Map SM name (normalized) → Target Turnover từ Target_KPI (cùng nguồn báo cáo TURNOVER)."""
-  path = _get_kpi_path()
-  if not os.path.exists(path):
+def _kpi_path_for_month(month_label):
+  """'MM/YYYY' → data/<folder tháng đó>/Target_KPI.xlsx (None nếu tháng không có trong MONTH_OPTIONS / chưa có file)."""
+  try:
+    mm, yy = [int(x) for x in str(month_label).strip().split('/')]
+  except Exception:
+    return None
+  for k, v in MONTH_OPTIONS.items():
+    if int(v.get('month', 0)) == mm and int(v.get('year', 0)) == yy:
+      p = os.path.join('data', v.get('folder', k), 'Target_KPI.xlsx')
+      return p if os.path.exists(p) else None
+  return None
+
+
+def get_turnover_targets_by_name(month_label=None):
+  """Map SM name (normalized) → Target Turnover từ Target_KPI (cùng nguồn báo cáo TURNOVER).
+  month_label 'MM/YYYY': lấy Target_KPI CỦA ĐÚNG THÁNG ĐÓ (không có file → {} = giữ TARGET SO gốc);
+  không truyền → tháng đang chọn."""
+  path = _get_kpi_path() if month_label is None else _kpi_path_for_month(month_label)
+  if not path or not os.path.exists(path):
     return {}
   try:
     kpi = pd.read_excel(path, header=None).iloc[2:]
@@ -1202,6 +1217,12 @@ def get_turnover_targets_by_name():
       if not name or name.lower() in ('nan', 'none'):
         continue
       val = float(tgt)
+      if month_label is not None:
+        # theo tháng: 1 NV nhiều dòng Turnover (vd Target_KPI T09 dán thêm khối chỉ tiêu tháng sau) → giữ dòng đầu
+        if name not in out:
+          out[name] = val
+          out[name.lower()] = val
+        continue
       prev = float(out.get(name, 0) or 0)
       if val >= prev:
         out[name] = val
@@ -11381,9 +11402,9 @@ def build_perf_by_month(df_raw, filter_nv=None, n_months=4, df_rpt=None, report_
     # sort by Target desc, blank last
     g['_ord'] = g['CAT'].apply(lambda x: 1 if str(x).lower() in ('(blank)', 'blank', 'nan') else 0)
     g = g.sort_values(['_ord', 'Target'], ascending=[True, False]).drop(columns=['_ord'])
-    # Căn Target ngành theo tổng Target Turnover (đúng như TURNOVER)
+    # Căn Target ngành theo tổng Target Turnover CỦA THÁNG m (đúng như TURNOVER tháng đó)
     try:
-      _to_by_name = get_turnover_targets_by_name()
+      _to_by_name = get_turnover_targets_by_name(m)
       if _to_by_name:
         if filter_nv:
           names = [str(x).strip() for x in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
@@ -11693,9 +11714,9 @@ def build_perf_nv_matrix(df_raw, month, filter_nv=None, df_rpt=None, report_date
   out = pd.DataFrame(rows)
   if out.empty:
     return out, cats
-  # Căn TARGET theo Target Turnover (Target_KPI) — nguồn đúng như Báo Cáo TURNOVER
+  # Căn TARGET theo Target Turnover (Target_KPI) CỦA THÁNG month — nguồn đúng như Báo Cáo TURNOVER
   try:
-    _to_by_name = get_turnover_targets_by_name()
+    _to_by_name = get_turnover_targets_by_name(month)
     if _to_by_name and not out.empty:
       for i, row in out.iterrows():
         nv = str(row.get('Tên NVBH', '')).strip()
