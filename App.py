@@ -16198,15 +16198,8 @@ nv_list = sorted(
 
 vn_time = dt.datetime.utcnow() + dt.timedelta(hours=7)
 _default_t1 = (vn_time - timedelta(days=1)).date()
-# Mặc định theo tháng báo cáo đang chạy: T10/2026
-_REPORT_MONTH_START = date(2026, 10, 1)
-_REPORT_MONTH_END = date(2026, 10, 31)
-if _default_t1 < _REPORT_MONTH_START:
-  default_date_t_minus_1 = _REPORT_MONTH_START
-elif _default_t1 > _REPORT_MONTH_END:
-  default_date_t_minus_1 = _REPORT_MONTH_END
-else:
-  default_date_t_minus_1 = _default_t1
+# Ngày mặc định = T-1 (giờ VN). Kẹp vào tháng đang xem làm ở dưới (tháng cũ → ngày cuối tháng đó)
+default_date_t_minus_1 = _default_t1
 
 
 def get_timegone_stats(target_date):
@@ -19679,8 +19672,10 @@ if _nav == '📊 BÁO CÁO KPI':
       if not _miss_all.empty and 'Ngày ĐH' in _miss_all.columns:
         _dd = pd.to_datetime(_miss_all['Ngày ĐH'].astype(str).str[:10], dayfirst=True, errors='coerce').dropna()
         _miss_days = [x.strftime('%d/%m/%Y') for x in sorted(set(_dd.dt.normalize()), reverse=True)]
+      # mặc định chọn sẵn ngày T-1 (nếu ngày đó có đơn); bỏ chọn = cả tháng
+      _t1 = default_date_t_minus_1.strftime('%d/%m/%Y')
       miss_f_ngay = st.multiselect(
-          'miss_ngay', _miss_days, default=[], placeholder='Tất cả ngày',
+          'miss_ngay', _miss_days, default=[_t1] if _t1 in _miss_days else [], placeholder='Tất cả ngày',
           key='combo_miss_ngay_list', label_visibility='collapsed',
       )
     with f5:
