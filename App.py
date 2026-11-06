@@ -19610,29 +19610,16 @@ if _nav == '📊 BÁO CÁO KPI':
       )
     f4, f5, f6 = st.columns(3)
     with f4:
-      st.markdown('<p class="filter-label">📅 Ngày ĐH (lịch tháng)</p>', unsafe_allow_html=True)
-      _rd = report_date.date() if hasattr(report_date, 'date') else report_date
-      _ms = date(_rd.year, _rd.month, 1)
-      try:
-        miss_f_ngay = st.date_input(
-            'miss_ngay',
-            value=(_ms, _rd),
-            min_value=_ms,
-            max_value=_rd,
-            format='DD/MM/YYYY',
-            key='combo_miss_ngay',
-            label_visibility='collapsed',
-        )
-      except Exception:
-        miss_f_ngay = st.date_input(
-            'miss_ngay',
-            value=_rd,
-            min_value=_ms,
-            max_value=_rd,
-            format='DD/MM/YYYY',
-            key='combo_miss_ngay',
-            label_visibility='collapsed',
-        )
+      st.markdown('<p class="filter-label">📅 Ngày ĐH</p>', unsafe_allow_html=True)
+      # Chọn ngày như ô chọn ngày xem báo cáo (chọn nhiều; trống = cả tháng tới ngày BC) — app native lọc được
+      _miss_days = []
+      if not _miss_all.empty and 'Ngày ĐH' in _miss_all.columns:
+        _dd = pd.to_datetime(_miss_all['Ngày ĐH'].astype(str).str[:10], dayfirst=True, errors='coerce').dropna()
+        _miss_days = [x.strftime('%d/%m/%Y') for x in sorted(set(_dd.dt.normalize()), reverse=True)]
+      miss_f_ngay = st.multiselect(
+          'miss_ngay', _miss_days, default=[], placeholder='Tất cả ngày',
+          key='combo_miss_ngay_list', label_visibility='collapsed',
+      )
     with f5:
       st.markdown('<p class="filter-label">🏷️ L1</p>', unsafe_allow_html=True)
       miss_f_l1 = st.multiselect(
@@ -19652,8 +19639,10 @@ if _nav == '📊 BÁO CÁO KPI':
         out = out[out['Mã KH'].astype(str).str.strip().isin(miss_f_ma)]
       if miss_f_ten and 'Tên KH' in out.columns:
         out = out[out['Tên KH'].astype(str).str.strip().isin(miss_f_ten)]
-      # Ngày ĐH: lịch tháng (range hoặc 1 ngày)
-      if miss_f_ngay is not None and 'Ngày ĐH' in out.columns:
+      # Ngày ĐH: các ngày đã chọn (dd/mm/yyyy, ô Ngày ĐH có thể kèm giờ)
+      if miss_f_ngay and isinstance(miss_f_ngay, list) and isinstance(miss_f_ngay[0], str) and 'Ngày ĐH' in out.columns:
+        out = out[out['Ngày ĐH'].astype(str).str.strip().str[:10].isin(miss_f_ngay)]
+      elif miss_f_ngay and not isinstance(miss_f_ngay, list) and 'Ngày ĐH' in out.columns:
         try:
           if isinstance(miss_f_ngay, (list, tuple)) and len(miss_f_ngay) == 2:
             d0, d1 = miss_f_ngay[0], miss_f_ngay[1]
