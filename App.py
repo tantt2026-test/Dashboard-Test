@@ -8761,7 +8761,9 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
         '% Đạt': pct_dat,
         # Hội Viên Tết 2027: đủ 6 nhóm (Nhóm 1 = cột KH Đạt (N1), đổi tên khi hiển thị) + Đạt NV (số CH đạt nhiệm vụ)
         **({**{f'Nhóm {k}': int((g['Nhóm'] == k).sum()) for k in range(2, 7)},
-            'Đạt NV': int(g['_nv_ok'].sum())} if t11 else {'KH N2': n2, 'KH N5': n5}),
+            'Đạt NV': int(g['_nv_ok'].sum()),
+            '% Đạt NV': round(int(g['_nv_ok'].sum()) / total * 100, 1) if total else 0.0}
+           if t11 else {'KH N2': n2, 'KH N5': n5}),
         'Actual': act,
         'Target': tgt,
         '% TH': pct_th,
@@ -8776,7 +8778,9 @@ def build_mbs_nv_summary_asof(df_detail, df_rpt, report_date, filter_nv=None):
       'Tổng KH': int(out['Tổng KH'].sum()),
       'KH Đạt (N1)': int(out['KH Đạt (N1)'].sum()),
       '% Đạt': round(out['KH Đạt (N1)'].sum() / out['Tổng KH'].sum() * 100, 1) if out['Tổng KH'].sum() else 0.0,
-      **({c: int(out[c].sum()) for c in [f'Nhóm {k}' for k in range(2, 7)] + ['Đạt NV']} if t11 else
+      **({**{c: int(out[c].sum()) for c in [f'Nhóm {k}' for k in range(2, 7)] + ['Đạt NV']},
+          '% Đạt NV': round(out['Đạt NV'].sum() / out['Tổng KH'].sum() * 100, 1) if out['Tổng KH'].sum() else 0.0}
+         if t11 else
          {'KH N2': int(out['KH N2'].sum()), 'KH N5': int(out['KH N5'].sum())}),
       'Actual': float(out['Actual'].sum()),
       'Target': float(out['Target'].sum()),
@@ -8857,7 +8861,7 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
     return ''
   cols = [c for c in [
       'STT', 'Tên NVBH', 'Tổng KH', 'KH Đạt (N1)', 'Nhóm 1', '% Đạt',
-      'KH N2', 'KH N5', 'Nhóm 2', 'Nhóm 3', 'Nhóm 4', 'Nhóm 5', 'Nhóm 6', 'Đạt NV',
+      'KH N2', 'KH N5', 'Nhóm 2', 'Nhóm 3', 'Nhóm 4', 'Nhóm 5', 'Nhóm 6', 'Đạt NV', '% Đạt NV',
       'Actual', 'Target', '% TH', 'Điểm thưởng DK',
   ] if c in df.columns]
 
@@ -8930,7 +8934,7 @@ def render_mbs_nv_summary_html(df, title='TỔNG HỢP THEO NV — CHỐT ĐẠT
       elif c == 'Tên NVBH':
         sticky = sticky_ten_c
 
-      if c in ('% Đạt', '% TH'):
+      if c in ('% Đạt', '% TH', '% Đạt NV'):
         try:
           v = float(str(raw).replace('%', '').replace(',', '.').strip())
           val_s = f'{v:.1f}%'
