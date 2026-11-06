@@ -3914,9 +3914,27 @@ def _weekly_cur():
   return int(cfg.get('year', 2026)), int(cfg.get('month', 10))
 
 
-def _weekly_months(n=5):
-  """n tháng gần nhất, kết thúc ở tháng đang chọn (T10 → 06..10/2026, T11 → 07..11/2026)."""
+def _weekly_months(n=None):
+  """Các tháng kết thúc ở tháng đang chọn. n=None: từ tháng sớm nhất có trong file bán hàng lịch sử
+  (data-2) tới tháng đang chọn, tối thiểu 5 / tối đa 12 tháng (T11 + data-2 từ 06/2026 → 06..11/2026)."""
   y, m = _weekly_cur()
+  if n is None:
+    n = 5
+    try:
+      _h = load_weekly_sales()
+      _c = next((c for c in _h.columns if 'MONTH' in str(c).upper()), None)
+      if _c is not None:
+        _ms = []
+        for v in _h[_c].dropna().astype(str).unique():
+          try:
+            mm, yy = [int(x) for x in v.strip().split('/')[:2]]
+            _ms.append(yy * 12 + mm)
+          except Exception:
+            pass
+        if _ms:
+          n = max(5, min(12, (y * 12 + m) - min(_ms) + 1))
+    except Exception:
+      pass
   out = []
   for _ in range(n):
     out.append((y, m))
