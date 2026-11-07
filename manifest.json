@@ -1,0 +1,48 @@
+{
+ "schema": 1,
+ "generated_at": "2026-11-07T14:10:37+07:00",
+ "source_commit": "072e9bfa9d4d79ef083203272ad9ca77fe8b00a3",
+ "team": "tan",
+ "data_sc": null,
+ "months": [
+  {
+   "key": "Thang09",
+   "label": "Tháng 09/2026",
+   "year": 2026,
+   "month": 9
+  },
+  {
+   "key": "Thang10",
+   "label": "Tháng 10/2026",
+   "year": 2026,
+   "month": 10
+  },
+  {
+   "key": "Thang11",
+   "label": "Tháng 11/2026",
+   "year": 2026,
+   "month": 11
+  }
+ ],
+ "reports": [
+  "turnover",
+  "kpi"
+ ],
+ "kpi_months": [
+  {
+   "key": "Thang09",
+   "label": "Tháng 09/2026",
+   "default_date": "2026-09-30"
+  },
+  {
+   "key": "Thang10",
+   "label": "Tháng 10/2026",
+   "default_date": "2026-10-31"
+  },
+  {
+   "key": "Thang11",
+   "label": "Tháng 11/2026",
+   "default_date": "2026-11-06"
+  }
+ ]
+}
