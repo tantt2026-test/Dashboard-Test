@@ -7154,8 +7154,8 @@ def _render_detail_slicers_and_tables(
   df_src2 = _filter_df_for_kpi_order_detail(df_src, kpi_type) if kpi_type else df_src
 
   # Build full (đầu tháng → ngày BC) rồi lọc bằng slicer.
-  # App native (headless, st._rec): chỉ ngày BC và chỉ ở ngày data mới nhất — xuất cả tháng cho mọi ngày
-  # quá nặng (~5MB/ngày/báo cáo, repo reports phình vài GB).
+  # App native (headless, st._rec): chỉ ngày BC; ngày data mới nhất xuất sẵn, ngày cũ tính khi bật ô xem
+  # (xuất cả tháng cho mọi ngày quá nặng: ~5MB/ngày/báo cáo, repo reports phình vài GB).
   _rd_det = report_date.date() if hasattr(report_date, 'date') else report_date
   _dl = None
   if hasattr(st, '_rec'):
@@ -7166,9 +7166,12 @@ def _render_detail_slicers_and_tables(
     except Exception:
       _maxd = _rd_det
     if _rd_det < _maxd:
-      st.caption(f'📋 Chi tiết đơn hàng / sản phẩm trên app chỉ có ở ngày data mới nhất '
-                 f'({_maxd.strftime("%d/%m/%Y")}) — chọn ngày đó để xem.')
-      return
+      # Ngày cũ: không xuất sẵn — bật ô này thì app nhờ GitHub tính (khoá kết thúc '__ondemand':
+      # filters_probe không tính sẵn biến thể, app gửi yêu cầu tính khi người dùng bật)
+      if not st.toggle(f'📋 Xem chi tiết ĐH / SP ngày {_rd_det.strftime("%d/%m/%Y")}', value=False,
+                       key=f'{key_prefix}__ondemand'):
+        st.caption('Bật ô trên để xem chi tiết đơn hàng / sản phẩm ngày này (GitHub tính khoảng 1–2 phút).')
+        return
   df_ord_all = build_turnover_order_detail(
       df_src2, report_date, filter_nv, l1_filter=l1_fixed, date_list=_dl
   )

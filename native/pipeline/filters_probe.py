@@ -533,6 +533,9 @@ class Prober:
         key, kind = w['key'], w['kind']
         dflt = w.get('value')
         opts = w.get('options') or []
+        if str(key).endswith('__ondemand'):
+            # ô "tính khi cần" (vd xem chi tiết ĐH/SP ngày cũ): không xuất sẵn, app nhờ GitHub tính
+            return {'mode': 'unsupported', 'ondemand': True}
         if self.over_budget():
             return self.guess(w, default)
         try:

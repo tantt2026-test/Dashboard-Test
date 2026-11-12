@@ -129,7 +129,7 @@ class StreamlitWidget extends StatelessWidget {
           child: Text(label,
               style: const TextStyle(color: _labelColor, fontWeight: FontWeight.w700, fontSize: 12.5)),
         ),
-      Opacity(opacity: mode == 'unsupported' ? 0.5 : 1, child: control),
+      Opacity(opacity: mode == 'unsupported' && (w['f'] as Map?)?['ondemand'] != true ? 0.5 : 1, child: control),
     ]);
   }
 }
