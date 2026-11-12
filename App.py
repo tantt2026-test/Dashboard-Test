@@ -453,6 +453,37 @@ st.markdown(
         }
         .mbs-card-title { font-size: 10px; margin-bottom: 2px; }
         .mbs-card-kh { font-size: 16px; }
+
+        /* Auto-scale bảng KPI theo màn hình */
+        .custom-kpi-table-autoscale {
+          width: 100% !important;
+          max-width: 100% !important;
+          table-layout: auto !important;
+        }
+        .custom-kpi-table-autoscale th,
+        .custom-kpi-table-autoscale td {
+          font-size: clamp(9px, 1.35vw, 13px) !important;
+          padding: clamp(3px, 0.45vw, 8px) clamp(4px, 0.5vw, 10px) !important;
+          white-space: nowrap;
+        }
+        .custom-kpi-table-autoscale th {
+          font-size: clamp(9px, 1.25vw, 12px) !important;
+        }
+        div:has(> .custom-kpi-table-autoscale),
+        div:has(> table.custom-kpi-table) {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          max-width: 100%;
+        }
+        table.custom-kpi-table {
+          font-size: clamp(9px, 1.35vw, 13px) !important;
+        }
+        table.custom-kpi-table th,
+        table.custom-kpi-table td {
+          font-size: inherit !important;
+          padding: clamp(3px, 0.45vw, 8px) clamp(4px, 0.5vw, 10px) !important;
+        }
+
         .mbs-card-kh span { font-size: 11px; }
         .mbs-card-pct { font-size: 10px; margin: 1px 0 4px 0; }
         .mbs-card-footer { font-size: 10px; padding-top: 4px; }
@@ -8810,7 +8841,7 @@ def render_visit_html_table(df):
   th_base = (
       'background-color:#1a365d !important;color:#ffffff !important;'
       'font-weight:800 !important;text-align:center !important;'
-      'border:1px solid #2b6cb0 !important;padding:6px 8px;font-size:11px;'
+      'border:1px solid #2b6cb0 !important;padding:clamp(3px,0.45vw,8px) clamp(4px,0.5vw,10px);font-size:clamp(9px,1.25vw,12px);'
       'white-space:nowrap;'
   )
   sticky_stt_h = (
@@ -12654,9 +12685,9 @@ def render_html_table(df, freeze_cols=None):
   )
 
   html = [
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px;">',
-      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
-      'width:max-content;min-width:100%;">',
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px;max-width:100%;">',
+      '<table class="custom-kpi-table custom-kpi-table-autoscale" style="border-collapse:separate;border-spacing:0;'
+      'width:100%;min-width:100%;table-layout:auto;">',
       '<thead><tr>',
   ]
   for col in cols:
@@ -20359,7 +20390,7 @@ def build_combo_miss_summary(df_miss_off, df_miss_on):
 
 
 
-def render_combo_matrix_html(df):
+def render_combo_matrix_html(df, kenh="Total"):
   """Matrix Combo — cấu trúc 2 tầng OFF/ON, style giống bảng Trưng Bày."""
   if df is None or df.empty:
     return '<p style="color:#888;">Không có dữ liệu</p>'
@@ -20446,27 +20477,39 @@ def render_combo_matrix_html(df):
       'font-size:12px;white-space:nowrap;'
   )
 
+  # Xác định kênh hiển thị
+  _show_off = kenh in ('Total', 'Kênh OFF', 'OFF')
+  _show_on = kenh in ('Total', 'Kênh ON', 'ON')
+  # Nếu df chỉ còn cột một kênh thì auto detect
+  _cols = set(str(c) for c in d.columns)
+  if not any('(OFF)' in c for c in _cols):
+    _show_off = False
+  if not any('(ON)' in c for c in _cols):
+    _show_on = False
+  if not _show_off and not _show_on:
+    _show_off = _show_on = True
+
   html = [
-      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px;">',
-      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
-      'width:max-content;min-width:100%;">',
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px;max-width:100%;">',
+      '<table class="custom-kpi-table custom-kpi-table-autoscale" style="border-collapse:separate;border-spacing:0;'
+      'width:100%;max-width:100%;min-width:100%;">',
       '<thead>',
-      # Row 1
       '<tr>',
       f'<th rowspan="2" style="{th_base}position:sticky;left:0;z-index:9;'
       f'min-width:{stt_w}px;max-width:{stt_w}px;{sh}">STT</th>',
       f'<th rowspan="2" style="{th_base}position:sticky;left:{stt_w}px;z-index:9;'
       f'min-width:{nv_w}px;max-width:{nv_w}px;{sh}">Tên NVBH</th>',
-      f'<th colspan="10" style="{th_base}">Kênh OFF</th>',
-      f'<th colspan="10" style="{th_base}">Kênh ON</th>',
-      '</tr>',
-      # Row 2
-      '<tr>',
   ]
-  sub_cols = [
+  if _show_off:
+    html.append(f'<th colspan="10" style="{th_base}">Kênh OFF</th>')
+  if _show_on:
+    html.append(f'<th colspan="10" style="{th_base}">Kênh ON</th>')
+  html.append('</tr><tr>')
+  sub_one = [
       'Target', 'MT Ngày', 'Phát sinh<br>Ngày', 'MTD CH', '% MTD', 'Suất Ngày', 'Suất MTD',
       'Chỉ Tiêu DS', 'TH DS', '% DS',
-  ] * 2
+  ]
+  sub_cols = ([] if not _show_off else sub_one) + ([] if not _show_on else sub_one)
   for c in sub_cols:
     html.append(f'<th style="{th_base}">{c}</th>')
   html.append('</tr></thead><tbody>')
@@ -20486,29 +20529,37 @@ def render_combo_matrix_html(df):
     stt = str(r.get('STT', ''))
     nv = str(r.get('Tên NVBH', ''))
 
-    vals = [
-        fmt_num(g(r, 'Target (OFF)')),
-        fmt_num(g(r, 'MT Ngày (OFF)')),
-        fmt_num(g(r, 'Phát sinh Ngày (OFF)')),
-        fmt_num(g(r, 'MTD (OFF)')),
-        fmt_pct(g(r, '% MTD (OFF)', default='0%')),
-        fmt_num(g(r, 'Suất Ngày (OFF)')),
-        fmt_num(g(r, 'Suất MTD (OFF)')),
-        fmt_num(g(r, 'Chỉ Tiêu (OFF)')),
-        fmt_num(g(r, 'TH (OFF)')),
-        fmt_pct(g(r, '% DS (OFF)', default='0%')),
-        fmt_num(g(r, 'Target (ON)')),
-        fmt_num(g(r, 'MT Ngày (ON)')),
-        fmt_num(g(r, 'Phát sinh Ngày (ON)')),
-        fmt_num(g(r, 'MTD (ON)')),
-        fmt_pct(g(r, '% MTD (ON)', default='0%')),
-        fmt_num(g(r, 'Suất Ngày (ON)')),
-        fmt_num(g(r, 'Suất MTD (ON)')),
-        fmt_num(g(r, 'Chỉ Tiêu (ON)')),
-        fmt_num(g(r, 'TH (ON)')),
-        fmt_pct(g(r, '% DS (ON)', default='0%')),
-    ]
-    pct_idxs = {4, 9, 14, 19}  # % MTD OFF, % DS OFF, % MTD ON, % DS ON
+    vals = []
+    pct_idxs = set()
+    if _show_off:
+      vals.extend([
+          fmt_num(g(r, 'Target (OFF)')),
+          fmt_num(g(r, 'MT Ngày (OFF)')),
+          fmt_num(g(r, 'Phát sinh Ngày (OFF)')),
+          fmt_num(g(r, 'MTD (OFF)')),
+          fmt_pct(g(r, '% MTD (OFF)', default='0%')),
+          fmt_num(g(r, 'Suất Ngày (OFF)')),
+          fmt_num(g(r, 'Suất MTD (OFF)')),
+          fmt_num(g(r, 'Chỉ Tiêu (OFF)')),
+          fmt_num(g(r, 'TH (OFF)')),
+          fmt_pct(g(r, '% DS (OFF)', default='0%')),
+      ])
+      pct_idxs.update({4, 9})
+    if _show_on:
+      base = len(vals)
+      vals.extend([
+          fmt_num(g(r, 'Target (ON)')),
+          fmt_num(g(r, 'MT Ngày (ON)')),
+          fmt_num(g(r, 'Phát sinh Ngày (ON)')),
+          fmt_num(g(r, 'MTD (ON)')),
+          fmt_pct(g(r, '% MTD (ON)', default='0%')),
+          fmt_num(g(r, 'Suất Ngày (ON)')),
+          fmt_num(g(r, 'Suất MTD (ON)')),
+          fmt_num(g(r, 'Chỉ Tiêu (ON)')),
+          fmt_num(g(r, 'TH (ON)')),
+          fmt_pct(g(r, '% DS (ON)', default='0%')),
+      ])
+      pct_idxs.update({base + 4, base + 9})
 
     html.append('<tr>')
     # STT sticky
@@ -26338,7 +26389,25 @@ if _nav == '📊 BÁO CÁO KPI':
       set_color_moc_for_kpi('COMBO', total_pct=_combo_moc)
     except Exception:
       pass
-    st.markdown(render_combo_matrix_html(df_combo), unsafe_allow_html=True)
+
+    # Nút chọn kênh: OFF / ON / Total
+    _combo_kenh = st.radio(
+        'Kênh hiển thị',
+        options=['Total', 'Kênh OFF', 'Kênh ON'],
+        index=0,
+        horizontal=True,
+        key='combo_kenh_filter',
+    )
+    _df_combo_view = df_combo.copy()
+    if _combo_kenh == 'Kênh OFF':
+      _keep = [c for c in _df_combo_view.columns if c in ('STT', 'Tên NVBH', 'Tên NV')
+               or '(OFF)' in str(c) or str(c).endswith(' OFF')]
+      _df_combo_view = _df_combo_view[[c for c in _df_combo_view.columns if c in _keep]]
+    elif _combo_kenh == 'Kênh ON':
+      _keep = [c for c in _df_combo_view.columns if c in ('STT', 'Tên NVBH', 'Tên NV')
+               or '(ON)' in str(c) or str(c).endswith(' ON')]
+      _df_combo_view = _df_combo_view[[c for c in _df_combo_view.columns if c in _keep]]
+    st.markdown(render_combo_matrix_html(_df_combo_view, kenh=_combo_kenh), unsafe_allow_html=True)
 
     # Chi tiết đơn hàng Combo phát sinh đúng ngày đang chọn, format giống Báo Cáo Hiệu Suất.
     df_combo_orders = build_combo_orders_detail(
