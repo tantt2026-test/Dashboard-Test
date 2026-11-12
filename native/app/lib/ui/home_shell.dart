@@ -17,7 +17,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.9';
+const appVersion = '1.7.10';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -396,7 +396,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         : IconButton(icon: const Icon(Icons.menu), onPressed: () => _scaffold.currentState?.openDrawer());
 
     Widget page;
-    if (_code == 'TURNOVER' || _manifest == null || _kpiMonth == null) {
+    // TURNOVER: dùng bản App.py xuất (giống hệt Streamlit: bảng DS theo nhóm VIP, chi tiết ĐH/SP…) khi tháng có;
+    // màn Turnover tự tính của app chỉ còn là dự phòng (chưa có data KPI / mất mạng lúc đầu)
+    final kpiTurnover = _idx?.reports.any((r) => r.code == 'TURNOVER') ?? false;
+    if ((_code == 'TURNOVER' && !kpiTurnover) || _manifest == null || _kpiMonth == null) {
       page = TurnoverPage(
           key: _keyFor('to-$_refreshTick-${ReportRepository.team}'),
           repo: widget.repo,

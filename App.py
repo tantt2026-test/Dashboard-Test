@@ -7196,6 +7196,10 @@ def _render_detail_slicers_and_tables(
       _maxd = _maxd.date() if hasattr(_maxd, 'date') and callable(_maxd.date) else _maxd
     except Exception:
       _maxd = _rd_det
+    # xuất sẵn từ ngày T-1 (ngày app mở mặc định) tới ngày data mới nhất
+    _t1 = globals().get('default_date_t_minus_1')
+    if _t1 is not None and _t1 < _maxd:
+      _maxd = _t1
     if _rd_det < _maxd:
       # Ngày cũ: không xuất sẵn — bật ô này thì app nhờ GitHub tính (khoá kết thúc '__ondemand':
       # filters_probe không tính sẵn biến thể, app gửi yêu cầu tính khi người dùng bật)
