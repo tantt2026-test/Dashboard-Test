@@ -28524,7 +28524,7 @@ if _nav == '📋 DSKH_Combo ON':
 
 
 # ====================== 🔒 TRACKING SALE SUP — CHƯƠNG TRÌNH ĐDKD THEO CÔNG VĂN THÁNG (T11/2026) ======================
-# CV 483 (Mì, Combo Xốt mỹ vị, Homey, Thịt chế biến 3 nhóm) · CV 026 (Bia) · CV 484 (DS Trà Phúc Long)
+# CV 483 (Mì, Combo Xốt mỹ vị, Homey, Thịt chế biến 3 nhóm) · CV 026 (Bia) · CV 484 (DS Trà Phúc Long; CV 494: chỉ VIP3/VIP5/VIPSI)
 # CV 485/486/487 (Trưng bày: Xốt CHIN-SU mỹ vị, Trà Phúc Long, Tủ mát NGK). Xem cần đăng nhập.
 # App native: mỗi chương trình = 1 báo cáo (tên bắt đầu "🔒 SUP"), chọn bằng ô 'sup_prog'.
 
@@ -28834,8 +28834,21 @@ def sup_pl_target():
   return pd.to_numeric(t[c_tg], errors='coerce').fillna(0).groupby(t[c_ship].astype(str).str.strip()).sum().to_dict()
 
 
+def _sup_vip_outlets():
+  """Mã CH nhóm VIP3 / VIP5 / VIPSI (Type Outlet trên Data_MCP, cả OFF + ON)."""
+  try:
+    _, _mcp = load_main_data(get_month_key())
+    vm = _mcp_vip_outlet_map(_mcp, channel='ALL')
+  except Exception:
+    return set()
+  return {str(m).strip() for g in ('VIP3', 'VIP5', 'VIPSI') for m in (vm.get(g) or set())}
+
+
 def sup_calc_pl(d):
   x = d[d['_name'].str.contains('phúc long|phuc long', na=False, regex=True)] if not d.empty else d
+  # CV 494 (11/11/2026) điều chỉnh CV 484: chỉ tính nhóm KH Type_Outlet VIP3 / VIP5 / VIPSI
+  if not x.empty:
+    x = x[x['_ma'].astype(str).isin(_sup_vip_outlets())]
   act = x.groupby('_nv')['_v'].sum().to_dict() if not x.empty else {}
   ship = ''
   if not d.empty and 'Ship-To NPP' in d.columns:
@@ -29075,8 +29088,9 @@ if _nav == SUP_NAV:
 
   elif _prog == SUP_PROG_PL:
     _t, info = sup_calc_pl(_d)
-    _sup_note('Doanh số Trà Phúc Long — NPP đạt chỉ tiêu bán ra tháng, tất cả SP Trà Phúc Long (CV 484)',
-              'NPP đạt từ 100% chỉ tiêu → 400.000đ/ĐDKD',
+    _sup_note('Doanh số Trà Phúc Long — NPP đạt chỉ tiêu bán ra tháng, tất cả SP Trà Phúc Long '
+              '(CV 484, điều chỉnh CV 494: chỉ nhóm KH Type_Outlet VIP3 / VIP5 / VIPSI)',
+              'NPP đạt từ 100% chỉ tiêu → 400.000đ/ĐDKD (DS chỉ tính CH VIP3 / VIP5 / VIPSI)',
               f'{format_number_vn(info["tg"])}đ (NPP {info["ship"]}, giá RTL +VAT) / '
               f'{format_number_vn(info["act"])}đ ({info["pct"]}%) → '
               f'{format_number_vn(400000 if (info["tg"] and info["pct"] >= 100) else 0)}đ/ĐDKD',
