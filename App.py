@@ -8031,9 +8031,11 @@ def build_turnover_vip_ds(df, mcp_df, report_date, filter_nv=None, full_month=Fa
       if full_month:
         ct_nv_g[g][nv] += float(tg_map.get(ma, 0) or 0)
       else:
+        # Call Plan ngày = chỉ tiêu tháng của CH ÷ số lần VT trong tháng (chỉ CH có lịch VT ngày BC)
         freq = ma_to_freq.get(ma, '')
         if _rd_wd in _freq_to_weekdays(freq):
-          ct_nv_g[g][nv] += float(tg_map.get(ma, 0) or 0)
+          _nvt = _count_call_days_in_month(freq, y, mth) or 1
+          ct_nv_g[g][nv] += float(tg_map.get(ma, 0) or 0) / _nvt
 
   # TH / MTD
   mtd_nv_g = {g: {nv: 0.0 for nv in nv_list} for g in groups}
@@ -8089,8 +8091,8 @@ def build_turnover_vip_ds(df, mcp_df, report_date, filter_nv=None, full_month=Fa
       _sum_ct += ct
       _sum_th += th
       _sum_mtd += mtd
-    # CT Total: ưu tiên chỉ tiêu bảng Turnover chính
-    ct_main = float(tgt_by_name.get(nv, 0) or 0)
+    # CT Total: Full Tháng → ưu tiên chỉ tiêu bảng Turnover chính; theo ngày → Σ Call Plan ngày các nhóm
+    ct_main = float(tgt_by_name.get(nv, 0) or 0) if full_month else 0.0
     ct_total = ct_main if ct_main > 0 else _sum_ct
     row['CT Total'] = ct_total
     row['TH Total'] = _sum_th
@@ -24252,7 +24254,10 @@ if _nav == '📊 BÁO CÁO KPI':
             unsafe_allow_html=True,
         )
         st.caption(
-            'CT nhóm = chỉ tiêu outlet lịch VT | CT Total = Chỉ tiêu Turnover | TH = DS ngày BC | '
+            ('Call Plan nhóm = Σ chỉ tiêu tháng CH thuộc nhóm | Call Plan Total = Chỉ tiêu Turnover | '
+             if _fm_to else
+             'Call Plan = Σ (chỉ tiêu tháng CH ÷ số lần VT trong tháng) các CH có lịch VT ngày BC | ')
+            + 'TH = DS ngày BC | '
             + ('MTD = DS luỹ kế 01→ngày BC' if _fm_to else 'MTD = DS ngày BC')
         )
     except Exception as _e_vip:
