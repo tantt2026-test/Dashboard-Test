@@ -27,6 +27,9 @@ def _key(fn):
     low = fn.lower()
     if 'combo' in low and low.endswith(('.xlsx', '.xls')):
         return 'combo_off' if 'off' in low else 'combo_on'
+    # DS xét duyệt CH (Tạo mới Kênh ON): tên mới DanhSachYeuCauXetDuyetCuaHang / tên cũ DanhSachXetDuyetCuaHang
+    if low.replace('_', '').startswith(('danhsachyeucauxetduyetcuahang.', 'danhsachxetduyetcuahang.')):
+        return 'xet_duyet_ch'
     return fn
 
 

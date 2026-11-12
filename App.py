@@ -13001,7 +13001,10 @@ def build_new_outlet_on_report(mcp_df, report_date, filter_nv=None):
   day_count = {}   # nv -> unique CH đúng ngày BC
   ddir = get_data_dir()
   path_xd = None
+  # Nhận cả tên mới (DanhSachYeuCauXetDuyetCuaHang) lẫn tên cũ (DanhSachXetDuyetCuaHang)
   for name in [
+      'DanhSachYeuCauXetDuyetCuaHang.xlsx',
+      'DanhSachYeuCauXetDuyetCuaHang.xls',
       'DanhSachXetDuyetCuaHang.xlsx',
       'DanhSachXetDuyetCuaHang.xls',
       'Danh_Sach_Xet_Duyet_Cua_Hang.xlsx',
@@ -22739,13 +22742,13 @@ if _nav == '📊 BÁO CÁO KPI':
     st.caption(
         f"⚡ Ngày BC: {report_date.strftime('%d/%m/%Y')} | "
         f"Lọc NV: {nv_label(filter_nv)} | "
-        f"MCP ON từ Data_MCP · Tạo mới từ DanhSachXetDuyetCuaHang · "
+        f"MCP ON từ Data_MCP · Tạo mới từ DanhSach(YeuCau)XetDuyetCuaHang · "
         f"Chỉ Tiêu = 60/NV · %MTD = (Total MCP Bev)/Chỉ Tiêu"
     )
     if df_new_on is None or df_new_on.empty:
       st.warning(
           'Không có dữ liệu Tạo Mới Kênh ON - Chuyên BEV. '
-          'Kiểm tra **Data_MCP.xlsx** và **DanhSachXetDuyetCuaHang.xlsx** trên GitHub.'
+          'Kiểm tra **Data_MCP.xlsx** và **DanhSachYeuCauXetDuyetCuaHang.xlsx** (hoặc **DanhSachXetDuyetCuaHang.xlsx**) trên GitHub.'
       )
     else:
       # Metric cards từ dòng Tổng Cộng
