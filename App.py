@@ -8028,14 +8028,18 @@ def build_turnover_vip_ds(df, mcp_df, report_date, filter_nv=None, full_month=Fa
       g = ma_to_g.get(ma, 'LẺ')
       if g not in ct_nv_g:
         continue
+      # Call Plan 1 ngày của CH = chỉ tiêu tháng CH ÷ số lần VT trong tháng (chỉ ngày CH có lịch VT).
+      # Nhóm theo Type Outlet (LẺ gồm cả kênh ON; CH không có nhóm → LẺ).
+      freq = ma_to_freq.get(ma, '')
+      _nvt = _count_call_days_in_month(freq, y, mth)
+      if not _nvt:
+        continue
+      _tg_day = float(tg_map.get(ma, 0) or 0) / _nvt
       if full_month:
-        ct_nv_g[g][nv] += float(tg_map.get(ma, 0) or 0)
-      else:
-        # Call Plan ngày = chỉ tiêu tháng của CH ÷ số lần VT trong tháng (chỉ CH có lịch VT ngày BC)
-        freq = ma_to_freq.get(ma, '')
-        if _rd_wd in _freq_to_weekdays(freq):
-          _nvt = _count_call_days_in_month(freq, y, mth) or 1
-          ct_nv_g[g][nv] += float(tg_map.get(ma, 0) or 0) / _nvt
+        # Full Tháng: cộng dồn Call Plan từng ngày 01 → ngày BC
+        ct_nv_g[g][nv] += _tg_day * _count_call_days_in_month(freq, y, mth, as_of=report_date)
+      elif _rd_wd in _freq_to_weekdays(freq):
+        ct_nv_g[g][nv] += _tg_day
 
   # TH / MTD
   mtd_nv_g = {g: {nv: 0.0 for nv in nv_list} for g in groups}
@@ -8091,9 +8095,8 @@ def build_turnover_vip_ds(df, mcp_df, report_date, filter_nv=None, full_month=Fa
       _sum_ct += ct
       _sum_th += th
       _sum_mtd += mtd
-    # CT Total: Full Tháng → ưu tiên chỉ tiêu bảng Turnover chính; theo ngày → Σ Call Plan ngày các nhóm
-    ct_main = float(tgt_by_name.get(nv, 0) or 0) if full_month else 0.0
-    ct_total = ct_main if ct_main > 0 else _sum_ct
+    # Call Plan Total = Σ Call Plan các nhóm (ngày BC, hoặc cộng dồn 01 → ngày BC khi Full Tháng)
+    ct_total = _sum_ct
     row['CT Total'] = ct_total
     row['TH Total'] = _sum_th
     row['MTD Total'] = _sum_mtd
@@ -24254,9 +24257,9 @@ if _nav == '📊 BÁO CÁO KPI':
             unsafe_allow_html=True,
         )
         st.caption(
-            ('Call Plan nhóm = Σ chỉ tiêu tháng CH thuộc nhóm | Call Plan Total = Chỉ tiêu Turnover | '
-             if _fm_to else
-             'Call Plan = Σ (chỉ tiêu tháng CH ÷ số lần VT trong tháng) các CH có lịch VT ngày BC | ')
+            'Call Plan = Σ chỉ tiêu ngày (chỉ tiêu tháng CH ÷ số lần VT trong tháng) các CH có lịch VT '
+            + ('từng ngày 01→ngày BC (cộng dồn) | ' if _fm_to else 'ngày BC | ')
+            + 'LẺ gồm cả kênh ON | '
             + 'TH = DS ngày BC | '
             + ('MTD = DS luỹ kế 01→ngày BC' if _fm_to else 'MTD = DS ngày BC')
         )
