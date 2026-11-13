@@ -579,7 +579,11 @@ def convert(blocks):
     blocks = blocks[start:]
 
     def _short(b):
-        return b['kind'] == 'markdown' and len(b['body']) < 300 and '<table' not in b['body']
+        # Chỉ coi là nhãn ô lọc nếu App.py vẽ bằng <p class="filter-label">...</p> (quy ước duy nhất
+        # dùng cho nhãn ô lọc trong App.py) — tránh nhận nhầm tiêu đề/caption thường đứng ngay trước
+        # 1 ô lọc (vd checkbox) làm nhãn của ô đó.
+        return (b['kind'] == 'markdown' and len(b['body']) < 300 and '<table' not in b['body']
+                and 'filter-label' in b['body'])
 
     def _plain(b):
         return clean_text(re.sub(r'<[^>]+>', ' ', b.get('body') or '')).strip()
