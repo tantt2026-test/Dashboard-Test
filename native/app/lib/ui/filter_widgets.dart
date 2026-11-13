@@ -31,15 +31,19 @@ class StreamlitFilterGroup extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7FAFC),
+        color: isDark(context) ? Brand.darkPanelBg : const Color(0xFFF7FAFC),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: isDark(context) ? Brand.darkTileBorder : const Color(0xFFE2E8F0)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (title != null && title.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, color: Brand.navy, fontSize: 13.5)),
+            child: Text(title,
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: isDark(context) ? const Color(0xFF63B3ED) : Brand.navy,
+                    fontSize: 13.5)),
           ),
         FilterRow(widgets: ws),
       ]),
@@ -90,7 +94,7 @@ class StreamlitWidget extends StatelessWidget {
         control = DropdownButtonFormField<String>(
           isExpanded: true,
           initialValue: opts.contains(value) ? value as String : null,
-          decoration: _deco(),
+          decoration: _deco(context),
           items: [
             for (var i = 0; i < opts.length; i++)
               DropdownMenuItem(value: opts[i], child: Text(labels[i], overflow: TextOverflow.ellipsis))
@@ -134,12 +138,12 @@ class StreamlitWidget extends StatelessWidget {
   }
 }
 
-InputDecoration _deco({String? hint}) => InputDecoration(
+InputDecoration _deco(BuildContext context, {String? hint}) => InputDecoration(
       isDense: true,
       hintText: hint,
-      hintStyle: const TextStyle(fontSize: 13, color: Brand.muted),
+      hintStyle: TextStyle(fontSize: 13, color: mutedText(context)),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: isDark(context) ? Brand.darkTileBg : Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
     );
@@ -168,9 +172,9 @@ class _MultiSelect extends StatelessWidget {
         if (r != null) onChanged(r);
       },
       child: InputDecorator(
-        decoration: _deco().copyWith(suffixIcon: const Icon(Icons.arrow_drop_down)),
+        decoration: _deco(context).copyWith(suffixIcon: const Icon(Icons.arrow_drop_down)),
         child: value.isEmpty
-            ? Text(placeholder, style: const TextStyle(fontSize: 13, color: Brand.muted), overflow: TextOverflow.ellipsis)
+            ? Text(placeholder, style: TextStyle(fontSize: 13, color: mutedText(context)), overflow: TextOverflow.ellipsis)
             : Wrap(spacing: 4, runSpacing: 4, children: [
                 for (final v in value.take(6))
                   Container(
@@ -179,7 +183,7 @@ class _MultiSelect extends StatelessWidget {
                     child: Text(lab[v] ?? v, style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ),
                 if (value.length > 6)
-                  Text('+${value.length - 6}', style: const TextStyle(fontSize: 12, color: Brand.muted)),
+                  Text('+${value.length - 6}', style: TextStyle(fontSize: 12, color: mutedText(context))),
               ]),
       ),
     );
@@ -226,7 +230,7 @@ class _MultiSheetState extends State<_MultiSheet> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
                 child: TextField(
-                  decoration: _deco(hint: 'Tìm...').copyWith(prefixIcon: const Icon(Icons.search, size: 20)),
+                  decoration: _deco(context, hint: 'Tìm...').copyWith(prefixIcon: const Icon(Icons.search, size: 20)),
                   onChanged: (t) => setState(() => _q = t),
                 ),
               ),
@@ -314,7 +318,7 @@ class _TextFilterState extends State<_TextFilter> {
         controller: _c,
         focusNode: _focus,
         style: const TextStyle(fontSize: 13),
-        decoration: _deco(hint: widget.placeholder),
+        decoration: _deco(context, hint: widget.placeholder),
         textInputAction: TextInputAction.search,
         onSubmitted: widget.onSubmit,
       );
@@ -351,7 +355,7 @@ class _DateRange extends StatelessWidget {
               }
             },
       child: InputDecorator(
-        decoration: _deco().copyWith(suffixIcon: const Icon(Icons.date_range, size: 18)),
+        decoration: _deco(context).copyWith(suffixIcon: const Icon(Icons.date_range, size: 18)),
         child: Text(v == null ? '' : '${fmt(v[0])} – ${fmt(v[1])}', style: const TextStyle(fontSize: 13)),
       ),
     );

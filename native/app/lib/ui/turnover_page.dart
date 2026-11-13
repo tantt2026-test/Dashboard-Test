@@ -302,16 +302,17 @@ class _TurnoverPageState extends State<TurnoverPage> {
   }
 
   Widget _timegone(Timegone t) {
+    final dark = isDark(context);
     Widget item(String k, String v) => Column(children: [
-          Text(v, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Brand.navy)),
-          Text(k, style: const TextStyle(fontSize: 11, color: Brand.muted)),
+          Text(v, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: dark ? Brand.darkText : Brand.navy)),
+          Text(k, style: TextStyle(fontSize: 11, color: mutedText(context))),
         ]);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: dark ? Brand.darkTileBg : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Brand.cardBorder),
+        border: Border.all(color: dark ? Brand.darkTileBorder : Brand.cardBorder),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -344,9 +345,9 @@ class _TurnoverPageState extends State<TurnoverPage> {
               width: w,
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
               decoration: BoxDecoration(
-                color: Brand.cardBg,
+                color: isDark(context) ? Brand.darkTileBg : Brand.cardBg,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Brand.cardBorder),
+                border: Border.all(color: isDark(context) ? Brand.darkTileBorder : Brand.cardBorder),
               ),
               child: Column(children: [
                 Text(label,
@@ -381,12 +382,12 @@ class _TurnoverPageState extends State<TurnoverPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F7FF),
+        color: isDark(context) ? Brand.darkPanelBg : const Color(0xFFF0F7FF),
         borderRadius: BorderRadius.circular(8),
         border: const Border(left: BorderSide(color: Brand.blue, width: 4)),
       ),
       child: DefaultTextStyle.merge(
-        style: const TextStyle(fontSize: 13, height: 1.45, color: Color(0xFF1A202C)),
+        style: TextStyle(fontSize: 13, height: 1.45, color: isDark(context) ? Brand.darkText : const Color(0xFF1A202C)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('NHẬN XÉT & ĐÁNH GIÁ ${m.title}:',
               style: const TextStyle(fontWeight: FontWeight.w800, color: Brand.blue, fontSize: 13.5)),

@@ -427,9 +427,9 @@ class _KpiReportPageState extends State<KpiReportPage> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark(context) ? Brand.darkPanelBg : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: isDark(context) ? Brand.darkTileBorder : const Color(0xFFE2E8F0)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.end, children: [

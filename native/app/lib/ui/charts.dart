@@ -17,19 +17,20 @@ String _fmt(num v) {
   return v.abs() >= 100 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 }
 
-Widget _title(String? t) => (t == null || t.isEmpty)
+Widget _title(BuildContext context, String? t) => (t == null || t.isEmpty)
     ? const SizedBox.shrink()
     : Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(t,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontWeight: FontWeight.w800, color: Brand.navy, fontSize: 14)),
+            style: TextStyle(
+                fontWeight: FontWeight.w800, color: isDark(context) ? Brand.darkText : Brand.navy, fontSize: 14)),
       );
 
-BoxDecoration get _frame => BoxDecoration(
-      color: Colors.white,
+BoxDecoration _frame(BuildContext context) => BoxDecoration(
+      color: isDark(context) ? Brand.darkTileBg : Colors.white,
       borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: Brand.cardBorder),
+      border: Border.all(color: isDark(context) ? Brand.darkTileBorder : Brand.cardBorder),
     );
 
 /// Biểu đồ cột Plotly → thanh ngang: mỗi hạng mục 1 dòng, mỗi trace 1 thanh.
@@ -89,17 +90,17 @@ class BarChartView extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: _frame,
+      decoration: _frame(context),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _title(data['title'] as String?),
+        _title(context, data['title'] as String?),
         if (visible.length > 1 || refs.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Wrap(spacing: 12, runSpacing: 4, alignment: WrapAlignment.center, children: [
               if (visible.length > 1)
                 for (var ti = 0; ti < visible.length; ti++)
-                  _legend(colorOf(visible[ti], 0, ti), visible[ti]['name'] as String? ?? ''),
-              for (final r in refs) _legend(r.$2, 'Mốc ${_fmt(r.$1)}', line: true),
+                  _legend(context, colorOf(visible[ti], 0, ti), visible[ti]['name'] as String? ?? ''),
+              for (final r in refs) _legend(context, r.$2, 'Mốc ${_fmt(r.$1)}', line: true),
             ]),
           ),
         for (var i = 0; i < categories.length; i++)
@@ -111,7 +112,7 @@ class BarChartView extends StatelessWidget {
                 child: Text(categories[i],
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11.5, color: Color(0xFF2D3748))),
+                    style: TextStyle(fontSize: 11.5, color: isDark(context) ? Brand.darkText : const Color(0xFF2D3748))),
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -141,7 +142,10 @@ class BarChartView extends StatelessWidget {
                                 child: Text(label,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
+                                    style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark(context) ? Brand.darkText : null)),
                               ),
                             ]),
                           );
@@ -163,10 +167,10 @@ class BarChartView extends StatelessWidget {
     );
   }
 
-  Widget _legend(Color c, String text, {bool line = false}) => Row(mainAxisSize: MainAxisSize.min, children: [
+  Widget _legend(BuildContext context, Color c, String text, {bool line = false}) => Row(mainAxisSize: MainAxisSize.min, children: [
         Container(width: line ? 14 : 10, height: line ? 2 : 10, color: c),
         const SizedBox(width: 4),
-        Text(text, style: const TextStyle(fontSize: 11, color: Brand.muted)),
+        Text(text, style: TextStyle(fontSize: 11, color: mutedText(context))),
       ]);
 }
 
@@ -210,6 +214,7 @@ class _PieChartViewState extends State<PieChartView> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = isDark(context);
     final t = (widget.data['tr'] as List).first as Map<String, dynamic>;
     final labels = [for (final l in t['labels'] as List) '$l'];
     final values = [for (final v in t['values'] as List) v is num ? v.toDouble() : 0.0];
@@ -262,7 +267,7 @@ class _PieChartViewState extends State<PieChartView> {
             width: size.width,
             height: size.height,
             child: Stack(clipBehavior: Clip.none, children: [
-              CustomPaint(size: size, painter: _PiePainter(geo)),
+              CustomPaint(size: size, painter: _PiePainter(geo, dark)),
               if (tip != null && _hoverPos != null)
                 Positioned(
                   left: (_hoverPos!.dx + 12).clamp(0, math.max(0, size.width - 220)).toDouble(),
@@ -287,7 +292,8 @@ class _PieChartViewState extends State<PieChartView> {
 
     // Chú thích ngang (orientation='h'), canh giữa, các cột thẳng hàng như Plotly
     final legend = LayoutBuilder(builder: (ctx, c) {
-      final style = TextStyle(fontSize: 11, color: _textColor, fontFamily: DefaultTextStyle.of(ctx).style.fontFamily);
+      final style =
+          TextStyle(fontSize: 11, color: dark ? Brand.darkText : _textColor, fontFamily: DefaultTextStyle.of(ctx).style.fontFamily);
       double tw(String s) => (TextPainter(text: TextSpan(text: s, style: style), textDirection: TextDirection.ltr)
             ..layout())
           .width;
@@ -317,14 +323,15 @@ class _PieChartViewState extends State<PieChartView> {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-      decoration: _frame,
+      decoration: _frame(context),
       child: Column(children: [
         if ((widget.data['title'] as String?)?.isNotEmpty == true)
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(widget.data['title'] as String,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF1A365D), fontSize: 14)),
+                style: TextStyle(
+                    fontWeight: FontWeight.w700, color: dark ? Brand.darkText : const Color(0xFF1A365D), fontSize: 14)),
           ),
         chart,
         const SizedBox(height: 6),
@@ -451,7 +458,8 @@ class _PieGeo {
 
 class _PiePainter extends CustomPainter {
   final _PieGeo g;
-  _PiePainter(this.g);
+  final bool dark;
+  _PiePainter(this.g, this.dark);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -465,11 +473,11 @@ class _PiePainter extends CustomPainter {
       final (start, sweep) = g.arcs[k];
       canvas.drawArc(rect, start, sweep, true,
           Paint()
-            ..color = Colors.white
+            ..color = dark ? Brand.darkPanelBg : Colors.white
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1);
     }
-    if (g.hole > 0) canvas.drawCircle(g.center, g.r * g.hole, Paint()..color = Colors.white);
+    if (g.hole > 0) canvas.drawCircle(g.center, g.r * g.hole, Paint()..color = dark ? Brand.darkPanelBg : Colors.white);
     final line = Paint()
       ..color = _PieChartViewState._labelColor
       ..strokeWidth = 1;

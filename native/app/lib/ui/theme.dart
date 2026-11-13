@@ -55,6 +55,45 @@ Color tileText(BuildContext context) => isDark(context) ? Brand.darkText : Brand
 /// Chữ phụ (ghi chú nhỏ) theo giao diện.
 Color mutedText(BuildContext context) => isDark(context) ? Brand.darkMuted : Brand.muted;
 
+// Màu nền mang nghĩa (đỏ / xanh lá / tím / vàng / cam của cột %, cảnh báo): giữ nguyên ở giao diện Tối.
+const _keepBg = {
+  0xFFFED7D7, 0xFFC6F6D5, 0xFFE9D8FD, 0xFFFEEBC8, 0xFFFEFCBF, 0xFFFBD38D, 0xFF9AE6B4, 0xFFFEB2B2,
+};
+
+/// Giao diện Tối: nền sáng trung tính (trắng, xanh nhạt, xám nhạt… do App.py truyền) → nền tối;
+/// nền mang nghĩa (đỏ/xanh/tím/vàng) giữ nguyên. Giao diện Sáng: trả lại đúng màu gốc.
+Color? adaptBg(BuildContext context, Color? c, {Color? dark}) {
+  if (c == null || !isDark(context)) return c;
+  if (_keepBg.contains(c.toARGB32())) return c;
+  if (c.computeLuminance() > 0.6) return dark ?? Brand.darkTileBg;
+  return c;
+}
+
+/// Giao diện Tối: chữ tối (đen, navy, xanh đậm) → chữ sáng cho dễ đọc trên nền tối.
+Color? adaptFg(BuildContext context, Color? c) {
+  if (c == null || !isDark(context)) return c;
+  if (c.computeLuminance() >= 0.22) return c;
+  final bluish = c.b > c.r + 0.08 && c.b >= c.g;
+  final reddish = c.r > c.g + 0.15 && c.r > c.b + 0.15;
+  if (bluish) return const Color(0xFF90CDF4);
+  if (reddish) return const Color(0xFFFC8181);
+  final greenish = c.g > c.r + 0.08 && c.g > c.b;
+  if (greenish) return const Color(0xFF68D391);
+  final purple = c.r > c.g + 0.1 && c.b > c.g + 0.1;
+  if (purple) return const Color(0xFFB794F4);
+  return Brand.darkText;
+}
+
+/// Khung còn nền sáng (màu mang nghĩa) ở giao diện Tối → nội dung bên trong vẽ như giao diện Sáng
+/// (chữ tối trên nền sáng), tránh chữ sáng trên nền vàng/xanh nhạt.
+Widget keepLight(BuildContext context, Color bg, Widget child) {
+  if (!isDark(context) || bg.computeLuminance() <= 0.6) return child;
+  return Theme(
+    data: buildTheme(Brightness.light),
+    child: DefaultTextStyle.merge(style: const TextStyle(color: Color(0xFF1A202C)), child: child),
+  );
+}
+
 ThemeData buildTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
   final base = ThemeData(
@@ -63,7 +102,8 @@ ThemeData buildTheme(Brightness brightness) {
     colorScheme: ColorScheme.fromSeed(
       seedColor: Brand.navy,
       brightness: brightness,
-      primary: Brand.navy,
+      // giao diện Tối: màu nhấn (chữ nút, ô chọn) xanh sáng cho dễ đọc trên nền tối
+      primary: dark ? const Color(0xFF90CDF4) : Brand.navy,
     ),
     scaffoldBackgroundColor: dark ? Brand.darkPageBg : Brand.pageBg,
   );

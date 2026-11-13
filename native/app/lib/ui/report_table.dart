@@ -102,7 +102,7 @@ class _ReportTableState extends State<ReportTable> {
         ),
         DecoratedBox(
           decoration: BoxDecoration(
-            border: Border.all(color: Brand.cellBorder),
+            border: Border.all(color: isDark(context) ? Brand.darkTileBorder : Brand.cellBorder),
             borderRadius: BorderRadius.circular(6),
           ),
           child: ClipRRect(borderRadius: BorderRadius.circular(6), child: StaticGrid(layout: layout)),
@@ -117,10 +117,12 @@ class _ReportTableState extends State<ReportTable> {
             ),
           ),
         if (filtering && m.isTotal.contains(true))
-          const Padding(
-            padding: EdgeInsets.only(top: 4),
-            child: Text('* Dòng Tổng là số của cả bảng (chưa tính lại theo bộ lọc).',
-                textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Brand.muted)),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Builder(
+              builder: (ctx) => Text('* Dòng Tổng là số của cả bảng (chưa tính lại theo bộ lọc).',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: mutedText(ctx))),
+            ),
           ),
       ]);
     });
@@ -137,7 +139,7 @@ class _Toolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(children: [
-      Expanded(child: Text(text, style: const TextStyle(fontSize: 11.5, color: Brand.muted))),
+      Expanded(child: Text(text, style: TextStyle(fontSize: 11.5, color: mutedText(context)))),
       if (onFilter != null)
         IconButton(
           visualDensity: VisualDensity.compact,
@@ -172,17 +174,22 @@ Color? _semanticFg(Object? v) {
 }
 
 /// Ô bảng: chuẩn màu chung, chữ căn giữa.
-Widget tableCell(Placed p, Layout l) {
+Widget tableCell(Placed p, Layout l, BuildContext context) {
   final cell = p.c;
+  final dark = isDark(context);
   // Chuẩn màu chung cho MỌI bảng: tiêu đề navy chữ trắng, thân bảng sọc xanh nhạt/trắng,
   // dòng Tổng navy; chỉ giữ màu mang nghĩa (đỏ/cam/xanh/tím của cột %, ô cảnh báo)
-  final bgDefault = (p.head || p.total) ? Brand.navy : (p.bodyIndex.isEven ? Brand.zebra : Colors.white);
+  final bgDefault = (p.head || p.total)
+      ? Brand.navy
+      : (p.bodyIndex.isEven
+          ? (dark ? Brand.darkTileBg : Brand.zebra)
+          : (dark ? Brand.darkPanelBg : Colors.white));
   final rawBg = (cell['bg'] as String?)?.toLowerCase();
   final semantic = !p.head && rawBg != null && _semanticBg.contains(rawBg);
   final bg = semantic ? hexColor(rawBg)! : bgDefault;
   final fg = semantic
-      ? (hexColor(cell['fg']) ?? const Color(0xFF1A202C))
-      : ((p.head || p.total) ? Colors.white : (_semanticFg(cell['fg']) ?? const Color(0xFF1A202C)));
+      ? (hexColor(cell['fg']) ?? (dark ? Brand.darkText : const Color(0xFF1A202C)))
+      : ((p.head || p.total) ? Colors.white : (_semanticFg(cell['fg']) ?? (dark ? Brand.darkText : const Color(0xFF1A202C))));
   final f = l.fontScale;
   final bar = cell['bar'] as Map<String, dynamic>?;
   return Container(
@@ -190,7 +197,8 @@ Widget tableCell(Placed p, Layout l) {
     alignment: Alignment.center,
     decoration: BoxDecoration(
       color: bg,
-      border: Border.all(color: (p.head || p.total) ? Brand.border : Brand.cellBorder, width: 0.5),
+      border: Border.all(
+          color: (p.head || p.total) ? Brand.border : (dark ? Brand.darkTileBorder : Brand.cellBorder), width: 0.5),
     ),
     child: bar != null ? ProgressBarCell(bar: bar, scale: f) : Text(
       cell['x'] as String,
@@ -228,7 +236,8 @@ class ProgressBarCell extends StatelessWidget {
           Container(
             height: h,
             decoration: BoxDecoration(
-                color: hexColor(bar['t']) ?? const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(h / 2)),
+                color: hexColor(bar['t']) ?? (isDark(context) ? Brand.darkTileBorder : const Color(0xFFE2E8F0)),
+                borderRadius: BorderRadius.circular(h / 2)),
           ),
           Container(
             width: w * p,
@@ -276,7 +285,7 @@ class StaticGrid extends StatelessWidget {
                 top: ys[p.r],
                 width: xs[math.min(p.col + p.cs, l.cols)] - xs[p.col],
                 height: ys[math.min(p.r + p.rs, l.rows)] - ys[p.r],
-                child: tableCell(p, l),
+                child: tableCell(p, l, context),
               ),
           ]),
         );
@@ -417,7 +426,7 @@ class _FullscreenTableState extends State<FullscreenTable> {
                     cellBuilder: (ctx, v) {
                       final p = l.at[v.row][v.column];
                       if (p == null) return const TableViewCell(child: SizedBox.shrink());
-                      final child = tableCell(p, l);
+                      final child = tableCell(p, l, ctx);
                       if (p.rs == 1 && p.cs == 1) return TableViewCell(child: child);
                       return TableViewCell(
                         rowMergeStart: p.rs > 1 ? p.r : null,
