@@ -22508,7 +22508,7 @@ def build_prog_nv_matrix(d, is_tl):
   x['_gan'] = (~x['_dat']) & (x['_v'] > 0) & (x['_g'] > 0) & (x['_v'] >= x['_g'] * gan_k)
   x['_nv'] = x['SM Name'].astype(str).str.strip()
   nvs = sorted(x['_nv'].unique())
-  groups, vals = [], {}
+  groups, vals, growth = [], {}, {}
   for prog, g in x.groupby('_ct', sort=False):
     name = _mbsp_short(prog)
     tt = (not is_tl) and str(g['_kind'].iloc[0]) == 'tt'
@@ -22530,7 +22530,9 @@ def build_prog_nv_matrix(d, is_tl):
     for k, ser in col.items():
       vals[(name, k)] = {nv: float(v) for nv, v in ser.items()}
     groups.append((name, subs))
-  return {'nv': nvs, 'groups': groups, 'vals': vals}
+    if tt:
+      growth[name] = float((sch.get(prog) or {}).get('growth') or 100.0)
+  return {'nv': nvs, 'groups': groups, 'vals': vals, 'growth': growth}
 
 
 def render_prog_nv_matrix_html(m, nv_rows, groups, total_label):
@@ -22549,6 +22551,21 @@ def render_prog_nv_matrix_html(m, nv_rows, groups, total_label):
 
   def pct(a, b):
     return f'{round(a / b * 100, 1) if b else 0}%'
+
+  try:
+    _tg = float(_CURRENT_TIMEGONE)
+  except Exception:
+    _tg = 100.0
+
+  def pct_style(prog, sub, val):
+    """Rule màu cột %: % KH đạt so Timegone; % so nền tảng so (ngưỡng tăng trưởng × Timegone)."""
+    if sub == '% KH đạt':
+      moc = _tg
+    elif sub == '% so nền tảng':
+      moc = m.get('growth', {}).get(prog, 100.0) * _tg / 100.0
+    else:
+      return '', ''
+    return color_pct_bg(val, moc), color_pct_class(val, moc)
 
   def cell(prog, sub, nv_list):
     get = lambda k: sum(m['vals'].get((prog, k), {}).get(n, 0.0) for n in nv_list)
@@ -22578,14 +22595,24 @@ def render_prog_nv_matrix_html(m, nv_rows, groups, total_label):
              f'font-weight:600;">{nv}</td>')
     for prog, subs in groups:
       for sub in subs:
-        h.append(f'<td style="{td}background-color:{bg} !important;">{cell(prog, sub, [nv])}</td>')
+        v = cell(prog, sub, [nv])
+        ps, pc = pct_style(prog, sub, v)
+        if ps:
+          h.append(f'<td data-colored="1" class="{pc}" style="{td}{ps}">{v}</td>')
+        else:
+          h.append(f'<td style="{td}background-color:{bg} !important;">{v}</td>')
     h.append('</tr>')
   h.append('<tr class="row-total">')
   h.append(f'<td style="{tot}{stk}left:0;">-</td>')
   h.append(f'<td style="{tot}{stk}left:{stt_w}px;text-align:left !important;">{total_label}</td>')
   for prog, subs in groups:
     for sub in subs:
-      h.append(f'<td style="{tot}">{cell(prog, sub, nv_rows)}</td>')
+      v = cell(prog, sub, nv_rows)
+      ps, pc = pct_style(prog, sub, v)
+      if ps:
+        h.append(f'<td data-colored="1" class="{pc} row-total-cell" style="{tot}{ps}">{v}</td>')
+      else:
+        h.append(f'<td style="{tot}">{v}</td>')
   h.append('</tr></tbody></table></div>')
   return ''.join(h)
 
@@ -22766,8 +22793,15 @@ def render_mbs_program_report(kind):
     _nvs = sorted(_nvs, key=_key, reverse=True)
   if _groups and _nvs:
     st.markdown(render_prog_nv_matrix_html(_m, _nvs, _groups, f'SS {_ss_name()} Total'), unsafe_allow_html=True)
+  try:
+    _tgc = float(_CURRENT_TIMEGONE)
+  except Exception:
+    _tgc = 100.0
   st.caption('Chọn Tên Chương trình ở Bộ lọc để chỉ xem chương trình đó · Xếp % lớn → bé theo chương trình đầu tiên '
-             'đang hiện' + ('' if is_tl else ' (tăng trưởng: % so nền tảng · SP tập trung: % KH đạt)'))
+             'đang hiện' + ('' if is_tl else ' (tăng trưởng: % so nền tảng · SP tập trung: % KH đạt)')
+             + f' · Màu %: % KH đạt so Timegone {_tgc:g}%'
+             + ('' if is_tl else ', % so nền tảng so ngưỡng tăng trưởng × Timegone')
+             + ' — đỏ < mốc · xanh mốc → +5 · tím > mốc +5')
 
   # ---- Chi tiết KH ----
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">🔎 CHI TIẾT KHÁCH HÀNG CÓ DOANH SỐ</p>',
@@ -22787,6 +22821,7 @@ def render_mbs_program_report(kind):
           return
     except Exception:
       pass
+  sort_az = st.checkbox('🔤 Sắp xếp Tên NVBH A → Z', value=False, key=f'{pre}_s_az')
   show = det
   if sel_ct:
     show = show[show['Chương trình'].isin(sel_ct)]
@@ -22801,9 +22836,18 @@ def render_mbs_program_report(kind):
     show = show[show['Mã KH'].astype(str).str.lower().map(lambda v: any(q in v for q in _qs))]
   if str(q_ten or '').strip():
     show = show[show['Tên KH'].astype(str).str.lower().str.contains(str(q_ten).strip().lower(), regex=False, na=False)]
-  if sort_pct:
+  if sort_pct or sort_az:
     _pc = '% ngưỡng' if '% ngưỡng' in show.columns else '% đạt'
-    show = show.assign(_p=show[_pc].map(_pnum)).sort_values('_p', ascending=False).drop(columns=['_p'])
+    _keys, _asc = [], []
+    if sort_az:
+      show = show.assign(_n=show['Tên NVBH'].astype(str).str.strip().str.lower())
+      _keys.append('_n')
+      _asc.append(True)
+    if sort_pct:
+      show = show.assign(_p=show[_pc].map(_pnum))
+      _keys.append('_p')
+      _asc.append(False)
+    show = show.sort_values(_keys, ascending=_asc, kind='stable').drop(columns=[k for k in ('_n', '_p') if k in show.columns])
   money = [c for c in ('Ngưỡng', 'DS nền tảng', 'DS cần đạt', 'DS tích lũy', 'DS thực hiện', 'Còn thiếu',
                        'Tiền thưởng (đ)') if c in show.columns]
   show = _mbsp_fmt(show.reset_index(drop=True), money)
