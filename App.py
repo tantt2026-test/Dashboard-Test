@@ -22068,6 +22068,401 @@ with col_reload:
     st.rerun()
 
 
+# ====================== TLTB + TĂNG TRƯỞNG BRAND/CAT (Hội viên doanh nhân MBS, T11) ======================
+# Data Onetech: TLTB.xlsx (MEMBER_TYPE chứa FOCUS — Sản phẩm tập trung / Đại sứ ngành hàng) và
+# Tăng Trưởng.xlsx (MEMBER_TYPE chứa ONTOP — Tăng trưởng doanh số). File gồm cả NPP (nhiều Sale Sup)
+# → lọc theo SS Name của bộ data đang xem. Quy định thưởng đọc từ cột Detail Scheme (theo công văn).
+def _mbsp_norm_name(s):
+  import unicodedata
+  s = unicodedata.normalize('NFD', str(s))
+  s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Mn').replace('đ', 'd').replace('Đ', 'D')
+  return re.sub(r'[^a-z0-9]', '', s.lower())
+
+
+def _mbsp_file(kind):
+  """kind 'tltb' | 'tangtruong' → đường dẫn file trong data/ThangXX (tên có dấu / không dấu đều nhận)."""
+  try:
+    ddir = get_data_dir()
+    for fn in sorted(os.listdir(ddir)):
+      if fn.startswith(('.', '~$')) or not fn.lower().endswith(('.xlsx', '.xls')):
+        continue
+      n = _mbsp_norm_name(fn.rsplit('.', 1)[0])
+      if (kind == 'tltb' and n.startswith('tltb')) or (kind == 'tangtruong' and n.startswith('tangtruong')):
+        return os.path.join(ddir, fn)
+  except Exception:
+    pass
+  return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _mbsp_read(path, _mtime):
+  raw = pd.read_excel(path, header=None)
+  hdr = 0
+  for i in range(min(15, len(raw))):
+    row = [str(x).strip() for x in raw.iloc[i].tolist()]
+    if 'SS Name' in row and 'SM Name' in row:
+      hdr = i
+      break
+  d = raw.iloc[hdr + 1:].copy()
+  d.columns = [str(x).strip() for x in raw.iloc[hdr].tolist()]
+  d = d.dropna(how='all').reset_index(drop=True)
+  return d
+
+
+def _mbsp_scheme(text):
+  """Ngưỡng / hệ số / điểm tối đa từ Detail Scheme."""
+  t = str(text or '')
+
+  def _num(s):
+    try:
+      return float(str(s).replace(',', '').replace('.', '') if re.search(r'\d[.,]\d{3}', str(s)) else s)
+    except Exception:
+      return None
+  out = {'min_ds': None, 'mult': None, 'max_pts': None, 'fixed_pts': None, 'growth': None}
+  m = re.search(r'tối thiểu\s*([\d.,]+)\s*vn', t, re.I)
+  if m:
+    out['min_ds'] = _num(m.group(1))
+  m = re.search(r'([\d.]+)\s*lần số điểm', t, re.I)
+  if m:
+    out['mult'] = float(m.group(1))
+  m = re.search(r'tối đa[^:]*:\s*([\d.,]+)\s*điểm', t, re.I)
+  if m:
+    out['max_pts'] = _num(m.group(1))
+  m = re.search(r'thưởng\s*([\d.,]+)\s*điểm\s*/\s*khách hàng', t, re.I)
+  if m:
+    out['fixed_pts'] = _num(m.group(1))
+  m = re.search(r'đạt từ\s*(\d+)\s*%', t, re.I)
+  if m:
+    out['growth'] = float(m.group(1))
+  return out
+
+
+def _mbsp_short(prog):
+  s = re.sub(r'^\d{4}\.\d{2}_', '', str(prog))
+  s = re.sub(r'^(Sản phẩm tập trung|Tăng trưởng doanh số)_', '', s)
+  return s.replace('_Miền Nam', '').strip()
+
+
+def _mbsp_team(d):
+  """Chỉ giữ dòng của Sale Sup đang xem (bộ data ghép 'A & B' → cả 2) + lọc ĐDKD."""
+  if d is None or d.empty or 'SS Name' not in d.columns:
+    return d
+  names = [x.strip() for x in str(_ss_name()).split('&') if x.strip()]
+  out = d[d['SS Name'].astype(str).str.strip().isin(names)]
+  if out.empty:
+    out = d
+  if nv_selected(filter_nv):
+    out = filter_df_by_nv(out, 'SM Name', filter_nv)
+  return out
+
+
+def load_tltb():
+  p = _mbsp_file('tltb')
+  if not p:
+    return None
+  d = _mbsp_read(p, os.path.getmtime(p)).copy()
+  c_ma = find_col(d, ['OUTLET_CODE', 'Outlet Code'])
+  c_ten = find_col(d, ['OUTLET', 'Outlet Name'])
+  c_ct = find_col(d, ['Tên Chương Trình', 'Tên Chương trình'])
+  if not (c_ma and c_ct):
+    return None
+  d['_ma'] = d[c_ma].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+  d['_ten'] = d[c_ten].astype(str).str.strip() if c_ten else ''
+  d['_ct'] = d[c_ct].astype(str).str.strip()
+  d['_ds'] = pd.to_numeric(d.get('Doanh số tích lũy'), errors='coerce').fillna(0.0)
+  d['_pts'] = pd.to_numeric(d.get('Điểm thưởng'), errors='coerce').fillna(0.0)
+  # data ghép 2 Sale Sup có thể trùng file → bỏ dòng trùng (CH × chương trình)
+  d = d.drop_duplicates(['_ma', '_ct']).reset_index(drop=True)
+  return _mbsp_team(d)
+
+
+def load_tang_truong():
+  p = _mbsp_file('tangtruong')
+  if not p:
+    return None
+  d = _mbsp_read(p, os.path.getmtime(p)).copy()
+  c_ma = find_col(d, ['Outlet Code', 'OUTLET_CODE'])
+  c_ten = find_col(d, ['Outlet Name', 'OUTLET'])
+  c_ct = find_col(d, ['Tên Chương trình', 'Tên Chương Trình'])
+  if not (c_ma and c_ct):
+    return None
+  d['_ma'] = d[c_ma].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+  d['_ten'] = d[c_ten].astype(str).str.strip() if c_ten else ''
+  d['_ct'] = d[c_ct].astype(str).str.strip()
+  d['_base'] = pd.to_numeric(d.get('Chỉ tiêu doanh số'), errors='coerce').fillna(0.0)
+  d['_th'] = pd.to_numeric(d.get('Doanh số thực hiện (Paid & Invoiced)'), errors='coerce').fillna(0.0)
+  d['_pts'] = pd.to_numeric(d.get('Điểm thưởng dự kiến'), errors='coerce').fillna(0.0)
+  d = d.drop_duplicates(['_ma', '_ct']).reset_index(drop=True)
+  return _mbsp_team(d)
+
+
+def build_tltb_tables(d):
+  """→ (bảng chương trình, bảng NV, chi tiết KH có DS) cho Báo cáo TLTB."""
+  rows, det = [], []
+  sch_of = {}
+  for prog, g in d.groupby('_ct', sort=False):
+    sc = _mbsp_scheme(g['Detail Scheme'].iloc[0] if 'Detail Scheme' in g.columns else '')
+    sch_of[prog] = sc
+    mn = sc['min_ds'] or 0
+    dat = g['_pts'] > 0
+    gan = (~dat) & (g['_ds'] > 0) & (mn > 0) & (g['_ds'] >= mn * 0.7)
+    rows.append({
+        'Chương trình': _mbsp_short(prog),
+        'Ngưỡng tối thiểu': mn,
+        'Thưởng': (f"{format_number_vn(sc['fixed_pts'] / 100)}đ/KH" if sc['fixed_pts']
+                   else (f"×{sc['mult']:g} điểm" if sc['mult'] else '')),
+        'KH tham gia': int(len(g)),
+        'KH có DS': int((g['_ds'] > 0).sum()),
+        'KH đạt': int(dat.sum()),
+        '% KH đạt': f"{round(dat.sum() / len(g) * 100, 1) if len(g) else 0}%",
+        'KH gần đạt': int(gan.sum()),
+        'DS tích lũy': float(g['_ds'].sum()),
+        'Tiền thưởng (đ)': float(g['_pts'].sum() / 100),
+    })
+  df_ct = pd.DataFrame(rows)
+  if not df_ct.empty:
+    df_ct = df_ct.sort_values(['Tiền thưởng (đ)', 'DS tích lũy'], ascending=False).reset_index(drop=True)
+
+  x = d.copy()
+  x['_min'] = x['_ct'].map(lambda p: (sch_of.get(p) or {}).get('min_ds') or 0)
+  x['_dat'] = x['_pts'] > 0
+  x['_gan'] = (~x['_dat']) & (x['_ds'] > 0) & (x['_min'] > 0) & (x['_ds'] >= x['_min'] * 0.7)
+  nv_rows = []
+  for nv, g in x.groupby('SM Name'):
+    nv_rows.append({
+        'Tên NVBH': str(nv).strip(),
+        'KH có DS': int(g.loc[g['_ds'] > 0, '_ma'].nunique()),
+        'Lượt đạt': int(g['_dat'].sum()),
+        'Lượt gần đạt': int(g['_gan'].sum()),
+        'DS tích lũy': float(g['_ds'].sum()),
+        'Tiền thưởng (đ)': float(g['_pts'].sum() / 100),
+    })
+  df_nv = pd.DataFrame(nv_rows)
+
+  y = x[x['_ds'] > 0].copy()
+  if not y.empty:
+    y['Trạng thái'] = y.apply(lambda r: 'Đạt' if r['_dat'] else ('Gần đạt' if r['_gan'] else 'Chưa đạt'), axis=1)
+    y['% ngưỡng'] = y.apply(lambda r: f"{round(r['_ds'] / r['_min'] * 100, 1)}%" if r['_min'] else '', axis=1)
+    y['Còn thiếu'] = (y['_min'] - y['_ds']).clip(lower=0)
+    det = pd.DataFrame({
+        'Tên NVBH': y['SM Name'].astype(str).str.strip(),
+        'Mã KH': y['_ma'], 'Tên KH': y['_ten'],
+        'VIP': y['VIP Type'].astype(str) if 'VIP Type' in y.columns else '',
+        'Chương trình': y['_ct'].map(_mbsp_short),
+        'Ngưỡng': y['_min'], 'DS tích lũy': y['_ds'], '% ngưỡng': y['% ngưỡng'],
+        'Còn thiếu': y['Còn thiếu'], 'Tiền thưởng (đ)': y['_pts'] / 100,
+        'Trạng thái': y['Trạng thái'],
+    })
+    _ord = {'Gần đạt': 0, 'Chưa đạt': 1, 'Đạt': 2}
+    det = det.assign(_o=det['Trạng thái'].map(_ord)).sort_values(
+        ['_o', 'Tên NVBH', 'DS tích lũy'], ascending=[True, True, False]).drop(columns=['_o'])
+  else:
+    det = pd.DataFrame()
+  return df_ct, df_nv, det
+
+
+def build_tang_truong_tables(d):
+  """→ (bảng chương trình, bảng NV, chi tiết KH có DS) cho Báo cáo Tăng Trưởng Brand/Cat."""
+  x = d.copy()
+  sch = {p: _mbsp_scheme(g['Detail Scheme'].iloc[0] if 'Detail Scheme' in g.columns else '')
+         for p, g in x.groupby('_ct', sort=False)}
+  x['_need'] = x['_ct'].map(lambda p: (sch[p].get('growth') or 100.0) / 100.0)
+  x['_goal'] = x['_base'] * x['_need']                # DS cần đạt = nền tảng × ngưỡng
+  x['_pct'] = x.apply(lambda r: r['_th'] / r['_base'] * 100 if r['_base'] > 0 else 0.0, axis=1)
+  x['_dat'] = (x['_th'] > 0) & (x['_th'] >= x['_goal'])
+  x['_gan'] = (~x['_dat']) & (x['_th'] > 0) & (x['_th'] >= x['_goal'] * 0.8)
+
+  rows = []
+  for prog, g in x.groupby('_ct', sort=False):
+    sc = sch[prog]
+    b, t = float(g['_base'].sum()), float(g['_th'].sum())
+    rows.append({
+        'Chương trình': _mbsp_short(prog),
+        'Ngưỡng TT': f"≥{sc['growth']:g}%" if sc['growth'] else '',
+        'Thưởng': f"×{sc['mult']:g} điểm" if sc['mult'] else '',
+        'KH tham gia': int(len(g)),
+        'KH có DS': int((g['_th'] > 0).sum()),
+        'KH đạt': int(g['_dat'].sum()),
+        '% KH đạt': f"{round(g['_dat'].sum() / len(g) * 100, 1) if len(g) else 0}%",
+        'KH gần đạt': int(g['_gan'].sum()),
+        'DS nền tảng': b, 'DS thực hiện': t,
+        '% so nền tảng': f'{round(t / b * 100, 1) if b else 0}%',
+        'Tiền thưởng (đ)': float(g['_pts'].sum() / 100),
+    })
+  df_ct = pd.DataFrame(rows)
+
+  nv_rows = []
+  for nv, g in x.groupby('SM Name'):
+    b, t = float(g['_base'].sum()), float(g['_th'].sum())
+    nv_rows.append({
+        'Tên NVBH': str(nv).strip(),
+        'KH có DS': int(g.loc[g['_th'] > 0, '_ma'].nunique()),
+        'Lượt đạt': int(g['_dat'].sum()),
+        'Lượt gần đạt': int(g['_gan'].sum()),
+        'DS nền tảng': b, 'DS thực hiện': t,
+        '% so nền tảng': f'{round(t / b * 100, 1) if b else 0}%',
+        'Tiền thưởng (đ)': float(g['_pts'].sum() / 100),
+    })
+  df_nv = pd.DataFrame(nv_rows)
+
+  y = x[x['_th'] > 0].copy()
+  if not y.empty:
+    y['Trạng thái'] = y.apply(lambda r: 'Đạt' if r['_dat'] else ('Gần đạt' if r['_gan'] else 'Chưa đạt'), axis=1)
+    det = pd.DataFrame({
+        'Tên NVBH': y['SM Name'].astype(str).str.strip(),
+        'Mã KH': y['_ma'], 'Tên KH': y['_ten'],
+        'VIP': y['VIP Type'].astype(str) if 'VIP Type' in y.columns else '',
+        'Chương trình': y['_ct'].map(_mbsp_short),
+        'DS nền tảng': y['_base'], 'DS cần đạt': y['_goal'], 'DS thực hiện': y['_th'],
+        '% so nền tảng': y['_pct'].map(lambda v: f'{round(v, 1)}%'),
+        'Còn thiếu': (y['_goal'] - y['_th']).clip(lower=0),
+        'Tiền thưởng (đ)': y['_pts'] / 100,
+        'Trạng thái': y['Trạng thái'],
+    })
+    _ord = {'Gần đạt': 0, 'Chưa đạt': 1, 'Đạt': 2}
+    det = det.assign(_o=det['Trạng thái'].map(_ord)).sort_values(
+        ['_o', 'Tên NVBH', 'DS thực hiện'], ascending=[True, True, False]).drop(columns=['_o'])
+  else:
+    det = pd.DataFrame()
+  return df_ct, df_nv, det
+
+
+def _mbsp_fmt(df, money_cols):
+  out = df.copy()
+  for c in money_cols:
+    if c in out.columns:
+      out[c] = out[c].map(format_number_vn)
+  return out
+
+
+def _mbsp_total_row(df, label, sum_cols, pct=None):
+  tot = {c: '' for c in df.columns}
+  tot[df.columns[0]] = label
+  for c in sum_cols:
+    if c in df.columns:
+      tot[c] = float(pd.to_numeric(df[c], errors='coerce').fillna(0).sum())
+  if pct:
+    num, den, col = pct
+    tot[col] = f'{round(tot[num] / tot[den] * 100, 1) if tot.get(den) else 0}%'
+  return pd.concat([df, pd.DataFrame([tot])], ignore_index=True)
+
+
+def render_mbs_program_report(kind):
+  """kind 'TLTB' | 'TANG_TRUONG'."""
+  is_tl = kind == 'TLTB'
+  title = 'BÁO CÁO TÍCH LŨY TRƯNG BÀY (TLTB)' if is_tl else 'BÁO CÁO TĂNG TRƯỞNG BRAND / CAT'
+  st.markdown(
+      f'<h3 style="color:#034ea2;font-weight:800;margin-bottom:4px;font-size:clamp(22px, 4.5vw, 48px);'
+      f'text-align:center;line-height:1.15;">{title}</h3>',
+      unsafe_allow_html=True,
+  )
+  d = load_tltb() if is_tl else load_tang_truong()
+  fname = 'TLTB.xlsx' if is_tl else 'Tăng Trưởng.xlsx'
+  if d is None or d.empty:
+    st.warning(f'Chưa có file **{fname}** trong data tháng này (hoặc không có dòng của Sale Sup đang xem).')
+    return
+  st.caption(
+      f'Hội viên doanh nhân Masan — {"Sản phẩm tập trung / Đại sứ ngành hàng" if is_tl else "Tăng trưởng doanh số"} '
+      f'tháng {int(get_month_cfg()["month"]):02d}/{int(get_month_cfg()["year"])} · Lọc: {nv_label(filter_nv)} · '
+      f'Số liệu luỹ kế theo file {fname} (Onetech) · Tiền thưởng = điểm ÷ 100'
+  )
+  df_ct, df_nv, det = build_tltb_tables(d) if is_tl else build_tang_truong_tables(d)
+
+  # ---- Thẻ tổng ----
+  n_kh = int(d['_ma'].nunique())
+  ds_col = '_ds' if is_tl else '_th'
+  kh_ds = int(d.loc[d[ds_col] > 0, '_ma'].nunique())
+  luot_dat = int(df_ct['KH đạt'].sum()) if not df_ct.empty else 0
+  luot_gan = int(df_ct['KH gần đạt'].sum()) if not df_ct.empty else 0
+  tien = float(df_ct['Tiền thưởng (đ)'].sum()) if not df_ct.empty else 0.0
+  ds = float(d[ds_col].sum())
+  c = st.columns(5)
+  with c[0]:
+    render_metric_card('KH THAM GIA', f'{kh_ds:,}/{n_kh:,}'.replace(',', '.'), icon='🏪')
+  with c[1]:
+    render_metric_card('LƯỢT ĐẠT', f'{luot_dat:,}'.replace(',', '.'), icon='✅', value_color='#22543d')
+  with c[2]:
+    render_metric_card('LƯỢT GẦN ĐẠT', f'{luot_gan:,}'.replace(',', '.'), icon='🎯', value_color='#c05621')
+  with c[3]:
+    render_metric_card('DS TÍCH LŨY' if is_tl else 'DS THỰC HIỆN', f'{format_trieu(ds)} Tr', icon='💰')
+  with c[4]:
+    render_metric_card('TIỀN THƯỞNG DỰ KIẾN', f'{format_number_vn(tien)}đ', icon='🎁', value_color='#22543d')
+  st.caption('KH tham gia = KH có DS / KH trong danh sách chương trình · Lượt = KH × chương trình · '
+             + ('Gần đạt = DS ≥ 70% ngưỡng tối thiểu' if is_tl else 'Gần đạt = DS ≥ 80% DS cần đạt (nền tảng × ngưỡng)'))
+
+  # ---- Theo chương trình ----
+  st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">📋 THEO CHƯƠNG TRÌNH</p>',
+              unsafe_allow_html=True)
+  if is_tl:
+    t = _mbsp_total_row(df_ct, 'TỔNG CỘNG', ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
+                                             'DS tích lũy', 'Tiền thưởng (đ)'], pct=('KH đạt', 'KH tham gia', '% KH đạt'))
+    t = _mbsp_fmt(t, ['Ngưỡng tối thiểu', 'KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
+                      'DS tích lũy', 'Tiền thưởng (đ)'])
+  else:
+    t = _mbsp_total_row(df_ct, 'TỔNG CỘNG', ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
+                                             'DS nền tảng', 'DS thực hiện', 'Tiền thưởng (đ)'],
+                        pct=('KH đạt', 'KH tham gia', '% KH đạt'))
+    t.loc[t.index[-1], '% so nền tảng'] = (
+        f"{round(t['DS thực hiện'].iloc[-1] / t['DS nền tảng'].iloc[-1] * 100, 1) if t['DS nền tảng'].iloc[-1] else 0}%")
+    t = _mbsp_fmt(t, ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt', 'DS nền tảng', 'DS thực hiện',
+                      'Tiền thưởng (đ)'])
+  t.insert(0, 'STT', [str(i) for i in range(1, len(t))] + ['-'])
+  st.markdown(render_html_table(t, freeze_cols=['STT', 'Chương trình']), unsafe_allow_html=True)
+
+  # ---- Theo NV ----
+  st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">👤 THEO NHÂN VIÊN</p>',
+              unsafe_allow_html=True)
+  if not df_nv.empty:
+    df_nv = df_nv.sort_values('Tiền thưởng (đ)', ascending=False).reset_index(drop=True)
+    sums = [c for c in df_nv.columns if c not in ('Tên NVBH', '% so nền tảng')]
+    t = _mbsp_total_row(df_nv, f'SS {_ss_name()} Total', sums)
+    if '% so nền tảng' in t.columns:
+      t.loc[t.index[-1], '% so nền tảng'] = (
+          f"{round(t['DS thực hiện'].iloc[-1] / t['DS nền tảng'].iloc[-1] * 100, 1) if t['DS nền tảng'].iloc[-1] else 0}%")
+    t = _mbsp_fmt(t, sums)
+    t.insert(0, 'STT', [str(i) for i in range(1, len(t))] + ['-'])
+    st.markdown(render_html_table(t), unsafe_allow_html=True)
+
+  # ---- Chi tiết KH ----
+  st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">🔎 CHI TIẾT KHÁCH HÀNG CÓ DOANH SỐ</p>',
+              unsafe_allow_html=True)
+  if det is None or det.empty:
+    st.info('Chưa có KH phát sinh doanh số.')
+    return
+  pre = 'tltb' if is_tl else 'ttbc'
+  # App (xuất sẵn trên GitHub): số luỹ kế giống nhau mọi ngày → chỉ xuất sẵn chi tiết ngày T-1,
+  # ngày cũ bật ô dưới mới tính (giảm dung lượng repo)
+  if hasattr(st, '_rec'):
+    try:
+      _rd = report_date.date() if hasattr(report_date, 'date') and callable(report_date.date) else report_date
+      _t1 = globals().get('default_date_t_minus_1')
+      if _t1 is not None and _rd < _t1:
+        if not st.toggle(f'📋 Xem chi tiết KH ngày {_rd.strftime("%d/%m/%Y")}', value=False,
+                         key=f'{pre}_det__ondemand'):
+          st.caption('Bật ô trên để xem chi tiết khách hàng (GitHub tính khoảng 1–2 phút).')
+          return
+    except Exception:
+      pass
+  f1, f2 = st.columns(2)
+  with f1:
+    sel_ct = st.multiselect('Chương trình', sorted(det['Chương trình'].unique()), default=[],
+                            key=f'{pre}_ct_filter', placeholder='Tất cả chương trình')
+  with f2:
+    sel_tt = st.multiselect('Trạng thái', ['Gần đạt', 'Chưa đạt', 'Đạt'], default=[],
+                            key=f'{pre}_tt_filter', placeholder='Tất cả trạng thái')
+  show = det
+  if sel_ct:
+    show = show[show['Chương trình'].isin(sel_ct)]
+  if sel_tt:
+    show = show[show['Trạng thái'].isin(sel_tt)]
+  money = [c for c in ('Ngưỡng', 'DS nền tảng', 'DS cần đạt', 'DS tích lũy', 'DS thực hiện', 'Còn thiếu',
+                       'Tiền thưởng (đ)') if c in show.columns]
+  show = _mbsp_fmt(show.reset_index(drop=True), money)
+  show.insert(0, 'STT', range(1, len(show) + 1))
+  st.markdown(render_html_table(show, freeze_cols=['STT', 'Tên NVBH', 'Mã KH']), unsafe_allow_html=True)
+  st.caption(f'Hiển thị {len(show):,} / {len(det):,} lượt KH × chương trình có doanh số'.replace(',', '.'))
+
+
 # ====================== PREPARED DATA (cache gộp — giảm lag) ======================
 @st.cache_data(ttl=600, show_spinner=False)
 def load_prepared_core(_month_key='Thang10'):
@@ -22431,6 +22826,11 @@ with f2:
       '19. WEEKLY PREVIEW - MCP / ASO / %COV': 'WEEKLY_PREVIEW',
       '20. MỤC TIÊU NGÀY': 'MUC_TIEU_NGAY',
   }
+  # T11: Hội viên doanh nhân MBS — 2 báo cáo nối tiếp Mục Tiêu Ngày (chỉ hiện khi tháng có file data)
+  if _mbsp_file('tltb'):
+    kpi_map['21. BÁO CÁO TÍCH LŨY TRƯNG BÀY (TLTB)'] = 'TLTB'
+  if _mbsp_file('tangtruong'):
+    kpi_map['22. BÁO CÁO TĂNG TRƯỞNG BRAND / CAT'] = 'TANG_TRUONG'
   if _cfg.get('no_mbs_cat') or _cfg.get('mbs_brand_name') or _cfg.get('aso_pl') or _cfg.get('aso_xot'):
     # T11: bỏ MBS Cat, MBS Brand đổi tên (Hội Viên Tết 2027), thêm ASO Trà Phúc Long ở số 9
     # → đánh lại số thứ tự
@@ -26055,6 +26455,13 @@ if _nav == '📊 BÁO CÁO KPI':
           """,
           unsafe_allow_html=True,
       )
+
+  elif selected_kpi in ('TLTB', 'TANG_TRUONG'):
+    set_color_moc_for_kpi('SUMMARY')
+    try:
+      render_mbs_program_report(selected_kpi)
+    except Exception as _e_mbsp:
+      st.error(f'Lỗi báo cáo {selected_kpi}: {_e_mbsp}')
 
   elif selected_kpi != 'COMBO':
 
