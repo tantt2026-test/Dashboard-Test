@@ -21189,7 +21189,7 @@ def render_hs_per_nv_blocks(
     nv = str(row.get('Tên NVBH', '')).strip()
     if not nv or nv.lower() in ('nan', 'none'):
       continue
-    with st.expander(f'👤 {nv}', expanded=(i == 0)):
+    with st.expander(f'👤 {nv}', expanded=False):
       try:
         df_nv = _df_perf_single_nv(df_perf, nv)
         if df_nv is None or df_nv.empty:

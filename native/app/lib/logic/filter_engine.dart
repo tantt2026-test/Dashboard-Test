@@ -80,7 +80,7 @@ bool isTotalRow(List<String> cells) => cells.take(3).any((c) => _totalRe.hasMatc
 bool sameRowsAs(List<Map<String, dynamic>> base, List<Map<String, dynamic>> variant) {
   List<Map<String, dynamic>> tbls(List<Map<String, dynamic>> l) => [
         for (final it in l)
-          if (it['t'] == 'tbl') it else if (it['t'] == 'box') ...tbls((it['ch'] as List).cast<Map<String, dynamic>>())
+          if (it['t'] == 'tbl') it else if (it['t'] == 'box' || it['t'] == 'exp') ...tbls((it['ch'] as List).cast<Map<String, dynamic>>())
       ];
   Set<String> keys(Map<String, dynamic> t) {
     final names = colPaths(t);
@@ -108,7 +108,7 @@ void indexItems(List<Map<String, dynamic>> items) {
     for (final it in l) {
       it['_i'] = i++;
       if (it['t'] == 'tbl') it['_ti'] = ti++;
-      if (it['t'] == 'box') walk((it['ch'] as List).cast<Map<String, dynamic>>());
+      if (it['t'] == 'box' || it['t'] == 'exp') walk((it['ch'] as List).cast<Map<String, dynamic>>());
     }
   }
   walk(items);
@@ -333,6 +333,7 @@ FilterResult applyFilters(
       }
       switch (it['t']) {
         case 'box':
+        case 'exp':
           it['ch'] = process((it['ch'] as List).cast<Map<String, dynamic>>());
           if ((it['ch'] as List).isEmpty) continue;
           break;
@@ -632,7 +633,7 @@ List<Map<String, dynamic>> collectWidgets(List<Map<String, dynamic>> items) {
   void walk(List l) {
     for (final it in l.cast<Map<String, dynamic>>()) {
       if (it['t'] == 'filters') out.addAll((it['w'] as List).cast<Map<String, dynamic>>());
-      if (it['t'] == 'box') walk(it['ch'] as List);
+      if (it['t'] == 'box' || it['t'] == 'exp') walk(it['ch'] as List);
     }
   }
   walk(items);
@@ -762,6 +763,7 @@ List<Map<String, dynamic>> applySubset(List<Map<String, dynamic>> items, List<St
         };
         break;
       case 'box':
+      case 'exp':
         it = {...it, 'ch': applySubset((it['ch'] as List).cast<Map<String, dynamic>>(), opts, sel)};
         break;
     }

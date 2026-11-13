@@ -252,7 +252,8 @@ def make_streamlit(rec):
         return [_Container(st) for _ in range(n)]
     st.columns = columns
     st.tabs = lambda labels, *a, **k: [_Container(st, str(l)) for l in labels]
-    st.expander = lambda label='', *a, **k: _Container(st, str(label))
+    # expander: đánh dấu riêng (report_doc gom nội dung thành mục thu gọn 'exp' có tiêu đề)
+    st.expander = lambda label='', *a, **k: _Container(st, '__exp__:' + str(label))
     st.popover = lambda label='', *a, **k: _Container(st, '__popover__')
     st.container = lambda *a, **k: _Container(st)
     st.empty = lambda *a, **k: _Container(st)

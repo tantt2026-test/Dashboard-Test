@@ -595,10 +595,21 @@ def convert(blocks):
                 drop.add(i - 2)
                 wgroup[i] = _plain(blocks[i - 2])
     conv = Converter()
+    cur_exp = None  # expander đang mở → nội dung vào mục thu gọn {'t': 'exp', 'title', 'ch'}
     for i, b in enumerate(blocks):
         if i in drop:
             continue
         k = b['kind']
+        exp = next((s[8:] for s in (b.get('section') or []) if str(s).startswith('__exp__:')), None)
+        if exp != cur_exp:
+            conv.flush()
+            if cur_exp is not None:
+                conv.stack.pop()
+            if exp is not None:
+                box = {'t': 'exp', 'title': clean_text(exp), 'ch': []}
+                conv.out.append(box)
+                conv.stack.append(box['ch'])
+            cur_exp = exp
         if b.get('section') and '__popover__' in b['section'] and k != 'widget':
             continue  # popover: chỉ lấy ô lọc, bỏ nút tải / nội dung phụ
         if k == 'markdown':
@@ -652,4 +663,6 @@ def convert(blocks):
         elif k == 'metric':
             conv.emit({'t': 'cards', 'it': [{'l': b['label'], 'v': b['value']}]})
     conv.flush()
+    if cur_exp is not None:
+        conv.stack.pop()
     return conv.items

@@ -101,6 +101,27 @@ class ReportItems extends StatelessWidget {
           ),
           child: ReportItems(items: (it['ch'] as List).cast<Map<String, dynamic>>(), wide: wide),
         );
+      case 'exp':
+        // Mục thu gọn (st.expander của App.py, vd Kết quả ngày theo từng NV): mặc định chỉ hiện tiêu đề
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFCBD5E0)),
+          ),
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              initiallyExpanded: it['open'] == true,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+              childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              title: Text(it['title'] as String? ?? '',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A365D))),
+              children: [ReportItems(items: (it['ch'] as List).cast<Map<String, dynamic>>(), wide: wide)],
+            ),
+          ),
+        );
       case 'cards':
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),

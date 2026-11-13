@@ -46,7 +46,7 @@ def rkey(cells):
 def _walk(items):
     for it in items:
         yield it
-        if it['t'] == 'box':
+        if it['t'] in ('box', 'exp'):
             yield from _walk(it['ch'])
 
 
@@ -146,7 +146,7 @@ def _other_sig(items):
     (dòng chú thích kiểu "Tổng 619 dòng" đổi số theo bộ lọc — app tự đếm lại)."""
     sig = []
     for idx, it in enumerate(_walk(items)):
-        if it['t'] in ('tbl', 'cards', 'bar', 'pie', 'filters', 'box'):
+        if it['t'] in ('tbl', 'cards', 'bar', 'pie', 'filters', 'box', 'exp'):
             continue
         if it['t'] == 'p':
             txt = ''.join(r['x'] for r in it['r'])
@@ -290,7 +290,7 @@ def apply_subset(items, opts, sel):
                               if isinstance(v, list) and len(v) == n else v) for k, v in tr.items()}
                 trs.append(tr)
             it = {**it, 'tr': trs}
-        elif t == 'box':
+        elif t in ('box', 'exp'):
             it = {**it, 'ch': apply_subset(it['ch'], opts, sel)}
         out.append(it)
     return out
