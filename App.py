@@ -12675,6 +12675,12 @@ def render_html_table(df, freeze_cols=None):
       for n in df[c].astype(str):
         max_name = max(max_name, len(n))
       return max(150, min(260, max_name * 9 + 24))
+    if c in ('Chương trình', 'Loại'):
+      # TLTB / Tăng Trưởng: rộng theo tên dài nhất (tên quá dài thì xuống dòng, không bị cắt)
+      max_len = 6
+      for n in df[c].astype(str):
+        max_len = max(max_len, len(n))
+      return max(90, min(300 if c == 'Chương trình' else 140, max_len * 8 + 20))
     return 120
 
   widths = {}
@@ -12822,6 +12828,8 @@ def render_html_table(df, freeze_cols=None):
         # Outlet Code / Tên CH: hiện đủ nội dung (không ellipsis)
         if col in ('Outlet Code', 'Tên CH', 'Tên KH', 'Mã KH', 'Mã CH'):
           _overflow = 'white-space:nowrap;'
+        elif col in ('Chương trình', 'Loại'):
+          _overflow = 'white-space:normal;word-break:break-word;line-height:1.3;'
         else:
           _overflow = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
         html.append(
