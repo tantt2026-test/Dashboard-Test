@@ -15736,12 +15736,7 @@ def _perf_table_html(df, section='call'):
             ('Chụp hình bởi ĐDKD', 'Chụp hình bởi ĐDKD'),
             ('% TH TB', '% TH'),
         ]),
-        ('Giữa Ngày', [
-            ('Đề xuất cải thiện', 'Đề xuất cải thiện'),
-        ]),
-        ('Cuối Ngày', [
-            ('Đánh giá Tăng/Giảm', 'Đánh Giá Tăng/Giảm'),
-        ]),
+        # Bỏ nhóm "Đề xuất & Đánh Giá" (Giữa Ngày / Cuối Ngày) cho gọn
     ]
 
   data_cols = [k for _, pairs in groups for k, _ in pairs]
@@ -15807,12 +15802,10 @@ def _perf_table_html(df, section='call'):
   else:
     # Fundamental = SellOut + ASO Xanh + ASO Vàng + Combo OFF/ON (15)
     # Kỷ Luật Bán Hàng: rowspan=2 gộp 2 dòng tiêu đề thành 1 ô
-    # Đề xuất & Đánh Giá = Giữa + Cuối (2)
     html.append(f'<th colspan="15" style="{th_top}">Fundamental</th>')
     html.append(
         f'<th colspan="3" rowspan="2" style="{th_top}">Kỷ Luật Bán Hàng</th>'
     )
-    html.append(f'<th colspan="2" style="{th_top}">Đề xuất &amp; Đánh Giá</th>')
   html.append('</tr>')
 
   # Row 2: sub-groups — bỏ "Kỷ Luật Bán Hàng" (đã rowspan từ row 1)
@@ -25658,7 +25651,8 @@ if _nav == '📊 BÁO CÁO KPI':
         with c1:
           st.download_button(
               '📥 Tải CSV Hiệu Suất',
-              data=df_perf.to_csv(index=False).encode('utf-8-sig'),
+              data=df_perf.drop(columns=['Đề xuất cải thiện', 'Đánh giá Tăng/Giảm'], errors='ignore')
+              .to_csv(index=False).encode('utf-8-sig'),
               file_name=f'HieuSuat_{report_date}.csv',
               mime='text/csv',
               key='dl_perf',
