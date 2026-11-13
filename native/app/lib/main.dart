@@ -6,9 +6,11 @@ import 'data/local_engine.dart';
 import 'data/report_repository.dart';
 import 'ui/theme.dart';
 import 'ui/app_scale.dart';
+import 'ui/app_theme_mode.dart';
 import 'ui/home_shell.dart';
 
 final appScale = AppScale();
+final appThemeMode = AppThemeMode();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +25,7 @@ Future<void> main() async {
     return true;
   };
   await appScale.load();
+  await appThemeMode.load();
   runApp(const KpiApp());
 }
 
@@ -38,19 +41,27 @@ class _KpiAppState extends State<KpiApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'KPI Dashboard',
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
-      locale: const Locale('vi'),
-      supportedLocales: const [Locale('vi'), Locale('en')],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      builder: (ctx, child) => ScaledApp(scale: appScale, child: child!),
-      home: HomeShell(repo: repo),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: appThemeMode,
+      builder: (ctx, mode, _) => MaterialApp(
+        title: 'KPI Dashboard',
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
+        themeMode: mode,
+        locale: const Locale('vi'),
+        supportedLocales: const [Locale('vi'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        builder: (ctx, child) => AppThemeModeScope(
+          mode: appThemeMode,
+          child: ScaledApp(scale: appScale, child: child!),
+        ),
+        home: HomeShell(repo: repo),
+      ),
     );
   }
 }

@@ -118,8 +118,10 @@ class _ScaleSheet extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('Tỷ lệ hiển thị', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            const Text('Áp dụng cho toàn bộ nội dung trong app',
-                style: TextStyle(fontSize: 12, color: Brand.muted)),
+            Builder(
+              builder: (context) => Text('Áp dụng cho toàn bộ nội dung trong app',
+                  style: TextStyle(fontSize: 12, color: mutedText(context))),
+            ),
             const SizedBox(height: 12),
             Row(children: [
               IconButton.filledTonal(onPressed: scale.zoomOut, icon: const Icon(Icons.remove)),

@@ -17,7 +17,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.11';
+const appVersion = '1.7.12';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -260,7 +260,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Widget _menu({required bool permanent}) {
     final reports = _idx?.reports ?? [];
     return Container(
-      color: Colors.white,
+      color: panelBg(context),
       child: SafeArea(
         right: false,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -354,7 +354,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               'Phiên bản $appVersion'
               '${_manifest?.generatedAt != null ? ' · dữ liệu ${_fmtTime(_manifest!.generatedAt!)}' : ''}'
               '${LocalEngine.instance.liveSc != null && LocalEngine.instance.liveSc == _manifest?.sourceCommit ? ' (máy tự tính)' : ''}',
-              style: const TextStyle(fontSize: 11, color: Brand.muted),
+              style: TextStyle(fontSize: 11, color: mutedText(context)),
             ),
           ),
         ]),
@@ -368,9 +368,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     return '${two(v.day)}/${two(v.month)} ${two(v.hour)}:${two(v.minute)}';
   }
 
-  Widget _section(String t) => Padding(
-        padding: const EdgeInsets.fromLTRB(6, 12, 6, 6),
-        child: Text(t, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Brand.blue)),
+  Widget _section(String t) => Builder(
+        builder: (context) => Padding(
+          padding: const EdgeInsets.fromLTRB(6, 12, 6, 6),
+          child: Text(t,
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: isDark(context) ? const Color(0xFF63B3ED) : Brand.blue)),
+        ),
       );
 
   Widget _tile(String code, String name) =>
@@ -483,9 +489,9 @@ class _MenuTileState extends State<_MenuTile> {
                 gradient: sel
                     ? const LinearGradient(colors: [Brand.navy, Brand.blue])
                     : null,
-                color: sel ? null : (up ? Brand.cardBg : Colors.white),
+                color: sel ? null : tileBg(context, hover: up),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: sel ? Brand.blue : (up ? Brand.border : Brand.cardBorder), width: 1.2),
+                border: Border.all(color: sel ? Brand.blue : tileBorder(context, hover: up), width: 1.2),
                 boxShadow: [
                   BoxShadow(
                     color: Brand.blue.withValues(alpha: _hover ? 0.22 : (sel ? 0.18 : 0.06)),
@@ -502,7 +508,7 @@ class _MenuTileState extends State<_MenuTile> {
                   fontSize: 13,
                   height: 1.25,
                   fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
-                  color: sel ? Colors.white : Brand.navy,
+                  color: sel ? Colors.white : tileText(context),
                 ),
               ),
             ),

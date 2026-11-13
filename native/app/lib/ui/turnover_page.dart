@@ -4,6 +4,7 @@ import '../data/report_repository.dart';
 import '../logic/pyfmt.dart';
 import '../logic/turnover_logic.dart';
 import 'app_scale.dart';
+import 'app_theme_mode.dart';
 import 'kpi_table.dart';
 import 'report_table.dart';
 import 'theme.dart';
@@ -180,6 +181,7 @@ class _TurnoverPageState extends State<TurnoverPage> {
           ],
         ),
         actions: [
+          const ThemeModeButton(),
           const ScaleButton(),
           IconButton(
             tooltip: 'Tải lại',

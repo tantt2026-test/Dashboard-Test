@@ -7,6 +7,7 @@ import '../data/report_repository.dart';
 import '../logic/filter_engine.dart';
 import '../logic/turnover_logic.dart' show allNvLabel, isoDate;
 import 'app_scale.dart';
+import 'app_theme_mode.dart';
 import 'filter_widgets.dart';
 import 'report_view.dart';
 import 'theme.dart';
@@ -350,6 +351,7 @@ class _KpiReportPageState extends State<KpiReportPage> {
             ),
         ]),
         actions: [
+          const ThemeModeButton(),
           const ScaleButton(),
           IconButton(tooltip: 'Tải lại', onPressed: _loading ? null : _loadIndex, icon: const Icon(Icons.refresh)),
         ],
