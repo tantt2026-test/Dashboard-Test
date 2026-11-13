@@ -22656,8 +22656,7 @@ def render_mbsp_recap(d, df_ct, is_tl):
   kind = {}
   if '_kind' in d.columns:
     kind = {_mbsp_short(p): k for p, k in d.groupby('_ct')['_kind'].first().items()}
-  st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 4px 0;">📌 TÓM TẮT CHƯƠNG TRÌNH</p>',
-              unsafe_allow_html=True)
+  rows = []
   cfg = get_month_cfg()
   ky = f"01/{int(cfg['month']):02d} – hết tháng {int(cfg['month']):02d}/{int(cfg['year'])}"
   for _, r in df_ct.iterrows():
@@ -22706,7 +22705,15 @@ def render_mbsp_recap(d, df_ct, is_tl):
       luu_y = 'Chỉ KH trong danh sách chương trình (file Onetech) · Masan chốt theo đơn đã đóng'
     title = (f"📌 {name}{f' · {cv}' if cv else ''} · {cond.replace('DS tích lũy ', '')} · "
              f"Đạt {kh_dat}/{format_number_vn(kh_tg)} KH · {format_number_vn(tien)}đ")
-    with st.expander(title, expanded=False):
+    rows.append((title, thuong, cond, reward, kq, luu_y))
+
+  with st.expander('📌 TÓM TẮT CHƯƠNG TRÌNH (bấm để thu gọn / xem hết)', expanded=False):
+    for title, thuong, cond, reward, kq, luu_y in rows:
+      st.markdown(
+          f'<div style="font-weight:700;color:#1a365d;font-size:13px;margin:10px 0 2px 0;'
+          f'border-top:1px dashed #cbd5e0;padding-top:8px;">{title}</div>',
+          unsafe_allow_html=True,
+      )
       st.markdown(_mbsp_note_html(thuong, f'{cond} → {reward}', kq, luu_y), unsafe_allow_html=True)
 
 
