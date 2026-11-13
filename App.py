@@ -22138,6 +22138,9 @@ def _mbsp_scheme(text):
 
 
 def _mbsp_short(prog):
+  _n = _mbsp_norm_name(prog)
+  if 'tangtruong' in _n and ('chinsu' in _n or 'namngu' in _n or 'giavi' in _n):
+    return 'Gia vị (Chinsu, Nam Ngư, Tam Thái Tử, Dầu hào, Hạt nêm)'
   s = re.sub(r'^\d{4}\.\d{2}_', '', str(prog))
   s = re.sub(r'^(Sản phẩm tập trung|Tăng trưởng doanh số)_', '', s)
   s = s.replace('_Miền Nam', '').strip()
@@ -22568,6 +22571,15 @@ def render_mbs_program_report(kind):
   t.insert(0, 'STT', [str(i) for i in range(1, len(t))] + ['-'])
   st.markdown(render_html_table(t, freeze_cols=['STT', 'Loại', 'Chương trình'] if 'Loại' in t.columns
                                 else ['STT', 'Chương trình']), unsafe_allow_html=True)
+  # Công văn đã ban hành nhưng file Onetech chưa có chương trình (chưa có DS KH + DS nền tảng)
+  _expect = {'Thang11': [('Tăng trưởng DS Gia vị (CV 496 ngày 11/11)', ('chinsu', 'namngu', 'giavi'))]}
+  if not is_tl:
+    _have = [_mbsp_norm_name(p) for p in d.loc[d['_kind'] == 'tt', '_ct'].unique()] if '_kind' in d.columns else []
+    for _lab, _keys in _expect.get(get_month_key(), []):
+      if not any(k in h for h in _have for k in _keys):
+        st.warning(f'⚠️ {_lab}: file Tăng Trưởng.xlsx chưa có chương trình này (chưa có danh sách KH + DS nền tảng '
+                   'tháng 07–09) → xuất lại file Onetech (MEMBER_TYPE chứa ONTOP) rồi up đè lên GitHub, '
+                   'báo cáo tự tính.')
 
   # ---- Theo NV ----
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">👤 THEO NHÂN VIÊN</p>',
