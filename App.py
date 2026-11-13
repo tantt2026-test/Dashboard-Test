@@ -22505,7 +22505,8 @@ def _mbsp_total_row(df, label, sum_cols, pct=None):
   tot[df.columns[0]] = label
   for c in sum_cols:
     if c in df.columns:
-      tot[c] = float(pd.to_numeric(df[c], errors='coerce').fillna(0).sum())
+      # cộng số đã làm tròn (như hiển thị) → app tính lại được dòng Tổng khi lọc dòng
+      tot[c] = float(pd.to_numeric(df[c], errors='coerce').fillna(0).round(0).sum())
   if pct:
     num, den, col = pct
     tot[col] = f'{round(tot[num] / tot[den] * 100, 1) if tot.get(den) else 0}%'
@@ -22557,28 +22558,68 @@ def render_mbs_program_report(kind):
   st.caption('KH tham gia = KH có DS / KH trong danh sách chương trình · Lượt = KH × chương trình · '
              + ('Gần đạt = DS ≥ 70% ngưỡng tối thiểu' if is_tl else 'Gần đạt = DS ≥ 80% DS cần đạt (Tăng trưởng: nền tảng × ngưỡng · SP tập trung: DS tối thiểu)'))
 
+  pre = 'tltb' if is_tl else 'ttbc'
+
+  # ---- Bộ Slicer (lọc dòng các bảng; thẻ trên giữ số cả team — đổi ĐDKD ở ô đầu trang để tính lại) ----
+  st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 4px 0;">🎛️ BỘ LỌC</p>', unsafe_allow_html=True)
+  _ct_opts = list(df_ct['Chương trình']) if not df_ct.empty else []
+  _nv_opts = sorted(df_nv['Tên NVBH'].astype(str).unique()) if not df_nv.empty else []
+  _vip_opts = sorted({str(v).strip() for v in d.get('VIP Type', pd.Series(dtype=str)).dropna()
+                      if str(v).strip() and str(v).strip().lower() != 'nan'})
+  s1, s2, s3 = st.columns(3)
+  with s1:
+    sel_ct = st.multiselect('Tên Chương trình', _ct_opts, default=[], key=f'{pre}_s_ct',
+                            placeholder='Tất cả chương trình')
+  with s2:
+    sel_nv = st.multiselect('Tên NVBH', _nv_opts, default=[], key=f'{pre}_s_nv', placeholder='Tất cả NV')
+  with s3:
+    sel_vip = st.multiselect('VIP', _vip_opts, default=[], key=f'{pre}_s_vip', placeholder='Tất cả nhóm KH')
+  s4, s5, s6 = st.columns(3)
+  with s4:
+    q_ma = st.text_input('Mã KH', value='', key=f'{pre}_s_ma', placeholder='Gõ mã KH (nhiều mã cách dấu phẩy)')
+  with s5:
+    q_ten = st.text_input('Tên KH', value='', key=f'{pre}_s_ten', placeholder='Gõ tên KH')
+  with s6:
+    sel_tt = st.multiselect('Trạng thái', ['Gần đạt', 'Chưa đạt', 'Đạt'], default=[], key=f'{pre}_s_tt',
+                            placeholder='Tất cả trạng thái')
+  sort_pct = st.checkbox('⬇️ Xếp % từ lớn → bé', value=False, key=f'{pre}_s_sort')
+
+  def _pnum(x):
+    try:
+      return float(str(x).replace('%', '').replace(',', '.').split()[0])
+    except Exception:
+      return -1.0
+
   # ---- Theo chương trình ----
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">📋 THEO CHƯƠNG TRÌNH</p>',
               unsafe_allow_html=True)
+  ct = df_ct.copy()
+  if sel_ct and not ct.empty:
+    ct = ct[ct['Chương trình'].isin(sel_ct)]
+  if sort_pct and not ct.empty:
+    ct = ct.assign(_p=ct['% KH đạt'].map(_pnum)).sort_values('_p', ascending=False).drop(columns=['_p'])
+  ct = ct.reset_index(drop=True)
   if is_tl:
-    t = _mbsp_total_row(df_ct, 'TỔNG CỘNG', ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
-                                             'DS tích lũy', 'Tiền thưởng (đ)'], pct=('KH đạt', 'KH tham gia', '% KH đạt'))
+    t = _mbsp_total_row(ct, 'TỔNG CỘNG', ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
+                                          'DS tích lũy', 'Tiền thưởng (đ)'], pct=('KH đạt', 'KH tham gia', '% KH đạt'))
     t = _mbsp_fmt(t, ['Ngưỡng tối thiểu', 'KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
                       'DS tích lũy', 'Tiền thưởng (đ)'])
   else:
-    t = _mbsp_total_row(df_ct, '', ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
-                                    'DS nền tảng', 'DS thực hiện', 'Tiền thưởng (đ)'],
+    t = _mbsp_total_row(ct, '', ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt',
+                                 'DS nền tảng', 'DS thực hiện', 'Tiền thưởng (đ)'],
                         pct=('KH đạt', 'KH tham gia', '% KH đạt'))
     t.loc[t.index[-1], 'Chương trình'] = 'TỔNG CỘNG'
-    _tt = df_ct[df_ct['Loại'] == 'Tăng trưởng DS'] if 'Loại' in df_ct.columns else df_ct
-    _b = float(pd.to_numeric(_tt['DS nền tảng'], errors='coerce').fillna(0).sum())
-    _t = float(pd.to_numeric(_tt['DS thực hiện'], errors='coerce').fillna(0).sum())
-    t.loc[t.index[-1], '% so nền tảng'] = f'{round(_t / _b * 100, 1) if _b else 0}% (TT)'
+    t.loc[t.index[-1], '% so nền tảng'] = ''
     t = _mbsp_fmt(t, ['KH tham gia', 'KH có DS', 'KH đạt', 'KH gần đạt', 'DS nền tảng', 'DS thực hiện',
                       'Tiền thưởng (đ)'])
   t.insert(0, 'STT', [str(i) for i in range(1, len(t))] + ['-'])
   st.markdown(render_html_table(t, freeze_cols=['STT', 'Loại', 'Chương trình'] if 'Loại' in t.columns
                                 else ['STT', 'Chương trình']), unsafe_allow_html=True)
+  if not is_tl and not df_ct.empty:
+    _tt = df_ct[df_ct['Loại'] == 'Tăng trưởng DS']
+    _b = float(pd.to_numeric(_tt['DS nền tảng'], errors='coerce').fillna(0).sum())
+    _t = float(pd.to_numeric(_tt['DS thực hiện'], errors='coerce').fillna(0).sum())
+    st.caption(f'Nhóm Tăng trưởng DS: DS thực hiện / DS nền tảng = {round(_t / _b * 100, 1) if _b else 0}%')
   # Công văn đã ban hành nhưng file Onetech chưa có chương trình (chưa có DS KH + DS nền tảng)
   _expect = {'Thang11': [('Tăng trưởng DS Gia vị (CV 496 ngày 11/11)', ('chinsu', 'namngu', 'giavi'))]}
   if not is_tl:
@@ -22593,9 +22634,14 @@ def render_mbs_program_report(kind):
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">👤 THEO NHÂN VIÊN</p>',
               unsafe_allow_html=True)
   if not df_nv.empty:
-    df_nv = df_nv.sort_values('Tiền thưởng (đ)', ascending=False).reset_index(drop=True)
-    sums = [c for c in df_nv.columns if c not in ('Tên NVBH', '% so nền tảng')]
-    t = _mbsp_total_row(df_nv, f'SS {_ss_name()} Total', sums)
+    nv = df_nv.sort_values('Tiền thưởng (đ)', ascending=False)
+    if sel_nv:
+      nv = nv[nv['Tên NVBH'].isin(sel_nv)]
+    if sort_pct and '% so nền tảng' in nv.columns:
+      nv = nv.assign(_p=nv['% so nền tảng'].map(_pnum)).sort_values('_p', ascending=False).drop(columns=['_p'])
+    nv = nv.reset_index(drop=True)
+    sums = [c for c in nv.columns if c not in ('Tên NVBH', '% so nền tảng')]
+    t = _mbsp_total_row(nv, f'SS {_ss_name()} Total', sums)
     if '% so nền tảng' in t.columns:
       _b, _t = t['DS nền tảng (TT)'].iloc[-1], t['DS thực hiện (TT)'].iloc[-1]
       t.loc[t.index[-1], '% so nền tảng'] = f'{round(_t / _b * 100, 1) if _b else 0}%'
@@ -22609,9 +22655,7 @@ def render_mbs_program_report(kind):
   if det is None or det.empty:
     st.info('Chưa có KH phát sinh doanh số.')
     return
-  pre = 'tltb' if is_tl else 'ttbc'
-  # App (xuất sẵn trên GitHub): số luỹ kế giống nhau mọi ngày → chỉ xuất sẵn chi tiết ngày T-1,
-  # ngày cũ bật ô dưới mới tính (giảm dung lượng repo)
+  # App (xuất sẵn trên GitHub): chỉ xuất sẵn chi tiết ngày T-1, ngày cũ bật ô dưới mới tính (giảm dung lượng repo)
   if hasattr(st, '_rec'):
     try:
       _rd = report_date.date() if hasattr(report_date, 'date') and callable(report_date.date) else report_date
@@ -22623,18 +22667,23 @@ def render_mbs_program_report(kind):
           return
     except Exception:
       pass
-  f1, f2 = st.columns(2)
-  with f1:
-    sel_ct = st.multiselect('Chương trình', sorted(det['Chương trình'].unique()), default=[],
-                            key=f'{pre}_ct_filter', placeholder='Tất cả chương trình')
-  with f2:
-    sel_tt = st.multiselect('Trạng thái', ['Gần đạt', 'Chưa đạt', 'Đạt'], default=[],
-                            key=f'{pre}_tt_filter', placeholder='Tất cả trạng thái')
   show = det
   if sel_ct:
     show = show[show['Chương trình'].isin(sel_ct)]
+  if sel_nv:
+    show = show[show['Tên NVBH'].isin(sel_nv)]
+  if sel_vip:
+    show = show[show['VIP'].astype(str).str.strip().isin(sel_vip)]
   if sel_tt:
     show = show[show['Trạng thái'].isin(sel_tt)]
+  _qs = [q.strip().lower() for q in str(q_ma or '').split(',') if q.strip()]
+  if _qs:
+    show = show[show['Mã KH'].astype(str).str.lower().map(lambda v: any(q in v for q in _qs))]
+  if str(q_ten or '').strip():
+    show = show[show['Tên KH'].astype(str).str.lower().str.contains(str(q_ten).strip().lower(), regex=False, na=False)]
+  if sort_pct:
+    _pc = '% ngưỡng' if '% ngưỡng' in show.columns else '% đạt'
+    show = show.assign(_p=show[_pc].map(_pnum)).sort_values('_p', ascending=False).drop(columns=['_p'])
   money = [c for c in ('Ngưỡng', 'DS nền tảng', 'DS cần đạt', 'DS tích lũy', 'DS thực hiện', 'Còn thiếu',
                        'Tiền thưởng (đ)') if c in show.columns]
   show = _mbsp_fmt(show.reset_index(drop=True), money)
