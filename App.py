@@ -23582,6 +23582,48 @@ if _nav == '📊 BÁO CÁO KPI':
 
 
   elif selected_kpi == 'MBS_BRAND':
+    def _hv_filter(dfx, members, missions, pcts):
+      """Lọc BRAND / Đạt Nhiệm Vụ / % TH (dùng chung cho thẻ 6 nhóm và bảng chi tiết)."""
+      if members and 'Member type' in dfx.columns:
+        dfx = dfx[dfx['Member type'].astype(str).str.strip().isin(members)]
+      if missions and 'Đạt nhiệm vụ' in dfx.columns:
+        dfx = dfx[dfx['Đạt nhiệm vụ'].astype(str).str.strip().isin(missions)]
+      if pcts and '% TH' in dfx.columns:
+        def _pv(x):
+          try:
+            return float(str(x).replace('%', '').replace(',', '.').strip())
+          except Exception:
+            return None
+        _p = dfx['% TH'].map(_pv)
+        _m = pd.Series(False, index=dfx.index)
+        if '< 50%' in pcts:
+          _m = _m | (_p < 50)
+        if '≥ 50% & < 75%' in pcts:
+          _m = _m | ((_p >= 50) & (_p < 75))
+        if '≥ 75% & < 100%' in pcts:
+          _m = _m | ((_p >= 75) & (_p < 100))
+        dfx = dfx[_m]
+      return dfx
+
+    def _hv_groups(dfx):
+      n_all = len(dfx)
+      meta = mbs_group_meta('Mức đạt' in dfx.columns)
+      out = {}
+      for g in range(1, 7):
+        sub = dfx[dfx['Nhóm'] == g]
+        kh = len(sub)
+        act = float(sub['Actual'].sum()) if kh else 0.0
+        tgt = float(sub['Target'].sum()) if kh else 0.0
+        name, bg, color = meta[g]
+        out[g] = {
+            'name': name, 'kh': kh, 'total_kh': n_all,
+            'pct_kh': round(kh / n_all * 100, 1) if n_all else 0.0,
+            'actual': act, 'target': tgt,
+            'pct_th': round(act / tgt * 100, 1) if tgt > 0 else 0.0,
+            'bg': bg, 'color': color,
+        }
+      return out
+
     set_color_moc_for_kpi('MBS_BRAND')
     _bn = get_month_cfg().get('mbs_brand_name') or 'MBS BRAND'  # T11: Hội Viên Tết 2027
     result = build_mbs_brand_report(df_brand, filter_nv, mcp_df=mcp)
@@ -23616,21 +23658,16 @@ if _nav == '📊 BÁO CÁO KPI':
         mask = mask | thu_s.isin(valid_set)
       df_detail = df_detail[mask].copy()
       total_kh = len(df_detail)
-      group_meta = mbs_group_meta('Mức đạt' in df_detail.columns)
-      groups = {}
-      for g in range(1, 7):
-        sub = df_detail[df_detail['Nhóm'] == g]
-        kh = len(sub)
-        act = float(sub['Actual'].sum()) if kh else 0.0
-        tgt = float(sub['Target'].sum()) if kh else 0.0
-        pct_th = round(act / tgt * 100, 1) if tgt > 0 else 0.0
-        pct_kh = round(kh / total_kh * 100, 1) if total_kh else 0.0
-        name, bg, color = group_meta[g]
-        groups[g] = {
-            'name': name, 'kh': kh, 'total_kh': total_kh,
-            'pct_kh': pct_kh, 'actual': act, 'target': tgt,
-            'pct_th': pct_th, 'bg': bg, 'color': color,
-        }
+      groups = _hv_groups(df_detail)
+
+    # Thẻ 6 nhóm nhảy theo ô lọc BRAND / Đạt Nhiệm Vụ / % TH (ô lọc nằm dưới thẻ → đọc giá trị trước)
+    _hv_mem0 = list(st.session_state.get('mbs_brand_member_filter') or [])
+    _hv_mis0 = list(st.session_state.get('mbs_brand_mission_filter') or [])
+    _hv_pct0 = list(st.session_state.get('mbs_brand_pct_th_filter') or [])
+    _hv_card_src = df_detail
+    if total_kh > 0 and (_hv_mem0 or _hv_mis0 or _hv_pct0):
+      _hv_card_src = _hv_filter(df_detail, _hv_mem0, _hv_mis0, _hv_pct0)
+      groups = _hv_groups(_hv_card_src)
 
     if total_kh == 0:
       st.warning(f'Không có dữ liệu Data_Brand để chạy báo cáo {_bn}.')
@@ -23750,25 +23787,7 @@ if _nav == '📊 BÁO CÁO KPI':
         )
 
       df_show = df_detail[df_detail['Nhóm'].isin(nhom_selected)].copy()
-      if member_selected_b and 'Member type' in df_show.columns:
-        df_show = df_show[df_show['Member type'].astype(str).str.strip().isin(member_selected_b)]
-      if mission_selected_b and 'Đạt nhiệm vụ' in df_show.columns:
-        df_show = df_show[df_show['Đạt nhiệm vụ'].astype(str).str.strip().isin(mission_selected_b)]
-      if pct_th_selected_b and '% TH' in df_show.columns:
-        def _pct_th_val_b(x):
-          try:
-            return float(str(x).replace('%', '').replace(',', '.').strip())
-          except Exception:
-            return None
-        _pvb = df_show['% TH'].map(_pct_th_val_b)
-        _maskb = pd.Series(False, index=df_show.index)
-        if '< 50%' in pct_th_selected_b:
-          _maskb = _maskb | (_pvb < 50)
-        if '≥ 50% & < 75%' in pct_th_selected_b:
-          _maskb = _maskb | ((_pvb >= 50) & (_pvb < 75))
-        if '≥ 75% & < 100%' in pct_th_selected_b:
-          _maskb = _maskb | ((_pvb >= 75) & (_pvb < 100))
-        df_show = df_show[_maskb]
+      df_show = _hv_filter(df_show, member_selected_b, mission_selected_b, pct_th_selected_b)
 
       sort_nv_az_b = st.checkbox(
           '🔤 Sort Tên NVBH A → Z',
