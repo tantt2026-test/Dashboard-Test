@@ -22610,6 +22610,106 @@ def render_prog_nv_matrix_html(m, nv_rows, groups, total_label):
   return ''.join(h)
 
 
+# Công văn từng chương trình (bộ CV tháng 11 bro gửi) — khoá = từ khoá tên chương trình (không dấu)
+_MBSP_CV = [
+    (('tangtruong', 'chante'), 'CV 458', 'Tất cả sản phẩm Chanté (không tính Homey)'),
+    (('tangtruong', 'caphe'), 'CV 459', 'All Cà phê (không tính NGK vị cà phê)'),
+    (('tangtruong', 'giavi'), 'CV 496', 'NM Chinsu (Cá cơm Biển Đông, Cá hồi, 365), NM Nam Ngư (Nhãn vàng, Chai thủy '
+                                         'tinh, Cao cấp, Siêu tiết kiệm, Ớt tỏi Lý Sơn), NT Tam Thái Tử, Dầu hào, Hạt nêm Chinsu'),
+    (('tangtruong', 'chinsu'), 'CV 496', 'NM Chinsu, NM Nam Ngư, NT Tam Thái Tử, Dầu hào, Hạt nêm Chinsu'),
+    (('tangtruong', 'mi'), 'CV 455', 'Mì Omachi các loại (TRỪ Sườn, Bò, Spaghetti Bò dạng gói) + Mì Kokomi 75 & 90 '
+                                     '(gói, trộn gói)'),
+    (('xucxich',), 'CV 457', 'Xúc xích Heo Cao Bồi Xốt Lắc + Ponnie tiệt trùng / Bin & Bon / Ponnie Cao cấp '
+                             '(không tính Ponnie 120gr)'),
+    (('trabupnon',), 'CV 454', 'Tất cả sản phẩm Trà Búp Non Tea 365'),
+    (('ngucoc',), 'CV 456', "Tất cả sản phẩm Ngũ cốc B'fast"),
+    (('thitchebien',), 'CV 481', 'Tất cả sản phẩm ngành Thịt chế biến (Meat) — KH thuộc nhóm KHTL Đại sứ Thịt chế biến '
+                                 'T10 (đạt ≥ 6 bộ hình cuộc thi ảnh T10)'),
+]
+
+
+def _mbsp_cv(prog):
+  n = _mbsp_norm_name(prog)
+  for keys, cv, sp in _MBSP_CV:
+    if all(k in n for k in keys) and ('daisu' not in n or keys[0] == 'thitchebien'):
+      return cv, sp
+  return '', ''
+
+
+def _mbsp_note_html(thuong, muc, ket_qua, luu_y=None):
+  """Recap giống mục Thưởng SUP: Thưởng gì · Mức thưởng · Chỉ tiêu / Thực đạt → Tiền thưởng."""
+  sty = 'color:#2f855a;font-weight:800;font-size:13.5px;margin:3px 0;'
+  html = (f'<div style="{sty}">🎯 Thưởng: {thuong}</div>'
+          f'<div style="{sty}">💰 Mức thưởng: {muc}</div>'
+          f'<div style="{sty}">📊 Chỉ tiêu / Thực đạt → Tiền thưởng: {ket_qua}</div>')
+  if luu_y:
+    html += f'<div style="color:#718096;font-style:italic;font-size:12px;margin:2px 0 6px;">Lưu ý: {luu_y}</div>'
+  return html
+
+
+def render_mbsp_recap(d, df_ct, is_tl):
+  """Tóm tắt từng chương trình (mỗi chương trình 1 mục thu gọn; tiêu đề có kết quả nhanh)."""
+  if df_ct is None or df_ct.empty:
+    return
+  sch = _mbsp_schemes(d)
+  full = {_mbsp_short(p): p for p in d['_ct'].unique()}
+  kind = {}
+  if '_kind' in d.columns:
+    kind = {_mbsp_short(p): k for p, k in d.groupby('_ct')['_kind'].first().items()}
+  st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 4px 0;">📌 TÓM TẮT CHƯƠNG TRÌNH</p>',
+              unsafe_allow_html=True)
+  cfg = get_month_cfg()
+  ky = f"01/{int(cfg['month']):02d} – hết tháng {int(cfg['month']):02d}/{int(cfg['year'])}"
+  for _, r in df_ct.iterrows():
+    name = r['Chương trình']
+    prog = full.get(name, name)
+    sc = sch.get(prog) or {}
+    cv, sp = _mbsp_cv(prog)
+    tt = kind.get(name) == 'tt'
+    if tt:
+      cond = f"DS tích lũy ≥ {sc.get('growth') or 100:g}% DS nền tảng"
+    else:
+      cond = f"DS tích lũy ≥ {format_number_vn(sc.get('min_ds') or 0)}đ"
+    if sc.get('fixed_pts'):
+      reward = f"{format_number_vn(sc['fixed_pts'] / 100)}đ/KH (tối đa 1 suất)"
+    else:
+      reward = f"1đ DS = {sc.get('mult') or 0:g} điểm (100 điểm = 1đ)"
+      if sc.get('max_pts'):
+        reward += f", tối đa {format_number_vn(sc['max_pts'] / 100)}đ/KH"
+    ds_col = 'DS tích lũy' if is_tl else 'DS thực hiện'
+    ds = float(pd.to_numeric(r.get(ds_col), errors='coerce') or 0)
+    kh_dat, kh_tg = int(r.get('KH đạt') or 0), int(r.get('KH tham gia') or 0)
+    tien = float(r.get('Tiền thưởng (đ)') or 0)
+    if tt:
+      b = float(pd.to_numeric(r.get('DS nền tảng'), errors='coerce') or 0)
+      kq = (f"DS nền tảng {format_number_vn(b)}đ / DS thực hiện {format_number_vn(ds)}đ "
+            f"({round(ds / b * 100, 1) if b else 0}%) · KH đạt {kh_dat}/{format_number_vn(kh_tg)} → "
+            f"{format_number_vn(tien)}đ")
+    else:
+      kq = f"DS {format_number_vn(ds)}đ · KH đạt {kh_dat}/{format_number_vn(kh_tg)} → {format_number_vn(tien)}đ"
+    if not sp:
+      _txt = str(d.loc[d['_ct'] == prog, 'Detail Scheme'].iloc[0]) if 'Detail Scheme' in d.columns and \
+          (d['_ct'] == prog).any() else ''
+      _m = re.search(r'doanh số\s+(?:sản phẩm\s+)?(.+?)\s+đạt', _txt, re.I)
+      sp = _m.group(1).strip() if _m else 'theo Detail Scheme'
+    thuong = f"{name}{f' ({cv})' if cv else ''} — {sp} · {ky}"
+    luu_y = None
+    m = re.search(r'từ tháng (\d{2}/\d{4}) đến tháng (\d{2}/\d{4})', str(
+        d.loc[d['_ct'] == prog, 'Detail Scheme'].iloc[0] if 'Detail Scheme' in d.columns and (d['_ct'] == prog).any()
+        else ''))
+    if tt:
+      luu_y = ('DS nền tảng = tổng DS 3 tháng ' + (f'{m.group(1)} → {m.group(2)}' if m else 'trước') +
+               ' của chính KH ÷ 3 · Masan chốt theo đơn đã đóng trước 22h ngày 02 tháng sau')
+    elif 'thitchebien' in _mbsp_norm_name(prog):
+      luu_y = 'Chỉ KH trong danh sách Đại sứ Thịt chế biến (file TLTB) · Masan chốt theo đơn đã đóng'
+    else:
+      luu_y = 'Chỉ KH trong danh sách chương trình (file Onetech) · Masan chốt theo đơn đã đóng'
+    title = (f"📌 {name}{f' · {cv}' if cv else ''} · {cond.replace('DS tích lũy ', '')} · "
+             f"Đạt {kh_dat}/{format_number_vn(kh_tg)} KH · {format_number_vn(tien)}đ")
+    with st.expander(title, expanded=False):
+      st.markdown(_mbsp_note_html(thuong, f'{cond} → {reward}', kq, luu_y), unsafe_allow_html=True)
+
+
 def _mbsp_fmt(df, money_cols):
   out = df.copy()
   for c in money_cols:
@@ -22677,6 +22777,7 @@ def render_mbs_program_report(kind):
              + ('Gần đạt = DS ≥ 70% ngưỡng tối thiểu' if is_tl else 'Gần đạt = DS ≥ 80% DS cần đạt (Tăng trưởng: nền tảng × ngưỡng · SP tập trung: DS tối thiểu)'))
 
   pre = 'tltb' if is_tl else 'ttbc'
+  render_mbsp_recap(d, df_ct, is_tl)
 
   # ---- Bộ Slicer (lọc dòng các bảng; thẻ trên giữ số cả team — đổi ĐDKD ở ô đầu trang để tính lại) ----
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 4px 0;">🎛️ BỘ LỌC</p>', unsafe_allow_html=True)
@@ -22738,16 +22839,6 @@ def render_mbs_program_report(kind):
     _b = float(pd.to_numeric(_tt['DS nền tảng'], errors='coerce').fillna(0).sum())
     _t = float(pd.to_numeric(_tt['DS thực hiện'], errors='coerce').fillna(0).sum())
     st.caption(f'Nhóm Tăng trưởng DS: DS thực hiện / DS nền tảng = {round(_t / _b * 100, 1) if _b else 0}%')
-  # Công văn đã ban hành nhưng file Onetech chưa có chương trình (chưa có DS KH + DS nền tảng)
-  _expect = {'Thang11': [('Tăng trưởng DS Gia vị (CV 496 ngày 11/11)', ('chinsu', 'namngu', 'giavi'))]}
-  if not is_tl:
-    _have = [_mbsp_norm_name(p) for p in d.loc[d['_kind'] == 'tt', '_ct'].unique()] if '_kind' in d.columns else []
-    for _lab, _keys in _expect.get(get_month_key(), []):
-      if not any(k in h for h in _have for k in _keys):
-        st.warning(f'⚠️ {_lab}: file Tăng Trưởng.xlsx chưa có chương trình này (chưa có danh sách KH + DS nền tảng '
-                   'tháng 07–09) → xuất lại file Onetech (MEMBER_TYPE chứa ONTOP) rồi up đè lên GitHub, '
-                   'báo cáo tự tính.')
-
   # ---- Theo NV ----
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">👤 THEO NHÂN VIÊN</p>',
               unsafe_allow_html=True)
