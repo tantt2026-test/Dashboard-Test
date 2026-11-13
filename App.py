@@ -22492,8 +22492,8 @@ def build_tang_truong_tables(d):
   return df_ct, df_nv, det
 
 
-def build_prog_nv_tables(d, is_tl):
-  """{chương trình (tên gọn): bảng theo NV} — mỗi chương trình 1 bảng giống bảng Theo nhân viên."""
+def build_prog_nv_matrix(d, is_tl):
+  """Bảng NV × chương trình: {'nv': [tên NV], 'groups': [(chương trình, [chỉ số])], 'vals': {(prog, chỉ số): {nv: số}}}."""
   x = d.copy()
   sch = _mbsp_schemes(x)
   if is_tl:
@@ -22506,30 +22506,88 @@ def build_prog_nv_tables(d, is_tl):
     gan_k = 0.8
   x['_dat'] = x['_pts'] > 0
   x['_gan'] = (~x['_dat']) & (x['_v'] > 0) & (x['_g'] > 0) & (x['_v'] >= x['_g'] * gan_k)
-  out = {}
+  x['_nv'] = x['SM Name'].astype(str).str.strip()
+  nvs = sorted(x['_nv'].unique())
+  groups, vals = [], {}
   for prog, g in x.groupby('_ct', sort=False):
+    name = _mbsp_short(prog)
     tt = (not is_tl) and str(g['_kind'].iloc[0]) == 'tt'
-    rows = []
-    for nv, h in g.groupby('SM Name'):
-      r = {
-          'Tên NVBH': str(nv).strip(),
-          'KH tham gia': int(len(h)),
-          'KH có DS': int((h['_v'] > 0).sum()),
-          'KH đạt': int(h['_dat'].sum()),
-          '% KH đạt': f"{round(h['_dat'].sum() / len(h) * 100, 1) if len(h) else 0}%",
-          'KH gần đạt': int(h['_gan'].sum()),
-      }
-      if tt:
-        b, t = float(h['_base'].sum()), float(h['_v'].sum())
-        r['DS nền tảng'] = b
-        r['DS thực hiện'] = t
-        r['% so nền tảng'] = f'{round(t / b * 100, 1) if b else 0}%'
-      else:
-        r['DS tích lũy' if is_tl else 'DS thực hiện'] = float(h['_v'].sum())
-      r['Tiền thưởng (đ)'] = float(h['_pts'].sum() / 100)
-      rows.append(r)
-    out[_mbsp_short(prog)] = pd.DataFrame(rows).sort_values('Tiền thưởng (đ)', ascending=False).reset_index(drop=True)
-  return out
+    subs = ['KH tham gia', 'KH đạt', '% KH đạt', 'KH gần đạt']
+    subs += ['DS nền tảng', 'DS thực hiện', '% so nền tảng'] if tt else ['DS tích lũy' if is_tl else 'DS thực hiện']
+    subs += ['Tiền thưởng (đ)']
+    agg = g.groupby('_nv').agg(n=('_ma', 'size'), dat=('_dat', 'sum'), gan=('_gan', 'sum'),
+                               v=('_v', 'sum'), b=('_base', 'sum') if '_base' in g.columns else ('_v', 'size'),
+                               pts=('_pts', 'sum'))
+    col = {
+        'KH tham gia': agg['n'], 'KH đạt': agg['dat'], 'KH gần đạt': agg['gan'],
+        'Tiền thưởng (đ)': (agg['pts'] / 100).round(0),
+    }
+    if tt:
+      col['DS nền tảng'] = agg['b'].round(0)
+      col['DS thực hiện'] = agg['v'].round(0)
+    else:
+      col['DS tích lũy' if is_tl else 'DS thực hiện'] = agg['v'].round(0)
+    for k, ser in col.items():
+      vals[(name, k)] = {nv: float(v) for nv, v in ser.items()}
+    groups.append((name, subs))
+  return {'nv': nvs, 'groups': groups, 'vals': vals}
+
+
+def render_prog_nv_matrix_html(m, nv_rows, groups, total_label):
+  """Bảng 2 tầng: STT | Tên NVBH | [chương trình: chỉ số…]… + dòng Total."""
+  th = ('background-color:#1a365d !important;color:#ffffff !important;font-weight:800 !important;'
+        'text-align:center !important;border:1px solid #2b6cb0 !important;padding:6px 6px;font-size:11px;')
+  th_sub = ('background-color:#2b6cb0 !important;color:#ffffff !important;font-weight:700 !important;'
+            'text-align:center !important;border:1px solid #1a365d !important;padding:4px 5px;font-size:10.5px;'
+            'white-space:nowrap;')
+  td = 'border:1px solid #bce2f5 !important;padding:4px 6px;font-size:12px;white-space:nowrap;text-align:center;'
+  tot = ('background-color:#1a365d !important;color:#ffffff !important;font-weight:900 !important;'
+         'border:1px solid #2b6cb0 !important;padding:4px 6px;font-size:12px;white-space:nowrap;text-align:center;')
+  name_w = max(150, min(260, max([len(n) for n in nv_rows] + [12]) * 9 + 24))
+  stt_w = 44
+  stk = 'position:sticky;z-index:6;box-shadow:3px 0 5px -2px rgba(0,0,0,.22);'
+
+  def pct(a, b):
+    return f'{round(a / b * 100, 1) if b else 0}%'
+
+  def cell(prog, sub, nv_list):
+    get = lambda k: sum(m['vals'].get((prog, k), {}).get(n, 0.0) for n in nv_list)
+    if sub == '% KH đạt':
+      return pct(get('KH đạt'), get('KH tham gia'))
+    if sub == '% so nền tảng':
+      return pct(get('DS thực hiện'), get('DS nền tảng'))
+    return format_number_vn(get(sub))
+
+  h = ['<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin:6px 0 12px;">',
+       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+       'width:max-content;min-width:100%;">', '<thead><tr>',
+       f'<th rowspan="2" style="{th}{stk}left:0;min-width:{stt_w}px;">STT</th>',
+       f'<th rowspan="2" style="{th}{stk}left:{stt_w}px;min-width:{name_w}px;">Tên NVBH</th>']
+  for prog, subs in groups:
+    h.append(f'<th colspan="{len(subs)}" style="{th}white-space:normal;max-width:{max(160, 95 * len(subs))}px;">{prog}</th>')
+  h.append('</tr><tr>')
+  for prog, subs in groups:
+    for sub in subs:
+      h.append(f'<th style="{th_sub}">{sub}</th>')
+  h.append('</tr></thead><tbody>')
+  for i, nv in enumerate(nv_rows):
+    bg = '#e6f4fc' if i % 2 == 0 else '#ffffff'
+    h.append('<tr>')
+    h.append(f'<td style="{td}{stk}left:0;background-color:{bg} !important;">{i + 1}</td>')
+    h.append(f'<td style="{td}{stk}left:{stt_w}px;background-color:{bg} !important;text-align:left !important;'
+             f'font-weight:600;">{nv}</td>')
+    for prog, subs in groups:
+      for sub in subs:
+        h.append(f'<td style="{td}background-color:{bg} !important;">{cell(prog, sub, [nv])}</td>')
+    h.append('</tr>')
+  h.append('<tr class="row-total">')
+  h.append(f'<td style="{tot}{stk}left:0;">-</td>')
+  h.append(f'<td style="{tot}{stk}left:{stt_w}px;text-align:left !important;">{total_label}</td>')
+  for prog, subs in groups:
+    for sub in subs:
+      h.append(f'<td style="{tot}">{cell(prog, sub, nv_rows)}</td>')
+  h.append('</tr></tbody></table></div>')
+  return ''.join(h)
 
 
 def _mbsp_fmt(df, money_cols):
@@ -22689,32 +22747,27 @@ def render_mbs_program_report(kind):
     t.insert(0, 'STT', [str(i) for i in range(1, len(t))] + ['-'])
     st.markdown(render_html_table(t), unsafe_allow_html=True)
 
-  # ---- Theo NV từng chương trình ----
+  # ---- Theo NV × chương trình (header 2 tầng; Slicer Chương trình → chỉ hiện nhóm cột đang chọn) ----
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">📑 THEO NHÂN VIÊN — TỪNG CHƯƠNG TRÌNH</p>',
               unsafe_allow_html=True)
-  _pnv = build_prog_nv_tables(d, is_tl)
-  for _prog in [c for c in _ct_opts if c in _pnv]:
-    st.markdown(f'<p style="font-weight:700;color:#2b6cb0;margin:10px 0 4px 0;font-size:13px;">▸ {_prog}</p>',
-                unsafe_allow_html=True)
-    pt = _pnv[_prog]
-    if sel_nv:
-      pt = pt[pt['Tên NVBH'].isin(sel_nv)]
-    if pt.empty:
-      continue
-    if sort_pct:
-      _pc = '% so nền tảng' if '% so nền tảng' in pt.columns else '% KH đạt'
-      pt = pt.assign(_p=pt[_pc].map(_pnum)).sort_values('_p', ascending=False).drop(columns=['_p'])
-    pt = pt.reset_index(drop=True)
-    sums = [c for c in pt.columns if c not in ('Tên NVBH', '% KH đạt', '% so nền tảng')]
-    t = _mbsp_total_row(pt, f'SS {_ss_name()} Total', sums, pct=('KH đạt', 'KH tham gia', '% KH đạt'))
-    if '% so nền tảng' in t.columns:
-      _b, _t = t['DS nền tảng'].iloc[-1], t['DS thực hiện'].iloc[-1]
-      t.loc[t.index[-1], '% so nền tảng'] = f'{round(_t / _b * 100, 1) if _b else 0}%'
-    t = _mbsp_fmt(t, sums)
-    t.insert(0, 'STT', [str(i) for i in range(1, len(t))] + ['-'])
-    # tiêu đề cột NV kèm tên chương trình → mỗi bảng có tên cột riêng (app ghép đúng bảng khi lọc)
-    t = t.rename(columns={'Tên NVBH': f'Tên NVBH · {_prog}'})
-    st.markdown(render_html_table(t, freeze_cols=['STT', f'Tên NVBH · {_prog}']), unsafe_allow_html=True)
+  _m = build_prog_nv_matrix(d, is_tl)
+  _groups = [(g, subs) for g, subs in _m['groups'] if not sel_ct or g in sel_ct]
+  _order = {c: i for i, c in enumerate(_ct_opts)}
+  _groups.sort(key=lambda gs: _order.get(gs[0], 99))
+  _nvs = [n for n in _m['nv'] if not sel_nv or n in sel_nv]
+  if sort_pct and _groups:
+    # xếp theo % của chương trình đầu tiên đang hiện (tăng trưởng: % so nền tảng, còn lại: % KH đạt)
+    _g0 = _groups[0][0]
+    _gv = lambda k, n: _m['vals'].get((_g0, k), {}).get(n, 0.0)
+    if '% so nền tảng' in _groups[0][1]:
+      _key = lambda n: (_gv('DS thực hiện', n) / _gv('DS nền tảng', n)) if _gv('DS nền tảng', n) else -1
+    else:
+      _key = lambda n: (_gv('KH đạt', n) / _gv('KH tham gia', n)) if _gv('KH tham gia', n) else -1
+    _nvs = sorted(_nvs, key=_key, reverse=True)
+  if _groups and _nvs:
+    st.markdown(render_prog_nv_matrix_html(_m, _nvs, _groups, f'SS {_ss_name()} Total'), unsafe_allow_html=True)
+  st.caption('Chọn Tên Chương trình ở Bộ lọc để chỉ xem chương trình đó · Xếp % lớn → bé theo chương trình đầu tiên '
+             'đang hiện' + ('' if is_tl else ' (tăng trưởng: % so nền tảng · SP tập trung: % KH đạt)'))
 
   # ---- Chi tiết KH ----
   st.markdown('<p style="font-weight:800;color:#034ea2;margin:12px 0 6px 0;">🔎 CHI TIẾT KHÁCH HÀNG CÓ DOANH SỐ</p>',
