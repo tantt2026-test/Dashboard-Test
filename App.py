@@ -22156,7 +22156,92 @@ def _mbsp_team(d):
   return out
 
 
-def load_tltb():
+def _mbsp_prod_mask(prog, x):
+  """Dòng đơn hàng thuộc sản phẩm áp dụng của chương trình (theo công văn; đã đối chiếu file Onetech)."""
+  p = _mbsp_norm_name(prog)
+  sub = x['Sub Division'].astype(str).str.strip() if 'Sub Division' in x.columns else pd.Series('', index=x.index)
+  grp = x['Group STD SKU'].astype(str).str.strip() if 'Group STD SKU' in x.columns else pd.Series('', index=x.index)
+  nm = x['Tên sản phẩm'].astype(str).str.lower() if 'Tên sản phẩm' in x.columns else pd.Series('', index=x.index)
+  if 'tangtruong' in p:
+    if 'chante' in p:
+      return grp.str.contains('Chanté', na=False)
+    if 'caphe' in p:
+      return sub.eq('Coffee')
+    if p.endswith('mi') or 'nganhmi' in p:
+      # Omachi các loại (TRỪ Sườn, Bò, Spaghetti dạng gói) + Kokomi 75 & 90 (gói, trộn gói)
+      om = grp.str.contains('Omachi', na=False) & ~(nm.str.contains('gói', na=False)
+                                                   & nm.str.contains('sườn|bò|spaghetti', na=False))
+      kk = grp.str.contains('Kokomi Đại 90', na=False) | (grp.str.contains('Kokomi', na=False)
+                                                          & nm.str.contains('75gr', na=False))
+      return om | kk
+    if 'giavi' in p or 'chinsu' in p or 'namngu' in p:
+      # CV 496: NM Chinsu (Cá cơm Biển Đông, Cá hồi, 365), NM Nam Ngư (Nhãn vàng, Chai thủy tinh, Cao cấp,
+      # Siêu tiết kiệm, Ớt tỏi Lý Sơn), NT Tam Thái Tử, Dầu hào, Hạt nêm Chinsu
+      return (grp.str.contains('Nước mắm Chinsu|Tam Thái Tử|Dầu Hào|Hạt nêm Chinsu', na=False)
+              | grp.str.contains('Nam Ngư Nhãn Vàng|Nam Ngư Chai thủy tinh|Nam Ngư siêu tiết kiệm', na=False)
+              | (grp.str.contains('Nam Ngư', na=False) & nm.str.contains('cao cấp|lý sơn', na=False)))
+    return pd.Series(False, index=x.index)
+  if 'xucxich' in p:
+    return (grp.isin(['Xúc Xích Cao Bồi Xốt Lắc', 'Xúc xích Ponnie', 'Xúc xích Ponnie Bin & Bon',
+                      'Xúc xích Ponnie Cao Cấp']) & ~nm.str.contains('120gr', na=False))
+  if 'tea365' in p or 'nuocgiaikhat' in p:
+    return grp.str.contains('Tea 365', na=False)
+  if 'ngucoc' in p:
+    return grp.str.contains('Ngũ cốc', na=False) | sub.eq('Nutrition')
+  if 'tetmasan' in p:
+    return ~sub.isin(['Processed Meats', 'Home Care', 'Personal Care'])
+  if 'caphe' in p:
+    return sub.eq('Coffee')
+  if 'nganhhangmi' in p or p.endswith('mi') or 'onelook' in p:
+    return sub.eq('Convenience Foods')
+  if 'giavi' in p or 'trongdiem' in p:
+    return sub.eq('Seasoning')
+  if 'hoamypham' in p:
+    return grp.str.contains('Chanté|Joins', na=False)
+  if 'thitchebien' in p:
+    return sub.eq('Processed Meats')
+  return pd.Series(False, index=x.index)
+
+
+def _mbsp_sales_by_prog(df_rpt, rd, progs):
+  """{chương trình: Series DS theo Mã CH} — đơn từ 01 → ngày BC, không tính đơn Đã hủy, DS = Tổng tiền (có VAT)."""
+  out = {}
+  if df_rpt is None or getattr(df_rpt, 'empty', True) or 'date' not in df_rpt.columns:
+    return out
+  rd = rd.date() if hasattr(rd, 'date') and callable(rd.date) else rd
+  x = df_rpt[(df_rpt['date'] >= date(rd.year, rd.month, 1)) & (df_rpt['date'] <= rd)]
+  c_st = find_col(x, ['Tình trạng đơn hàng', 'Trạng thái'])
+  if c_st:
+    x = x[~x[c_st].astype(str).str.contains('hủy|huỷ|huy|cancel', case=False, na=False)]
+  c_v = find_col(x, ['Tổng tiền', 'Giá trị sau CK', 'Thành tiền trước CK'])
+  c_ma = find_col(x, ['Mã CH', 'Outlet Code', 'Mã KH'])
+  if not (c_v and c_ma) or x.empty:
+    return out
+  x = x.assign(_v=pd.to_numeric(x[c_v], errors='coerce').fillna(0.0),
+               _m=x[c_ma].astype(str).str.strip().str.replace(r'\.0$', '', regex=True))
+  for prog in progs:
+    sel = x[_mbsp_prod_mask(prog, x)]
+    out[prog] = sel.groupby('_m')['_v'].sum()
+  return out
+
+
+def _mbsp_points(ds, sc, need=None):
+  """Điểm thưởng theo quy định: đạt ngưỡng → DS × hệ số (tối đa max) hoặc điểm cố định/KH."""
+  if ds <= 0:
+    return 0.0
+  if need is not None and ds < need:
+    return 0.0
+  if need is None and sc.get('min_ds') and ds < sc['min_ds']:
+    return 0.0
+  if sc.get('fixed_pts'):
+    return float(sc['fixed_pts'])
+  pts = ds * float(sc.get('mult') or 0)
+  if sc.get('max_pts'):
+    pts = min(pts, float(sc['max_pts']))
+  return float(round(pts))
+
+
+def load_tltb(df_rpt, rd):
   p = _mbsp_file('tltb')
   if not p:
     return None
@@ -22169,14 +22254,19 @@ def load_tltb():
   d['_ma'] = d[c_ma].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
   d['_ten'] = d[c_ten].astype(str).str.strip() if c_ten else ''
   d['_ct'] = d[c_ct].astype(str).str.strip()
-  d['_ds'] = pd.to_numeric(d.get('Doanh số tích lũy'), errors='coerce').fillna(0.0)
-  d['_pts'] = pd.to_numeric(d.get('Điểm thưởng'), errors='coerce').fillna(0.0)
   # data ghép 2 Sale Sup có thể trùng file → bỏ dòng trùng (CH × chương trình)
   d = d.drop_duplicates(['_ma', '_ct']).reset_index(drop=True)
-  return _mbsp_team(d)
+  d = _mbsp_team(d)
+  # File Onetech = danh sách KH × chương trình; DS tích lũy + điểm tính lại mỗi ngày từ đơn hàng
+  sales = _mbsp_sales_by_prog(df_rpt, rd, d['_ct'].unique())
+  d['_ds'] = [float(sales.get(p, pd.Series(dtype=float)).get(m, 0.0)) for p, m in zip(d['_ct'], d['_ma'])]
+  sch = {p: _mbsp_scheme(g['Detail Scheme'].iloc[0] if 'Detail Scheme' in g.columns else '')
+         for p, g in d.groupby('_ct', sort=False)}
+  d['_pts'] = [_mbsp_points(v, sch[p]) for p, v in zip(d['_ct'], d['_ds'])]
+  return d
 
 
-def load_tang_truong():
+def load_tang_truong(df_rpt, rd):
   p = _mbsp_file('tangtruong')
   if not p:
     return None
@@ -22189,11 +22279,18 @@ def load_tang_truong():
   d['_ma'] = d[c_ma].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
   d['_ten'] = d[c_ten].astype(str).str.strip() if c_ten else ''
   d['_ct'] = d[c_ct].astype(str).str.strip()
-  d['_base'] = pd.to_numeric(d.get('Chỉ tiêu doanh số'), errors='coerce').fillna(0.0)
-  d['_th'] = pd.to_numeric(d.get('Doanh số thực hiện (Paid & Invoiced)'), errors='coerce').fillna(0.0)
-  d['_pts'] = pd.to_numeric(d.get('Điểm thưởng dự kiến'), errors='coerce').fillna(0.0)
+  d['_base'] = pd.to_numeric(d.get('Chỉ tiêu doanh số'), errors='coerce').fillna(0.0)  # DS nền tảng
   d = d.drop_duplicates(['_ma', '_ct']).reset_index(drop=True)
-  return _mbsp_team(d)
+  d = _mbsp_team(d)
+  # DS thực hiện + điểm tính lại mỗi ngày từ đơn hàng (file Onetech chỉ lấy danh sách KH + DS nền tảng)
+  sales = _mbsp_sales_by_prog(df_rpt, rd, d['_ct'].unique())
+  d['_th'] = [float(sales.get(p, pd.Series(dtype=float)).get(m, 0.0)) for p, m in zip(d['_ct'], d['_ma'])]
+  sch = {p: _mbsp_scheme(g['Detail Scheme'].iloc[0] if 'Detail Scheme' in g.columns else '')
+         for p, g in d.groupby('_ct', sort=False)}
+  d['_pts'] = [_mbsp_points(t, sch[p], need=b * (sch[p].get('growth') or 100.0) / 100.0 if b > 0 else None)
+               if b > 0 else 0.0
+               for p, t, b in zip(d['_ct'], d['_th'], d['_base'])]
+  return d
 
 
 def build_tltb_tables(d):
@@ -22356,7 +22453,7 @@ def render_mbs_program_report(kind):
       f'text-align:center;line-height:1.15;">{title}</h3>',
       unsafe_allow_html=True,
   )
-  d = load_tltb() if is_tl else load_tang_truong()
+  d = load_tltb(df, report_date) if is_tl else load_tang_truong(df, report_date)
   fname = 'TLTB.xlsx' if is_tl else 'Tăng Trưởng.xlsx'
   if d is None or d.empty:
     st.warning(f'Chưa có file **{fname}** trong data tháng này (hoặc không có dòng của Sale Sup đang xem).')
@@ -22364,7 +22461,9 @@ def render_mbs_program_report(kind):
   st.caption(
       f'Hội viên doanh nhân Masan — {"Sản phẩm tập trung / Đại sứ ngành hàng" if is_tl else "Tăng trưởng doanh số"} '
       f'tháng {int(get_month_cfg()["month"]):02d}/{int(get_month_cfg()["year"])} · Lọc: {nv_label(filter_nv)} · '
-      f'Số liệu luỹ kế theo file {fname} (Onetech) · Tiền thưởng = điểm ÷ 100'
+      f'DS luỹ kế 01 → {report_date.strftime("%d/%m/%Y")} từ đơn hàng (không tính đơn hủy, DS = Tổng tiền có VAT) · '
+      f'Danh sách KH, chương trình{"" if is_tl else ", DS nền tảng"} theo file {fname} · Tiền thưởng = điểm ÷ 100 · '
+      'Masan chốt thưởng theo đơn đã đóng'
   )
   df_ct, df_nv, det = build_tltb_tables(d) if is_tl else build_tang_truong_tables(d)
 
