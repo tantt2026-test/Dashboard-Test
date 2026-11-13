@@ -340,30 +340,32 @@ class _TurnoverPageState extends State<TurnoverPage> {
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (final (label, value) in cards)
-            Container(
+          for (final (i, (label, value)) in cards.indexed)
+            SizedBox(
               width: w,
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-              decoration: BoxDecoration(
-                color: isDark(context) ? Brand.darkTileBg : Brand.cardBg,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: isDark(context) ? Brand.darkTileBorder : Brand.cardBorder),
+              child: MetricShell(
+                accent: metricAccent(i: i),
+                padding: const EdgeInsets.fromLTRB(6, 9, 6, 10),
+                child: Column(children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: metricTitle(context, metricAccent(i: i)), fontWeight: FontWeight.w800, fontSize: 13)),
+                  ),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(value,
+                        style: TextStyle(
+                            color: metricValue(context),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 22,
+                            fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
+                ]),
               ),
-              child: Column(children: [
-                Text(label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Brand.cardText, fontWeight: FontWeight.w800, fontSize: 13)),
-                const SizedBox(height: 4),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(value,
-                      style: const TextStyle(
-                          color: Brand.cardText,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 22,
-                          fontFeatures: [FontFeature.tabularFigures()])),
-                ),
-              ]),
             ),
         ],
       );

@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import '../logic/turnover_logic.dart';
 
 // Màu lấy từ CSS của App.py để app nhìn quen như Streamlit.
-// Bảng báo cáo / thẻ số liệu luôn giữ các màu này (nền sáng) ở cả giao diện Tối, để màu đỏ/xanh/tím
-// báo kết quả không đổi và khớp với bản Streamlit. Dark mode chỉ đổi màu khung app (menu, nền trang).
 class Brand {
   static const navy = Color(0xFF1A365D);
   static const blue = Color(0xFF034EA2);
@@ -92,6 +90,82 @@ Widget keepLight(BuildContext context, Color bg, Widget child) {
     data: buildTheme(Brightness.light),
     child: DefaultTextStyle.merge(style: const TextStyle(color: Color(0xFF1A202C)), child: child),
   );
+}
+
+// ── Thẻ số liệu: 1 format chung cho mọi báo cáo (theo mẫu thẻ Báo Cáo Hiệu Suất) ──
+// vạch màu nhấn ở mép trên + tiêu đề cùng màu nhấn, số to màu trung tính, dòng phụ xám.
+
+/// Bảng màu nhấn xoay vòng (giống thứ tự thẻ Hiệu Suất, bỏ đỏ để đỏ chỉ mang nghĩa "chưa đạt").
+const metricPalette = [
+  Color(0xFF3182CE), Color(0xFFDD6B20), Color(0xFF805AD5), Color(0xFF38A169),
+  Color(0xFFD53F8C), Color(0xFF319795), Color(0xFFD69E2E), Color(0xFF2B6CB0),
+];
+
+// màu chữ đậm App.py dùng cho thẻ → màu nhấn tươi tương ứng (cho vạch mép trên / tiêu đề)
+const _vivid = {
+  0xFF22543D: Color(0xFF38A169), // xanh lá đậm (Đã đạt)
+  0xFF276749: Color(0xFF38A169),
+  0xFF234E52: Color(0xFF319795), // xanh ngọc
+  0xFFC53030: Color(0xFFE53E3E), // đỏ
+  0xFF6B46C1: Color(0xFF805AD5), // tím
+  0xFF2B6CB0: Color(0xFF3182CE), // xanh dương
+};
+
+/// Màu nhấn của thẻ thứ [i]: màu `ac` có sẵn (Hiệu Suất) → giữ; màu chữ mang nghĩa (đỏ/xanh lá/nhóm MBS…)
+/// → màu tươi tương ứng; thẻ màu xanh mặc định (#034ea2) / không màu → màu xoay vòng theo vị trí.
+Color metricAccent({Color? ac, Color? c, required int i}) {
+  if (ac != null) return ac;
+  // xanh mặc định / chữ đen-xám trung tính: không mang nghĩa → màu xoay vòng
+  const neutral = {0xFF034EA2, 0xFF1A202C, 0xFF2D3748, 0xFF4A5568};
+  if (c != null && !neutral.contains(c.toARGB32())) {
+    return _vivid[c.toARGB32()] ?? c;
+  }
+  return metricPalette[i % metricPalette.length];
+}
+
+/// Nền thẻ số liệu (xanh nhạt ở Sáng, xám đậm ở Tối — như thẻ Hiệu Suất).
+Color metricBg(BuildContext context) => isDark(context) ? Brand.darkTileBg : Brand.cardBg;
+
+/// Số chính của thẻ: màu trung tính.
+Color metricValue(BuildContext context) => isDark(context) ? Brand.darkText : const Color(0xFF1A202C);
+
+/// Tiêu đề thẻ = màu nhấn (Tối: pha sáng thêm cho dễ đọc trên nền tối).
+Color metricTitle(BuildContext context, Color accent) =>
+    isDark(context) ? Color.lerp(accent, Colors.white, 0.18)! : accent;
+
+/// Khung thẻ: nền + viền + vạch màu nhấn dày 4px ở mép trên; nội dung căn giữa.
+/// [fill]: thẻ nằm trong hàng cao cố định (IntrinsicHeight) → nội dung căn giữa theo chiều dọc.
+class MetricShell extends StatelessWidget {
+  final Color accent;
+  final Widget child;
+  final EdgeInsets padding;
+  final bool fill;
+  const MetricShell({
+    super.key,
+    required this.accent,
+    required this.child,
+    this.padding = const EdgeInsets.fromLTRB(8, 9, 8, 10),
+    this.fill = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Padding(padding: padding, child: child);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: metricBg(context),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isDark(context) ? Brand.darkTileBorder : Brand.cardBorder),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+          Container(height: 4, color: accent),
+          fill ? Expanded(child: Center(child: body)) : body,
+        ]),
+      ),
+    );
+  }
 }
 
 ThemeData buildTheme(Brightness brightness) {

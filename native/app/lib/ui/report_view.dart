@@ -205,7 +205,7 @@ class _Cards extends StatelessWidget {
               child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 for (var j = i; j < math.min(i + perRow, cards.length); j++) ...[
                   if (j > i) const SizedBox(width: 8),
-                  SizedBox(width: w, child: _card(context, cards[j])),
+                  SizedBox(width: w, child: _card(context, cards[j], j)),
                 ],
               ]),
             ),
@@ -213,32 +213,29 @@ class _Cards extends StatelessWidget {
         for (final (k, f) in full.indexed)
           Padding(
             padding: EdgeInsets.only(top: cards.isEmpty && k == 0 ? 0 : 8),
-            child: SizedBox(width: c.maxWidth, child: _card(context, f)),
+            child: SizedBox(width: c.maxWidth, child: _card(context, f, cards.length + k, fill: false)),
           ),
       ]);
     });
   }
 
-  Widget _card(BuildContext context, Map<String, dynamic> card) {
-    // giao diện Tối mà thẻ giữ nền màu nhạt mang nghĩa (vd xanh lá "Đã đạt") → vẽ cả thẻ như giao diện Sáng
-    final rawBg = hexColor(card['bg']);
-    if (isDark(context) && rawBg != null && rawBg.computeLuminance() > 0.6 && adaptBg(context, rawBg) == rawBg) {
-      return Theme(data: buildTheme(Brightness.light), child: Builder(builder: (c) => _card(c, card)));
-    }
+  Widget _card(BuildContext context, Map<String, dynamic> card, int index, {bool fill = true}) {
+    // Mọi thẻ dùng chung format thẻ Hiệu Suất: vạch màu nhấn mép trên + tiêu đề màu nhấn,
+    // số to màu trung tính, dòng phụ xám; nền thẻ theo giao diện (bỏ nền màu riêng của từng báo cáo).
     final dark = isDark(context);
+    final accent = metricAccent(ac: hexColor(card['ac']), c: hexColor(card['c']), i: index);
+    final titleColor = metricTitle(context, accent);
     // 1 dòng, tự co chữ cho vừa thẻ (tiêu đề / dòng phụ ngắn)
     Widget fit(Widget t) => FittedBox(fit: BoxFit.scaleDown, child: t);
     final sv = {for (final i in (card['sv'] as List? ?? const [])) (i as num).toInt()};
     // số ngắn: to, tự co cho vừa thẻ; nội dung dài (vd "OFF: 458/1188 CH ... ON: ..."):
     // cỡ vừa, xuống dòng — tránh chữ bị co quá nhỏ
     Widget value(String v) {
-      final color = adaptFg(context, hexColor(card['c'])) ??
-          (card['ac'] != null ? (dark ? Brand.darkText : const Color(0xFF1A202C)) : adaptFg(context, Brand.cardText)!);
       final long = v.length > 22 || v.contains('\n');
       final text = Text(v,
           textAlign: TextAlign.center,
           style: TextStyle(
-              color: color,
+              color: metricValue(context),
               fontWeight: FontWeight.w800,
               fontSize: long ? 14 : 20,
               height: long ? 1.35 : null,
@@ -246,34 +243,16 @@ class _Cards extends StatelessWidget {
       return long ? text : fit(text);
     }
 
-    final cardBg = adaptBg(context, hexColor(card['bg'])) ?? (dark ? Brand.darkTileBg : Brand.cardBg);
-    return keepLight(context, cardBg, Container(
-      padding: EdgeInsets.fromLTRB(8, card['ac'] != null ? 13 : 10, 8, 10),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: dark ? Brand.darkTileBorder : Brand.cardBorder),
-        // vạch màu nhấn ở mép trên (border-top-color của App.py)
-        gradient: card['ac'] != null
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: const [0, 0.035, 0.035],
-                colors: [
-                  hexColor(card['ac'])!,
-                  hexColor(card['ac'])!,
-                  cardBg,
-                ],
-              )
-            : null,
-      ),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+    return MetricShell(
+      accent: accent,
+      fill: fill,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
         if (card['grid'] is List) ...[
           // thẻ nhiều cột: tiêu đề + các cột "nhãn — số" (tự co vừa ô) + chú thích
           fit(Text(card['l'] as String,
               maxLines: 1,
               style: TextStyle(
-                  color: adaptFg(context, hexColor(card['ac']) ?? Brand.cardText),
+                  color: titleColor,
                   fontWeight: FontWeight.w800,
                   fontSize: 12.5))),
           const SizedBox(height: 6),
@@ -319,7 +298,7 @@ class _Cards extends StatelessWidget {
               textAlign: TextAlign.center,
               maxLines: 1,
               style: TextStyle(
-                  color: adaptFg(context, hexColor(card['ac']) ?? hexColor(card['c']) ?? Brand.cardText),
+                  color: titleColor,
                   fontWeight: FontWeight.w800,
                   fontSize: 12.5))),
         const SizedBox(height: 4),
@@ -339,6 +318,6 @@ class _Cards extends StatelessWidget {
             ),
         ],
       ]),
-    ));
+    );
   }
 }
