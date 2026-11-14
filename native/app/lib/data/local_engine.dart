@@ -81,6 +81,25 @@ class LocalEngine {
   /// Repo data team Vy (Sale Sup 'vy' và phần Vy của 'all').
   static const vyRepo = 'Tantt2026/Vyntt_Dashboard';
 
+  final Map<String, Future<String>> _appPy = {};
+
+  /// Chỉ App.py của commit [sc] (KHÔNG kéo theo data/ team Tân) — dùng cho team 'vy', vì team
+  /// này không đụng tới data Tân. Nếu [sc] đã có sẵn bộ data đầy đủ (snapshot/snapshotFor khác
+  /// đã tải) thì dùng lại luôn, không tải lại.
+  Future<String> _appPyOnly(String sc) => _appPy[sc] ??= () async {
+        final done = File('$_home/snap/${sc.substring(0, 12)}/.ok');
+        if (done.existsSync()) return done.parent.path;
+        final dir = Directory('$_home/apppy/${sc.substring(0, 12)}');
+        final doneAp = File('${dir.path}/.ok');
+        if (doneAp.existsSync()) return dir.path;
+        await _fetchTree(ghRepo, sc, dir.path, (p) => p == 'App.py');
+        doneAp.writeAsStringSync(sc);
+        return dir.path;
+      }().catchError((Object e) {
+        _appPy.remove(sc);
+        throw e;
+      });
+
   /// Thư mục App.py + data/ cho Sale Sup của [req] (team tan: [snapshot]; vy: App.py commit [sc] +
   /// data repo Vyntt commit 'dsc'; all: data 2 team ghép bằng team_data.py — như GitHub).
   Future<String> snapshotFor(Map<String, dynamic> req) {
@@ -93,7 +112,8 @@ class LocalEngine {
       final dir = Directory('$_home/snap/$key');
       final done = File('${dir.path}/.ok');
       if (done.existsSync()) return dir.path;
-      final tanRoot = await snapshot(sc);
+      // team 'vy' chỉ cần App.py của Tân, không cần data/ của Tân → khỏi tải cho đỡ chậm.
+      final tanRoot = team == 'vy' ? await _appPyOnly(sc) : await snapshot(sc);
       final vyDir = Directory('$_home/snap/vydata_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}');
       if (!File('${vyDir.path}/.ok').existsSync()) {
         if (vyDir.existsSync()) vyDir.deleteSync(recursive: true);
@@ -162,8 +182,14 @@ class LocalEngine {
       for (final d in snaps.skip(6)) {
         d.deleteSync(recursive: true);
       }
+      final apDir = Directory('$_home/apppy');
+      final apSnaps = apDir.existsSync() ? apDir.listSync().whereType<Directory>().toList() : <Directory>[];
+      apSnaps.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      for (final d in apSnaps.skip(6)) {
+        d.deleteSync(recursive: true);
+      }
       final used = <String>{};
-      for (final d in snaps.take(6)) {
+      for (final d in [...snaps.take(6), ...apSnaps.take(6)]) {
         for (final e in d.listSync(recursive: true, followLinks: false)) {
           if (e is Link) used.add(e.targetSync().split('/').last);
         }
