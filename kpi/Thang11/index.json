@@ -1,0 +1,275 @@
+{
+ "schema": 1,
+ "fingerprint": "f5e91e7254ead876",
+ "plan_dates": [
+  "2026-11-01",
+  "2026-11-02",
+  "2026-11-03",
+  "2026-11-04",
+  "2026-11-05",
+  "2026-11-06",
+  "2026-11-07",
+  "2026-11-08",
+  "2026-11-09",
+  "2026-11-10",
+  "2026-11-11",
+  "2026-11-12",
+  "2026-11-13",
+  "2026-11-14"
+ ],
+ "month_key": "Thang11",
+ "month_label": "Tháng 11/2026",
+ "year": 2026,
+ "month": 11,
+ "default_date": "2026-11-13",
+ "data_max_date": "2026-11-14",
+ "nv": [
+  "Danh Hồng Oanh",
+  "Huỳnh Tấn Lý",
+  "Hàng Thanh Lộc",
+  "Lê Thị Thơm",
+  "Mai Thanh Tâm",
+  "Mai Thị Linh",
+  "Nguyễn Hoàng Bích Thủy",
+  "Nguyễn Thị Bích Trâm",
+  "Nguyễn Trần Bảo Long",
+  "Nguyễn Văn Đình Chương",
+  "Ngô Nguyễn Cao Kỳ",
+  "Trương Hoàng Giang",
+  "Trần Minh Thành",
+  "Trần Tấn Tài",
+  "Đoàn Thị Phượng Liên"
+ ],
+ "dates": [
+  "2026-11-01",
+  "2026-11-02",
+  "2026-11-03",
+  "2026-11-04",
+  "2026-11-05",
+  "2026-11-06",
+  "2026-11-07",
+  "2026-11-08",
+  "2026-11-09",
+  "2026-11-10",
+  "2026-11-11",
+  "2026-11-12",
+  "2026-11-13",
+  "2026-11-14"
+ ],
+ "complete": false,
+ "stale_dates": [
+  "2026-11-01",
+  "2026-11-02",
+  "2026-11-03",
+  "2026-11-04",
+  "2026-11-05",
+  "2026-11-06",
+  "2026-11-07",
+  "2026-11-08",
+  "2026-11-09",
+  "2026-11-10",
+  "2026-11-11",
+  "2026-11-12"
+ ],
+ "reports": [
+  {
+   "code": "TURNOVER",
+   "name": "1. TURNOVER - Tổng doanh số bán ra",
+   "group": "kpi"
+  },
+  {
+   "code": "PC_BT",
+   "name": "2. PC BT - Số Đơn Hàng >= 1 Line - L1: OFF",
+   "group": "kpi"
+  },
+  {
+   "code": "LPPC",
+   "name": "3. LPPC - Bình quân line/PC (trừ Meat & Beer)",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_ALL",
+   "name": "4. ASO_ALL - Bao phủ tổng SP Masan (OFF & ON)",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_FOCUS",
+   "name": "5. ASO_Focus - Trận Xanh (SP Tết)",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_FOCUS_2",
+   "name": "6. ASO_Focus_2 - Trận Vàng (Hạt nêm Chinsu xương hầm)",
+   "group": "kpi"
+  },
+  {
+   "code": "PC_ON",
+   "name": "7. PC_ON - Đơn hàng ≥1 line MOQ (L1 ON)",
+   "group": "kpi"
+  },
+  {
+   "code": "LPPC_MEAT",
+   "name": "8. LPPC_Meat - Bình quân line/PC (Processed Meats)",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_PL",
+   "name": "9. BÁO CÁO ASO TRÀ PHÚC LONG",
+   "group": "kpi"
+  },
+  {
+   "code": "ASO_XOT",
+   "name": "10. BÁO CÁO ASO XỐT GIA VỊ",
+   "group": "kpi"
+  },
+  {
+   "code": "NEW_OUTLET_ON",
+   "name": "11. TẠO MỚI KÊNH ON - CHUYÊN BEV",
+   "group": "kpi"
+  },
+  {
+   "code": "COMBO",
+   "name": "12. BÁO CÁO ĐH COMBO",
+   "group": "kpi"
+  },
+  {
+   "code": "SUMMARY",
+   "name": "13. BÁO CÁO TỔNG HỢP",
+   "group": "kpi"
+  },
+  {
+   "code": "VISIT",
+   "name": "14. BÁO CÁO LỊCH VIẾNG THĂM",
+   "group": "kpi"
+  },
+  {
+   "code": "MBS_BRAND",
+   "name": "15. BÁO CÁO HỘI VIÊN TẾT 2027",
+   "group": "kpi"
+  },
+  {
+   "code": "PERFORMANCE",
+   "name": "16. BÁO CÁO HIỆU SUẤT BÁN HÀNG",
+   "group": "kpi"
+  },
+  {
+   "code": "DISPLAY",
+   "name": "17. BÁO CÁO TRƯNG BÀY",
+   "group": "kpi"
+  },
+  {
+   "code": "TEA_BATTLE",
+   "name": "18. KẾ HOẠCH TÁC CHIẾN TRÀ BÚP NON T10",
+   "group": "kpi"
+  },
+  {
+   "code": "PERF_CAT",
+   "name": "19. BÁO CÁO PERFORMANCE",
+   "group": "kpi"
+  },
+  {
+   "code": "WEEKLY_PREVIEW",
+   "name": "20. WEEKLY PREVIEW - MCP / ASO / %COV",
+   "group": "kpi"
+  },
+  {
+   "code": "MUC_TIEU_NGAY",
+   "name": "21. MỤC TIÊU NGÀY",
+   "group": "kpi"
+  },
+  {
+   "code": "TLTB",
+   "name": "22. BÁO CÁO TÍCH LŨY TRƯNG BÀY (TLTB)",
+   "group": "kpi"
+  },
+  {
+   "code": "TANG_TRUONG",
+   "name": "23. BÁO CÁO TĂNG TRƯỞNG",
+   "group": "kpi"
+  },
+  {
+   "code": "TAB_MCP",
+   "name": "🗺️ MCP VISIT",
+   "group": "tab"
+  },
+  {
+   "code": "TAB_BRAND",
+   "name": "🏷️ TRACKING HỘI VIÊN TẾT 2027",
+   "group": "tab"
+  },
+  {
+   "code": "TAB_OFF",
+   "name": "📋 DSKH_Combo OFF",
+   "group": "tab"
+  },
+  {
+   "code": "TAB_ON",
+   "name": "📋 DSKH_Combo ON",
+   "group": "tab"
+  },
+  {
+   "code": "SUP_TONG",
+   "name": "🔒 SUP · Tổng hợp thưởng ĐDKD",
+   "group": "sup"
+  },
+  {
+   "code": "SUP_MI",
+   "name": "🔒 SUP · Thưởng DS ngành Mì (CV 483)",
+   "group": "sup"
+  },
+  {
+   "code": "SUP_XOT",
+   "name": "🔒 SUP · ASO Combo Xốt mỹ vị CHIN-SU (CV 483)",
+   "group": "sup"
+  },
+  {
+   "code": "SUP_HOMEY",
+   "name": "🔒 SUP · Cửa hàng Homey (CV 483)",
+   "group": "sup"
+  },
+  {
+   "code": "SUP_MEAT",
+   "name": "🔒 SUP · Thưởng DS Thịt chế biến (CV 483)",
+   "group": "sup"
+  },
+  {
+   "code": "SUP_BIA",
+   "name": "🔒 SUP · Thưởng đầu thùng Bia (CV 026)",
+   "group": "sup"
+  },
+  {
+   "code": "SUP_PL",
+   "name": "🔒 SUP · Thưởng DS Trà Phúc Long (CV 484)",
+   "group": "sup"
+  },
+  {
+   "code": "SUP_TB",
+   "name": "🔒 SUP · Thưởng Trưng bày (CV 485 · 486 · 487)",
+   "group": "sup"
+  }
+ ],
+ "tab_dates": [
+  "2026-11-13"
+ ],
+ "nv_slugs": {
+  "Danh Hồng Oanh": "danh-hong-oanh",
+  "Huỳnh Tấn Lý": "huynh-tan-ly",
+  "Hàng Thanh Lộc": "hang-thanh-loc",
+  "Lê Thị Thơm": "le-thi-thom",
+  "Mai Thanh Tâm": "mai-thanh-tam",
+  "Mai Thị Linh": "mai-thi-linh",
+  "Nguyễn Hoàng Bích Thủy": "nguyen-hoang-bich-thuy",
+  "Nguyễn Thị Bích Trâm": "nguyen-thi-bich-tram",
+  "Nguyễn Trần Bảo Long": "nguyen-tran-bao-long",
+  "Nguyễn Văn Đình Chương": "nguyen-van-dinh-chuong",
+  "Ngô Nguyễn Cao Kỳ": "ngo-nguyen-cao-ky",
+  "Trương Hoàng Giang": "truong-hoang-giang",
+  "Trần Minh Thành": "tran-minh-thanh",
+  "Trần Tấn Tài": "tran-tan-tai",
+  "Đoàn Thị Phượng Liên": "doan-thi-phuong-lien"
+ },
+ "nv_dates": [
+  "2026-11-13"
+ ],
+ "errors": []
+}
