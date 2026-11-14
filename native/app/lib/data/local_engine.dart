@@ -68,11 +68,17 @@ class LocalEngine {
   }
 
   /// Thư mục App.py + data/ của commit [sc] (tải phần còn thiếu).
-  Future<String> snapshot(String sc) =>
-      _snaps[sc] ??= _download(sc).catchError((Object e) {
-        _snaps.remove(sc);
-        throw e;
-      });
+  Future<String> snapshot(String sc) async {
+    final dir = await (_snaps[sc] ??= _download(sc).catchError((Object e) {
+      _snaps.remove(sc);
+      throw e;
+    }));
+    // _prune() có thể đã xoá thư mục này trong lúc Future trên vẫn còn cache (vd. bị
+    // đẩy ra khỏi 6 bộ "gần dùng nhất" bởi các bộ khác) → tải lại thay vì trả đường dẫn chết.
+    if (File('$dir/.ok').existsSync()) return dir;
+    _snaps.remove(sc);
+    return snapshot(sc);
+  }
 
   Map<String, String> get _headers => {
     'Accept': 'application/vnd.github+json',
@@ -103,43 +109,52 @@ class LocalEngine {
   /// Chỉ App.py của commit [sc] (KHÔNG kéo theo data/ team Tân) — dùng cho team 'vy', vì team
   /// này không đụng tới data Tân. Nếu [sc] đã có sẵn bộ data đầy đủ (snapshot/snapshotFor khác
   /// đã tải) thì dùng lại luôn, không tải lại.
-  Future<String> _appPyOnly(String sc) => _appPy[sc] ??=
-      () async {
-        final done = File('$_home/snap/${sc.substring(0, 12)}/.ok');
-        if (done.existsSync()) return done.parent.path;
-        final dir = Directory('$_home/apppy/${sc.substring(0, 12)}');
-        final doneAp = File('${dir.path}/.ok');
-        if (doneAp.existsSync()) return dir.path;
-        await _fetchTree(ghRepo, sc, dir.path, (p) => p == 'App.py');
-        doneAp.writeAsStringSync(sc);
-        return dir.path;
-      }().catchError((Object e) {
-        _appPy.remove(sc);
-        throw e;
-      });
+  Future<String> _appPyOnly(String sc) async {
+    final root = await (_appPy[sc] ??=
+        () async {
+          final done = File('$_home/snap/${sc.substring(0, 12)}/.ok');
+          if (done.existsSync()) return done.parent.path;
+          final dir = Directory('$_home/apppy/${sc.substring(0, 12)}');
+          final doneAp = File('${dir.path}/.ok');
+          if (doneAp.existsSync()) return dir.path;
+          await _fetchTree(ghRepo, sc, dir.path, (p) => p == 'App.py');
+          doneAp.writeAsStringSync(sc);
+          return dir.path;
+        }().catchError((Object e) {
+          _appPy.remove(sc);
+          throw e;
+        }));
+    // như snapshot(): _prune() có thể đã xoá thư mục cache trong lúc Future còn nhớ.
+    if (File('$root/App.py').existsSync()) return root;
+    _appPy.remove(sc);
+    return _appPyOnly(sc);
+  }
 
   /// Thư mục App.py + data/ cho Sale Sup của [req] (team tan: [snapshot]; vy: App.py commit [sc] +
   /// data repo Vyntt commit 'dsc'; all: data 2 team ghép bằng team_data.py — như GitHub).
-  Future<String> snapshotFor(Map<String, dynamic> req) {
+  Future<String> snapshotFor(Map<String, dynamic> req) async {
     final team = (req['team'] as String?) ?? 'tan';
     final sc = req['sc'] as String;
     if (team == 'tan') return snapshot(sc);
     final dsc = (req['dsc'] as String?) ?? 'HEAD';
     final key =
         '${team}_${sc.substring(0, 12)}_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}';
-    return _snaps[key] ??=
-        () async {
+    final dir = await (_snaps[key] ??= _snapshotFor(team, sc, dsc, key));
+    if (File('$dir/.ok').existsSync()) return dir;
+    _snaps.remove(key);
+    return snapshotFor(req);
+  }
+
+  Future<String> _snapshotFor(String team, String sc, String dsc, String key) {
+    return () async {
           final dir = Directory('$_home/snap/$key');
           final done = File('${dir.path}/.ok');
           if (done.existsSync()) return dir.path;
-          // team 'vy' chỉ cần App.py của Tân, không cần data/ của Tân → khỏi tải cho đỡ chậm.
-          final tanRoot = team == 'vy'
-              ? await _appPyOnly(sc)
-              : await snapshot(sc);
           final vyDir = Directory(
             '$_home/snap/vydata_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}',
           );
-          if (!File('${vyDir.path}/.ok').existsSync()) {
+          Future<void> ensureVyDir() async {
+            if (File('${vyDir.path}/.ok').existsSync()) return;
             if (vyDir.existsSync()) vyDir.deleteSync(recursive: true);
             await _fetchTree(
               vyRepo,
@@ -149,17 +164,27 @@ class LocalEngine {
             );
             File('${vyDir.path}/.ok').writeAsStringSync(dsc);
           }
+
+          // team 'vy' chỉ cần App.py của Tân, không cần data/ của Tân → khỏi tải cho đỡ chậm.
+          // snapshot()/_appPyOnly() tự kiểm tra lại & tải lại nếu bị _prune() xoá giữa chừng,
+          // nên gọi lại (rẻ nếu còn nguyên) ngay trước lúc dùng để tránh đường dẫn đã chết.
+          Future<String> tanRoot() => team == 'vy' ? _appPyOnly(sc) : snapshot(sc);
+
+          await ensureVyDir();
+          await tanRoot();
           if (dir.existsSync()) dir.deleteSync(recursive: true);
           dir.createSync(recursive: true);
+          await ensureVyDir();
+          final tan = await tanRoot();
           await Link('${dir.path}/App.py')
-              .create(File('$tanRoot/App.py').resolveSymbolicLinksSync());
+              .create(File('$tan/App.py').resolveSymbolicLinksSync());
           if (team == 'vy') {
             await Link('${dir.path}/data').create('${vyDir.path}/data');
           } else {
             await _ensureProc();
             await _call(null, {
               'op': 'combine',
-              'a': '$tanRoot/data',
+              'a': '$tan/data',
               'b': '${vyDir.path}/data',
               'out': '${dir.path}/data',
             }, root: dir.path);
@@ -223,6 +248,14 @@ class LocalEngine {
   }
 
   /// Giữ 6 bộ data gần nhất (các Sale Sup) + các file chúng dùng; xoá phần cũ.
+  // snap/ giờ chứa nhiều loại thư mục dùng chung 1 quota (tan gốc, vy_*, all_*, vydata_*)
+  // — mỗi lần xem nhiều Sale Sup/ngày khác nhau có thể tạo >6 thư mục trong vài phút, nên
+  // để 6 thì sẽ xoá nhầm thư mục đang được dùng dở (vd. vydata_ vừa qua bước kiểm tra .ok
+  // nhưng chưa kịp đọc xong data/ trong 1 lần build khác) → lỗi "No such file or directory".
+  // Vì file nặng thật sự nằm ở blobs/ (dùng chung qua symlink, không nhân bản), giữ nhiều
+  // thư mục snap/apppy hơn gần như không tốn ổ đĩa thêm.
+  static const _keepSnaps = 30;
+
   void _prune(String keepSc) {
     try {
       final snaps =
@@ -230,7 +263,7 @@ class LocalEngine {
             ..sort(
               (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
             );
-      for (final d in snaps.skip(6)) {
+      for (final d in snaps.skip(_keepSnaps)) {
         d.deleteSync(recursive: true);
       }
       final apDir = Directory('$_home/apppy');
@@ -240,11 +273,11 @@ class LocalEngine {
       apSnaps.sort(
         (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
       );
-      for (final d in apSnaps.skip(6)) {
+      for (final d in apSnaps.skip(_keepSnaps)) {
         d.deleteSync(recursive: true);
       }
       final used = <String>{};
-      for (final d in [...snaps.take(6), ...apSnaps.take(6)]) {
+      for (final d in [...snaps.take(_keepSnaps), ...apSnaps.take(_keepSnaps)]) {
         for (final e in d.listSync(recursive: true, followLinks: false)) {
           if (e is Link) used.add(e.targetSync().split('/').last);
         }
