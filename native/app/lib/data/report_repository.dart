@@ -33,7 +33,8 @@ const saleSups = [
   SaleSup('all', 'Cả 2 Sup', 't/all/'),
 ];
 
-SaleSup saleSupOf(String id) => saleSups.firstWhere((s) => s.id == id, orElse: () => saleSups.first);
+SaleSup saleSupOf(String id) =>
+    saleSups.firstWhere((s) => s.id == id, orElse: () => saleSups.first);
 
 class Manifest {
   final DateTime? generatedAt;
@@ -41,23 +42,37 @@ class Manifest {
   final List<MonthInfo> months;
   final List<MonthInfo> kpiMonths; // tháng có báo cáo tab KPI (giai đoạn 2)
   final String team; // Sale Sup của bộ data
-  final String? dataSc; // commit data repo Vyntt (team vy / all) — gửi kèm khi nhờ tính
-  Manifest(this.generatedAt, this.sourceCommit, this.months, this.kpiMonths, [this.team = 'tan', this.dataSc]);
+  final String?
+  dataSc; // commit data repo Vyntt (team vy / all) — gửi kèm khi nhờ tính
+  Manifest(
+    this.generatedAt,
+    this.sourceCommit,
+    this.months,
+    this.kpiMonths, [
+    this.team = 'tan',
+    this.dataSc,
+  ]);
 
   factory Manifest.fromJson(Map<String, dynamic> j) => Manifest(
-        DateTime.tryParse((j['generated_at'] ?? '') as String),
-        j['source_commit'] as String?,
-        [
-          for (final m in j['months'] as List)
-            MonthInfo((m as Map<String, dynamic>)['key'] as String, m['label'] as String)
-        ],
-        [
-          for (final m in (j['kpi_months'] ?? const []) as List)
-            MonthInfo((m as Map<String, dynamic>)['key'] as String, m['label'] as String)
-        ],
-        (j['team'] as String?) ?? 'tan',
-        j['data_sc'] as String?,
-      );
+    DateTime.tryParse((j['generated_at'] ?? '') as String),
+    j['source_commit'] as String?,
+    [
+      for (final m in j['months'] as List)
+        MonthInfo(
+          (m as Map<String, dynamic>)['key'] as String,
+          m['label'] as String,
+        ),
+    ],
+    [
+      for (final m in (j['kpi_months'] ?? const []) as List)
+        MonthInfo(
+          (m as Map<String, dynamic>)['key'] as String,
+          m['label'] as String,
+        ),
+    ],
+    (j['team'] as String?) ?? 'tan',
+    j['data_sc'] as String?,
+  );
 }
 
 class Loaded<T> {
@@ -90,11 +105,20 @@ class ReportRepository {
   Future<void> _refreshRef() async {
     if (!dataBaseUrl.endsWith('/reports/')) return; // server thử nghiệm
     try {
-      final res = await _client.get(Uri.parse('https://api.github.com/repos/$ghRepo/git/ref/heads/reports'), headers: {
-        'Accept': 'application/vnd.github+json',
-        if (ghToken.isNotEmpty) 'Authorization': 'Bearer $ghToken',
-      }).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) _ref = ((jsonDecode(res.body) as Map)['object'] as Map)['sha'] as String;
+      final res = await _client
+          .get(
+            Uri.parse(
+              'https://api.github.com/repos/$ghRepo/git/ref/heads/reports',
+            ),
+            headers: {
+              'Accept': 'application/vnd.github+json',
+              if (ghToken.isNotEmpty) 'Authorization': 'Bearer $ghToken',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200)
+        _ref =
+            ((jsonDecode(res.body) as Map)['object'] as Map)['sha'] as String;
     } catch (_) {
       // mất mạng / hết lượt API → dùng mã cũ (hoặc tên branch)
     }
@@ -107,7 +131,8 @@ class ReportRepository {
   Future<void> loadTeam() async {
     try {
       final f = await _cacheFile('sale_sup.txt');
-      if (await f.exists()) team = saleSupOf((await f.readAsString()).trim()).id;
+      if (await f.exists())
+        team = saleSupOf((await f.readAsString()).trim()).id;
     } catch (_) {}
   }
 
@@ -149,35 +174,73 @@ class ReportRepository {
   /// commit dữ liệu của bản JSON GitHub đã xuất (manifest gốc, chưa tính phần Mac tự tính)
   String? remoteSc;
 
+  /// commit repo Vyntt của bản JSON GitHub đã xuất (manifest gốc, chưa tính phần Mac tự tính) —
+  /// tách riêng khỏi Manifest.dataSc vì dataSc có thể đã bị ghi đè bằng bản Mac tự tính
+  /// (xem bên dưới) → phải so với bản GỐC, không thì checkLiveVy tự so với chính nó rồi tắt sớm.
+  String? remoteDsc;
+
   /// App Mac: GitHub có data mới nhưng chưa xuất xong → dùng bản máy tự tính (LocalEngine.live*).
   static LocalEngine get _live => LocalEngine.instance;
-  static bool _isLive(String monthKey) => team == 'tan' && _live.liveSc != null && _live.liveMonth == monthKey;
+  static bool _isLive(String monthKey) =>
+      team == 'tan' && _live.liveSc != null && _live.liveMonth == monthKey;
+
+  /// team khác Tân: repo Vyntt có bản mới hơn bản GitHub đã xuất (xem [LocalEngine.checkLiveVy]).
+  static bool get _isLiveVy => team != 'tan' && _live.liveVyDsc != null;
 
   Future<Loaded<Manifest>> manifest() async {
     await _refreshRef();
     final r = await _get('manifest.json');
     final j = jsonDecode(r.value) as Map<String, dynamic>;
     // KPI_REMOTE_SC (chỉ để thử trên Mac): giả như GitHub mới xuất tới commit cũ → Mac tự tính
-    remoteSc = Platform.environment['KPI_REMOTE_SC'] ?? j['source_commit'] as String?;
+    remoteSc =
+        Platform.environment['KPI_REMOTE_SC'] ?? j['source_commit'] as String?;
     if (team == 'tan' && _live.liveSc != null && _live.liveSc != remoteSc) {
       j['source_commit'] = _live.liveSc;
-      if (_live.liveAt != null) j['generated_at'] = _live.liveAt!.toIso8601String();
+      if (_live.liveAt != null)
+        j['generated_at'] = _live.liveAt!.toIso8601String();
+    }
+    remoteDsc = j['data_sc'] as String?;
+    if (_isLiveVy && _live.liveVyDsc != j['data_sc']) {
+      j['data_sc'] = _live.liveVyDsc;
     }
     return Loaded(Manifest.fromJson(j), r.fromCache);
   }
 
-  Future<Loaded<TurnoverMonth>> turnover(String monthKey, {bool refresh = false}) async {
-    final key = _isLive(monthKey) ? '$monthKey@${_live.liveSc}' : monthKey;
+  Future<Loaded<TurnoverMonth>> turnover(
+    String monthKey, {
+    bool refresh = false,
+  }) async {
+    final key = _isLive(monthKey)
+        ? '$monthKey@${_live.liveSc}'
+        : _isLiveVy
+        ? '$monthKey@${_live.liveVyDsc}'
+        : monthKey;
     if (!refresh && _turnover.containsKey(key)) {
       return Loaded(_turnover[key]!, false);
     }
     if (_isLive(monthKey)) {
-      final m = TurnoverMonth.fromJson(await _live.turnover(_live.liveSc!, monthKey));
+      final m = TurnoverMonth.fromJson(
+        await _live.turnover(_live.liveSc!, monthKey),
+      );
+      _turnover[key] = m;
+      return Loaded(m, false);
+    }
+    if (_isLiveVy) {
+      final m = TurnoverMonth.fromJson(
+        await _live.turnoverFor({
+          'month_key': monthKey,
+          'sc': remoteSc,
+          'team': team,
+          'dsc': _live.liveVyDsc,
+        }),
+      );
       _turnover[key] = m;
       return Loaded(m, false);
     }
     final r = await _get('turnover/$monthKey.json');
-    final m = TurnoverMonth.fromJson(jsonDecode(r.value) as Map<String, dynamic>);
+    final m = TurnoverMonth.fromJson(
+      jsonDecode(r.value) as Map<String, dynamic>,
+    );
     _turnover[monthKey] = m;
     return Loaded(m, r.fromCache);
   }
@@ -188,7 +251,9 @@ class ReportRepository {
 // ===================== Giai đoạn 2: báo cáo tab KPI =====================
 
 class KpiReportInfo {
-  final String code, name, group; // group: 'kpi' (tab Báo cáo KPI) | 'tab' (tab khác)
+  final String code,
+      name,
+      group; // group: 'kpi' (tab Báo cáo KPI) | 'tab' (tab khác)
   KpiReportInfo(this.code, this.name, [this.group = 'kpi']);
 }
 
@@ -198,28 +263,43 @@ class KpiIndex {
   final int year, month;
   final List<String> dates; // có bản "Tất cả ĐDKD"
   final List<String> nvDates; // có bản lọc từng ĐDKD
-  final List<String> tabDates; // các tab khác (MCP, Tracking...) chỉ có ngày mặc định
+  final List<String>
+  tabDates; // các tab khác (MCP, Tracking...) chỉ có ngày mặc định
   final List<String> nv;
-  final Set<String> staleDates; // còn số của lần sync trước (GitHub đang tính lại) → app tự tính
+  final Set<String>
+  staleDates; // còn số của lần sync trước (GitHub đang tính lại) → app tự tính
   final Map<String, String> nvSlugs;
   final List<KpiReportInfo> reports;
 
   KpiIndex.fromJson(Map<String, dynamic> j)
-      : monthKey = j['month_key'] as String,
-        monthLabel = j['month_label'] as String,
-        defaultDate = j['default_date'] as String,
-        year = j['year'] as int,
-        month = j['month'] as int,
-        dates = [for (final d in j['dates'] as List) d as String],
-        nvDates = [for (final d in (j['nv_dates'] ?? const []) as List) d as String],
-        tabDates = [for (final d in (j['tab_dates'] ?? const []) as List) d as String],
-        nv = [for (final n in j['nv'] as List) n as String],
-        staleDates = {for (final d in (j['stale_dates'] ?? const []) as List) d as String},
-        nvSlugs = {for (final e in (j['nv_slugs'] as Map).entries) e.key as String: e.value as String},
-        reports = [
-          for (final r in j['reports'] as List)
-            KpiReportInfo((r as Map)['code'] as String, r['name'] as String, (r['group'] as String?) ?? 'kpi')
-        ];
+    : monthKey = j['month_key'] as String,
+      monthLabel = j['month_label'] as String,
+      defaultDate = j['default_date'] as String,
+      year = j['year'] as int,
+      month = j['month'] as int,
+      dates = [for (final d in j['dates'] as List) d as String],
+      nvDates = [
+        for (final d in (j['nv_dates'] ?? const []) as List) d as String,
+      ],
+      tabDates = [
+        for (final d in (j['tab_dates'] ?? const []) as List) d as String,
+      ],
+      nv = [for (final n in j['nv'] as List) n as String],
+      staleDates = {
+        for (final d in (j['stale_dates'] ?? const []) as List) d as String,
+      },
+      nvSlugs = {
+        for (final e in (j['nv_slugs'] as Map).entries)
+          e.key as String: e.value as String,
+      },
+      reports = [
+        for (final r in j['reports'] as List)
+          KpiReportInfo(
+            (r as Map)['code'] as String,
+            r['name'] as String,
+            (r['group'] as String?) ?? 'kpi',
+          ),
+      ];
 }
 
 /// 1 báo cáo đã xuất: danh sách item (tiêu đề, bảng, thẻ, biểu đồ...).
@@ -227,19 +307,20 @@ class ReportDoc {
   final String code, name, date;
   final List<String> filter;
   final List<Map<String, dynamic>> items;
-  final Map<String, Map<String, dynamic>> main; // ô lọc chung (Thứ VT, Mã KH, Tên KH) + cách áp
+  final Map<String, Map<String, dynamic>>
+  main; // ô lọc chung (Thứ VT, Mã KH, Tên KH) + cách áp
   /// true = Mac tự tính từ data mới (chưa có cách áp ô lọc đo sẵn → mọi ô lọc tính lại bằng App.py)
   bool local = false;
   ReportDoc.fromJson(Map<String, dynamic> j)
-      : code = j['code'] as String,
-        name = j['name'] as String,
-        date = j['date'] as String,
-        filter = [for (final f in j['filter'] as List) f as String],
-        items = [for (final i in j['items'] as List) i as Map<String, dynamic>],
-        main = {
-          for (final e in ((j['main'] as Map?) ?? const {}).entries)
-            e.key as String: (e.value as Map).cast<String, dynamic>()
-        };
+    : code = j['code'] as String,
+      name = j['name'] as String,
+      date = j['date'] as String,
+      filter = [for (final f in j['filter'] as List) f as String],
+      items = [for (final i in j['items'] as List) i as Map<String, dynamic>],
+      main = {
+        for (final e in ((j['main'] as Map?) ?? const {}).entries)
+          e.key as String: (e.value as Map).cast<String, dynamic>(),
+      };
 }
 
 final Map<String, ReportDoc> _liveDocs = {};
@@ -263,12 +344,24 @@ extension KpiRepository on ReportRepository {
   }
 
   /// Bản App.py tính sẵn cho 1 giá trị ô lọc kiểu "tính lại".
-  Future<List<Map<String, dynamic>>> kpiVariant(KpiIndex idx, String code, String file) async {
+  Future<List<Map<String, dynamic>>> kpiVariant(
+    KpiIndex idx,
+    String code,
+    String file,
+  ) async {
     final r = await _getPublic('kpi/${idx.monthKey}/$code/$file');
-    return [for (final i in (jsonDecode(r.value) as Map)['items'] as List) i as Map<String, dynamic>];
+    return [
+      for (final i in (jsonDecode(r.value) as Map)['items'] as List)
+        i as Map<String, dynamic>,
+    ];
   }
 
-  Future<Loaded<ReportDoc>> kpiDoc(KpiIndex idx, String code, String date, String? nv) async {
+  Future<Loaded<ReportDoc>> kpiDoc(
+    KpiIndex idx,
+    String code,
+    String date,
+    String? nv,
+  ) async {
     if (ReportRepository._isLive(idx.monthKey)) {
       final live = ReportRepository._live;
       final sc = live.liveSc!;
@@ -292,15 +385,60 @@ extension KpiRepository on ReportRepository {
         'date': date,
         'filter': nv == null ? <String>[] : [nv],
         'items': items,
-      })
-        ..local = true;
-      live.log('live doc', {'code': code, 'date': date, 'nv': nv, 'sc': sc}, items);
+      })..local = true;
+      live.log('live doc', {
+        'code': code,
+        'date': date,
+        'nv': nv,
+        'sc': sc,
+      }, items);
+      if (_liveDocs.length > 200) _liveDocs.clear();
+      _liveDocs[k] = doc;
+      return Loaded(doc, false);
+    }
+    if (ReportRepository._isLiveVy) {
+      final live = ReportRepository._live;
+      final dsc = live.liveVyDsc!;
+      final team = ReportRepository.team;
+      final k = '$team|$dsc|$code|$date|${nv ?? ''}';
+      final hit = _liveDocs[k];
+      if (hit != null) return Loaded(hit, false);
+      final rep = idx.reports.firstWhere((r) => r.code == code);
+      final items = await live.compute({
+        'month_key': idx.monthKey,
+        'date': date,
+        'code': code,
+        'name': rep.name,
+        'nav': rep.group == 'tab' ? rep.name : null,
+        'ddkd': nv == null ? <String>[] : [nv],
+        'values': <String, dynamic>{},
+        'sc': remoteSc,
+        'team': team,
+        'dsc': dsc,
+      });
+      final doc = ReportDoc.fromJson({
+        'code': code,
+        'name': rep.name,
+        'date': date,
+        'filter': nv == null ? <String>[] : [nv],
+        'items': items,
+      })..local = true;
+      live.log('live doc vy', {
+        'code': code,
+        'date': date,
+        'nv': nv,
+        'team': team,
+        'dsc': dsc,
+      }, items);
       if (_liveDocs.length > 200) _liveDocs.clear();
       _liveDocs[k] = doc;
       return Loaded(doc, false);
     }
     final name = nv == null ? '$date.json' : '${date}__${idx.nvSlugs[nv]}.json';
     final r = await _getPublic('kpi/${idx.monthKey}/$code/$name');
-    return Loaded(ReportDoc.fromJson(jsonDecode(r.value) as Map<String, dynamic>), r.fromCache);
+    return Loaded(
+      ReportDoc.fromJson(jsonDecode(r.value) as Map<String, dynamic>),
+      r.fromCache,
+    );
   }
 }

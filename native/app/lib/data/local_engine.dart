@@ -17,7 +17,9 @@ class LocalEngine {
 
   static String? get _pyDir {
     if (!Platform.isMacOS) return null;
-    final res = File(Platform.resolvedExecutable).parent.parent.uri.resolve('Resources/py/').toFilePath();
+    final res = File(Platform.resolvedExecutable).parent.parent.uri
+        .resolve('Resources/py/')
+        .toFilePath();
     return File('${res}python/bin/python3').existsSync() ? res : null;
   }
 
@@ -32,12 +34,16 @@ class LocalEngine {
   int _nextId = 0;
   String _buf = '';
 
-  String get _home => '${Platform.environment['HOME']}/Library/Application Support/KPI Dashboard';
+  String get _home =>
+      '${Platform.environment['HOME']}/Library/Application Support/KPI Dashboard';
 
   /// Chuẩn bị sẵn (gọi khi app có manifest): tải data + bật Python để lần lọc đầu đỡ chờ.
   void warmUp(String sc) {
     if (!available) return;
-    snapshot(sc).then((_) => _ensureProc()).then((_) => _selfTest(sc)).catchError((_) {});
+    snapshot(sc)
+        .then((_) => _ensureProc())
+        .then((_) => _selfTest(sc))
+        .catchError((_) {});
   }
 
   /// Kiểm tra khi build: `open --env KPI_SELFTEST=<req JSON> "KPI Dashboard.app"`
@@ -48,31 +54,42 @@ class LocalEngine {
     final f = File('$_home/selftest.txt');
     final t = DateTime.now();
     try {
-      final items = await compute({...(jsonDecode(q) as Map<String, dynamic>), 'sc': sc});
-      f.writeAsStringSync('ok ${items.length} items ${DateTime.now().difference(t).inMilliseconds}ms\n'
-          '${jsonEncode(items).substring(0, 300)}');
+      final items = await compute({
+        ...(jsonDecode(q) as Map<String, dynamic>),
+        'sc': sc,
+      });
+      f.writeAsStringSync(
+        'ok ${items.length} items ${DateTime.now().difference(t).inMilliseconds}ms\n'
+        '${jsonEncode(items).substring(0, 300)}',
+      );
     } catch (e) {
       f.writeAsStringSync('error $e');
     }
   }
 
   /// Thư mục App.py + data/ của commit [sc] (tải phần còn thiếu).
-  Future<String> snapshot(String sc) => _snaps[sc] ??= _download(sc).catchError((Object e) {
+  Future<String> snapshot(String sc) =>
+      _snaps[sc] ??= _download(sc).catchError((Object e) {
         _snaps.remove(sc);
         throw e;
       });
 
   Map<String, String> get _headers => {
-        'Accept': 'application/vnd.github+json',
-        if (ghToken.isNotEmpty) 'Authorization': 'Bearer $ghToken',
-      };
+    'Accept': 'application/vnd.github+json',
+    if (ghToken.isNotEmpty) 'Authorization': 'Bearer $ghToken',
+  };
 
   Future<String> _download(String sc) async {
     final dir = Directory('$_home/snap/${sc.substring(0, 12)}');
     final done = File('${dir.path}/.ok');
     if (done.existsSync()) return dir.path;
     if (dir.existsSync()) dir.deleteSync(recursive: true);
-    await _fetchTree(ghRepo, sc, dir.path, (p) => p == 'App.py' || p.startsWith('data/'));
+    await _fetchTree(
+      ghRepo,
+      sc,
+      dir.path,
+      (p) => p == 'App.py' || p.startsWith('data/'),
+    );
     done.writeAsStringSync(sc);
     _prune(sc);
     return dir.path;
@@ -86,7 +103,8 @@ class LocalEngine {
   /// Chỉ App.py của commit [sc] (KHÔNG kéo theo data/ team Tân) — dùng cho team 'vy', vì team
   /// này không đụng tới data Tân. Nếu [sc] đã có sẵn bộ data đầy đủ (snapshot/snapshotFor khác
   /// đã tải) thì dùng lại luôn, không tải lại.
-  Future<String> _appPyOnly(String sc) => _appPy[sc] ??= () async {
+  Future<String> _appPyOnly(String sc) => _appPy[sc] ??=
+      () async {
         final done = File('$_home/snap/${sc.substring(0, 12)}/.ok');
         if (done.existsSync()) return done.parent.path;
         final dir = Directory('$_home/apppy/${sc.substring(0, 12)}');
@@ -107,46 +125,75 @@ class LocalEngine {
     final sc = req['sc'] as String;
     if (team == 'tan') return snapshot(sc);
     final dsc = (req['dsc'] as String?) ?? 'HEAD';
-    final key = '${team}_${sc.substring(0, 12)}_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}';
-    return _snaps[key] ??= () async {
-      final dir = Directory('$_home/snap/$key');
-      final done = File('${dir.path}/.ok');
-      if (done.existsSync()) return dir.path;
-      // team 'vy' chỉ cần App.py của Tân, không cần data/ của Tân → khỏi tải cho đỡ chậm.
-      final tanRoot = team == 'vy' ? await _appPyOnly(sc) : await snapshot(sc);
-      final vyDir = Directory('$_home/snap/vydata_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}');
-      if (!File('${vyDir.path}/.ok').existsSync()) {
-        if (vyDir.existsSync()) vyDir.deleteSync(recursive: true);
-        await _fetchTree(vyRepo, dsc, vyDir.path, (p) => p.startsWith('data/'));
-        File('${vyDir.path}/.ok').writeAsStringSync(dsc);
-      }
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
-      dir.createSync(recursive: true);
-      await Link('${dir.path}/App.py').create(File('$tanRoot/App.py').resolveSymbolicLinksSync());
-      if (team == 'vy') {
-        await Link('${dir.path}/data').create('${vyDir.path}/data');
-      } else {
-        await _ensureProc();
-        await _call(null, {'op': 'combine', 'a': '$tanRoot/data', 'b': '${vyDir.path}/data', 'out': '${dir.path}/data'},
-            root: dir.path);
-      }
-      done.writeAsStringSync(key);
-      _prune(key);
-      return dir.path;
-    }()
-        .catchError((Object e) {
-      _snaps.remove(key);
-      throw e;
-    });
+    final key =
+        '${team}_${sc.substring(0, 12)}_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}';
+    return _snaps[key] ??=
+        () async {
+          final dir = Directory('$_home/snap/$key');
+          final done = File('${dir.path}/.ok');
+          if (done.existsSync()) return dir.path;
+          // team 'vy' chỉ cần App.py của Tân, không cần data/ của Tân → khỏi tải cho đỡ chậm.
+          final tanRoot = team == 'vy'
+              ? await _appPyOnly(sc)
+              : await snapshot(sc);
+          final vyDir = Directory(
+            '$_home/snap/vydata_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}',
+          );
+          if (!File('${vyDir.path}/.ok').existsSync()) {
+            if (vyDir.existsSync()) vyDir.deleteSync(recursive: true);
+            await _fetchTree(
+              vyRepo,
+              dsc,
+              vyDir.path,
+              (p) => p.startsWith('data/'),
+            );
+            File('${vyDir.path}/.ok').writeAsStringSync(dsc);
+          }
+          if (dir.existsSync()) dir.deleteSync(recursive: true);
+          dir.createSync(recursive: true);
+          await Link('${dir.path}/App.py')
+              .create(File('$tanRoot/App.py').resolveSymbolicLinksSync());
+          if (team == 'vy') {
+            await Link('${dir.path}/data').create('${vyDir.path}/data');
+          } else {
+            await _ensureProc();
+            await _call(null, {
+              'op': 'combine',
+              'a': '$tanRoot/data',
+              'b': '${vyDir.path}/data',
+              'out': '${dir.path}/data',
+            }, root: dir.path);
+          }
+          done.writeAsStringSync(key);
+          _prune(key);
+          return dir.path;
+        }().catchError((Object e) {
+          _snaps.remove(key);
+          throw e;
+        });
   }
 
-  Future<void> _fetchTree(String repo, String ref, String dirPath, bool Function(String) want) async {
+  Future<void> _fetchTree(
+    String repo,
+    String ref,
+    String dirPath,
+    bool Function(String) want,
+  ) async {
     final res = await _client
-        .get(Uri.parse('https://api.github.com/repos/$repo/git/trees/$ref?recursive=1'), headers: _headers)
+        .get(
+          Uri.parse(
+            'https://api.github.com/repos/$repo/git/trees/$ref?recursive=1',
+          ),
+          headers: _headers,
+        )
         .timeout(const Duration(seconds: 60));
-    if (res.statusCode != 200) throw HttpException('GitHub ${res.statusCode} (danh sách file $repo)');
+    if (res.statusCode != 200)
+      throw HttpException('GitHub ${res.statusCode} (danh sách file $repo)');
     final tree = ((jsonDecode(res.body) as Map)['tree'] as List).cast<Map>();
-    final files = [for (final t in tree) if (t['type'] == 'blob' && want('${t['path']}')) t];
+    final files = [
+      for (final t in tree)
+        if (t['type'] == 'blob' && want('${t['path']}')) t,
+    ];
     final blobs = Directory('$_home/blobs')..createSync(recursive: true);
     for (final f in files) {
       final path = '${f['path']}', sha = '${f['sha']}';
@@ -163,7 +210,8 @@ class LocalEngine {
           }
           await Future<void>.delayed(Duration(seconds: 2 * attempt));
         }
-        if (r == null || r.statusCode != 200) throw HttpException('Tải $path lỗi ${r?.statusCode}');
+        if (r == null || r.statusCode != 200)
+          throw HttpException('Tải $path lỗi ${r?.statusCode}');
         final tmp = File('${blob.path}.part');
         await tmp.writeAsBytes(r.bodyBytes, flush: true);
         await tmp.rename(blob.path);
@@ -177,14 +225,21 @@ class LocalEngine {
   /// Giữ 6 bộ data gần nhất (các Sale Sup) + các file chúng dùng; xoá phần cũ.
   void _prune(String keepSc) {
     try {
-      final snaps = Directory('$_home/snap').listSync().whereType<Directory>().toList()
-        ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      final snaps =
+          Directory('$_home/snap').listSync().whereType<Directory>().toList()
+            ..sort(
+              (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
+            );
       for (final d in snaps.skip(6)) {
         d.deleteSync(recursive: true);
       }
       final apDir = Directory('$_home/apppy');
-      final apSnaps = apDir.existsSync() ? apDir.listSync().whereType<Directory>().toList() : <Directory>[];
-      apSnaps.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      final apSnaps = apDir.existsSync()
+          ? apDir.listSync().whereType<Directory>().toList()
+          : <Directory>[];
+      apSnaps.sort(
+        (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
+      );
       for (final d in apSnaps.skip(6)) {
         d.deleteSync(recursive: true);
       }
@@ -201,61 +256,79 @@ class LocalEngine {
   }
 
   Future<void> _ensureProc() => _starting ??= () async {
-        final py = _pyDir!;
-        final p = await Process.start('${py}python/bin/python3', ['-u', '${py}engine/local_engine.py'],
-            environment: {'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONIOENCODING': 'utf-8'});
-        final ready = Completer<void>();
-        p.stdout.transform(utf8.decoder).listen((chunk) {
-          _buf += chunk;
-          int nl;
-          while ((nl = _buf.indexOf('\n')) >= 0) {
-            final line = _buf.substring(0, nl);
-            _buf = _buf.substring(nl + 1);
-            if (line.trim().isEmpty) continue;
-            final m = jsonDecode(line) as Map<String, dynamic>;
-            if (m['ready'] == true) {
-              if (!ready.isCompleted) ready.complete();
-              continue;
-            }
-            _wait.remove(m['id'])?.complete(m);
-          }
-        });
-        p.stderr.drain<void>();
-        p.exitCode.then((code) {
-          log('python dừng (mã $code)', const {}, null);
-          _proc = null;
-          _starting = null;
-          _buf = '';
-          for (final c in _wait.values) {
-            c.completeError(StateError('Python tại chỗ dừng (mã $code)'));
-          }
-          _wait.clear();
-          if (!ready.isCompleted) ready.completeError(StateError('Không khởi động được Python tại chỗ'));
-        });
-        await ready.future.timeout(const Duration(seconds: 60));
-        _proc = p;
-      }();
+    final py = _pyDir!;
+    final p = await Process.start(
+      '${py}python/bin/python3',
+      ['-u', '${py}engine/local_engine.py'],
+      environment: {
+        'PYTHONDONTWRITEBYTECODE': '1',
+        'PYTHONIOENCODING': 'utf-8',
+      },
+    );
+    final ready = Completer<void>();
+    p.stdout.transform(utf8.decoder).listen((chunk) {
+      _buf += chunk;
+      int nl;
+      while ((nl = _buf.indexOf('\n')) >= 0) {
+        final line = _buf.substring(0, nl);
+        _buf = _buf.substring(nl + 1);
+        if (line.trim().isEmpty) continue;
+        final m = jsonDecode(line) as Map<String, dynamic>;
+        if (m['ready'] == true) {
+          if (!ready.isCompleted) ready.complete();
+          continue;
+        }
+        _wait.remove(m['id'])?.complete(m);
+      }
+    });
+    p.stderr.drain<void>();
+    p.exitCode.then((code) {
+      log('python dừng (mã $code)', const {}, null);
+      _proc = null;
+      _starting = null;
+      _buf = '';
+      for (final c in _wait.values) {
+        c.completeError(StateError('Python tại chỗ dừng (mã $code)'));
+      }
+      _wait.clear();
+      if (!ready.isCompleted)
+        ready.completeError(StateError('Không khởi động được Python tại chỗ'));
+    });
+    await ready.future.timeout(const Duration(seconds: 60));
+    _proc = p;
+  }();
 
   /// Nhật ký bộ lọc (Application Support/KPI Dashboard/filter.log, giữ ~1 MB gần nhất):
   /// yêu cầu, nơi tính, và dòng đầu + dòng tổng bảng đầu tiên → dò khi số khác Streamlit.
-  void log(String what, Map<String, dynamic> req, List<Map<String, dynamic>>? items) {
+  void log(
+    String what,
+    Map<String, dynamic> req,
+    List<Map<String, dynamic>>? items,
+  ) {
     if (!Platform.isMacOS) return;
     try {
       String brief = '';
       if (items != null) {
         final t = items.where((i) => i['t'] == 'tbl').firstOrNull;
         final b = (t?['b'] as List?) ?? const [];
-        String row(Object? r) => [for (final c in (r as List).take(6)) (c as Map)['x']].join(' | ');
+        String row(Object? r) =>
+            [for (final c in (r as List).take(6)) (c as Map)['x']].join(' | ');
         if (b.isNotEmpty) brief = ' ⇒ ${row(b.first)} … ${row(b.last)}';
       }
       final f = File('$_home/filter.log')..parent.createSync(recursive: true);
       if (f.existsSync() && f.lengthSync() > 1 << 20) f.writeAsStringSync('');
-      f.writeAsStringSync('${DateTime.now().toIso8601String().substring(0, 19)} [$what] ${jsonEncode(req)}$brief\n',
-          mode: FileMode.append);
+      f.writeAsStringSync(
+        '${DateTime.now().toIso8601String().substring(0, 19)} [$what] ${jsonEncode(req)}$brief\n',
+        mode: FileMode.append,
+      );
     } catch (_) {}
   }
 
-  Future<Map<String, dynamic>> _call(String? sc, Map<String, dynamic> msg, {String? root}) async {
+  Future<Map<String, dynamic>> _call(
+    String? sc,
+    Map<String, dynamic> msg, {
+    String? root,
+  }) async {
     root ??= await snapshot(sc!);
     await _ensureProc();
     final id = ++_nextId;
@@ -277,18 +350,86 @@ class LocalEngine {
           }
         : null;
     final res = await _call(null, {'req': req, 'parts': ?parts}, root: root);
-    return [for (final i in res['items'] as List) (i as Map).cast<String, dynamic>()];
+    return [
+      for (final i in res['items'] as List) (i as Map).cast<String, dynamic>(),
+    ];
   }
 
   /// Danh sách báo cáo / ngày / ĐDKD của tháng (như `kpi/<Thang>/index.json`).
   Future<Map<String, dynamic>> plan(String sc, String monthKey) async =>
-      ((await _call(sc, {'op': 'plan', 'month_key': monthKey}))['plan'] as Map).cast<String, dynamic>();
+      ((await _call(sc, {'op': 'plan', 'month_key': monthKey}))['plan'] as Map)
+          .cast<String, dynamic>();
 
   /// Số liệu Turnover cả tháng (như `turnover/<Thang>.json`).
   Future<Map<String, dynamic>> turnover(String sc, String monthKey) async =>
-      ((await _call(sc, {'op': 'turnover', 'month_key': monthKey}))['turnover'] as Map).cast<String, dynamic>();
+      ((await _call(sc, {'op': 'turnover', 'month_key': monthKey}))['turnover']
+              as Map)
+          .cast<String, dynamic>();
+
+  /// Như [turnover] nhưng cho Sale Sup khác team Tân (team 'vy'/'all' — dùng [snapshotFor]
+  /// để lấy đúng data repo Vyntt commit 'dsc' thay vì chỉ data Tân).
+  Future<Map<String, dynamic>> turnoverFor(Map<String, dynamic> req) async {
+    final root = await snapshotFor(req);
+    final res = await _call(null, {
+      'op': 'turnover',
+      'month_key': req['month_key'],
+    }, root: root);
+    return (res['turnover'] as Map).cast<String, dynamic>();
+  }
 
   // ---------- Data mới trên GitHub chưa xuất xong JSON → Mac tự tính ----------
+
+  /// Repo Vyntt có data mới hơn bản GitHub đã xuất ([remoteDsc]) → dùng commit này làm 'dsc'
+  /// khi tính tại chỗ (null = dùng bản GitHub đã xuất). Không cần tải trước gì ở đây —
+  /// [snapshotFor] tự tải khi có yêu cầu dùng tới commit này.
+  String? liveVyDsc;
+  String? _lastVyHead;
+  bool _checkingVy = false;
+
+  /// Kiểm tra repo Vyntt: có commit mới hơn bản GitHub đã xuất ([remoteDsc]) không.
+  /// Trả về true nếu đổi trạng thái (có bản mới hơn, hoặc GitHub đã xuất kịp nên bỏ bản tự tính).
+  Future<bool> checkLiveVy(String? remoteDsc) async {
+    if (!available || _checkingVy) return false;
+    _checkingVy = true;
+    try {
+      final res = await _client
+          .get(
+            Uri.parse('https://api.github.com/repos/$vyRepo/commits/main'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode != 200) {
+        log('checkLiveVy http ${res.statusCode}', {
+          'remoteDsc': remoteDsc,
+        }, null);
+        return false;
+      }
+      final head = (jsonDecode(res.body) as Map)['sha'] as String;
+      if (head == remoteDsc) {
+        final had = liveVyDsc != null;
+        liveVyDsc = null;
+        _lastVyHead = head;
+        log('checkLiveVy đã khớp', {
+          'remoteDsc': remoteDsc,
+          'head': head,
+        }, null);
+        return had;
+      }
+      if (head == _lastVyHead) return false;
+      liveVyDsc = head;
+      _lastVyHead = head;
+      log('checkLiveVy có bản mới', {
+        'remoteDsc': remoteDsc,
+        'head': head,
+      }, null);
+      return true;
+    } catch (e) {
+      log('checkLiveVy lỗi: $e', {'remoteDsc': remoteDsc}, null);
+      return false;
+    } finally {
+      _checkingVy = false;
+    }
+  }
 
   /// Commit dữ liệu Mac đang tự tính (null = dùng bản GitHub đã xuất).
   String? liveSc;
@@ -305,7 +446,10 @@ class LocalEngine {
     _checking = true;
     try {
       final res = await _client
-          .get(Uri.parse('https://api.github.com/repos/$ghRepo/commits/main'), headers: _headers)
+          .get(
+            Uri.parse('https://api.github.com/repos/$ghRepo/commits/main'),
+            headers: _headers,
+          )
           .timeout(const Duration(seconds: 20));
       if (res.statusCode != 200) return false;
       final j = jsonDecode(res.body) as Map;
@@ -320,13 +464,23 @@ class LocalEngine {
         _lastHead = head;
         return had;
       }
-      if (head == _lastHead && (liveSc == null || liveMonth == monthKey)) return false;
+      if (head == _lastHead && (liveSc == null || liveMonth == monthKey))
+        return false;
       if (remoteSc != null) {
         final cmp = await _client
-            .get(Uri.parse('https://api.github.com/repos/$ghRepo/compare/$remoteSc...$head'), headers: _headers)
+            .get(
+              Uri.parse(
+                'https://api.github.com/repos/$ghRepo/compare/$remoteSc...$head',
+              ),
+              headers: _headers,
+            )
             .timeout(const Duration(seconds: 20));
         if (cmp.statusCode != 200) return false;
-        final files = [for (final f in ((jsonDecode(cmp.body) as Map)['files'] as List? ?? const [])) '${(f as Map)['filename']}'];
+        final files = [
+          for (final f
+              in ((jsonDecode(cmp.body) as Map)['files'] as List? ?? const []))
+            '${(f as Map)['filename']}',
+        ];
         if (!files.any((f) => f == 'App.py' || f.startsWith('data/'))) {
           _lastHead = head;
           return false; // chỉ đổi code app, data như cũ
@@ -336,7 +490,9 @@ class LocalEngine {
       liveSc = head;
       liveMonth = monthKey;
       livePlan = plan;
-      liveAt = DateTime.tryParse('${((j['commit'] as Map)['committer'] as Map)['date']}');
+      liveAt = DateTime.tryParse(
+        '${((j['commit'] as Map)['committer'] as Map)['date']}',
+      );
       _lastHead = head;
       log('live $head', {'month_key': monthKey}, null);
       return true;
