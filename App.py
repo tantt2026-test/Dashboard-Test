@@ -669,13 +669,14 @@ def _default_month_key():
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _ss_name_m(month_key):
-  """Tên Sup của bộ data đang xem (cột SUP của Target_KPI: '24SF16806 - Trương Thanh Tân');
-  data ghép nhiều Sup → 'A & B'."""
+  """Tên Sup của bộ data đang xem (cột SUP của Target_KPI: '24SF16806 - Trương Thanh Tân', có
+  bản nhiều đoạn hơn như 'SS-CDTH - HCM 4-50 - 15SF13596 - Nguyễn Thị Tường Vy' → luôn lấy đoạn
+  cuối cùng vì đó mới là tên); data ghép nhiều Sup → 'A & B'."""
   try:
     k = pd.read_excel(_get_kpi_path(), header=None).iloc[2:, 4].dropna().astype(str)
     names = []
     for v in k:
-      nm = v.split(' - ', 1)[-1].strip()
+      nm = v.rsplit(' - ', 1)[-1].strip()
       if nm and nm not in names and nm.lower() not in ('nan', 'sup'):
         names.append(nm)
     if names:
