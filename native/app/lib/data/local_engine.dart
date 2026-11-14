@@ -137,8 +137,13 @@ class LocalEngine {
     final sc = req['sc'] as String;
     if (team == 'tan') return snapshot(sc);
     final dsc = (req['dsc'] as String?) ?? 'HEAD';
+    // 'all': dữ liệu ghép sẵn (team_data.combine_dirs) cache theo (sc, dsc) — thuật toán ghép đổi
+    // (vd fix team_data.py) không tự làm mới bộ đã ghép cũ dù sc/dsc như cũ → thêm hậu tố đổi theo
+    // bản ghép để buộc tính lại. Tăng số này mỗi khi sửa cách ghép ảnh hưởng tới kết quả.
+    const combineVer = 2;
     final key =
-        '${team}_${sc.substring(0, 12)}_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}';
+        '${team}_${sc.substring(0, 12)}_${dsc.length > 12 ? dsc.substring(0, 12) : dsc}'
+        '${team == 'all' ? '_c$combineVer' : ''}';
     final dir = await (_snaps[key] ??= _snapshotFor(team, sc, dsc, key));
     if (File('$dir/.ok').existsSync()) return dir;
     _snaps.remove(key);

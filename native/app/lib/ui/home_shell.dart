@@ -16,7 +16,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.17';
+const appVersion = '1.7.18';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -52,12 +52,18 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     try {
       var man = (await widget.repo.manifest()).value;
       final mk = man.kpiMonths.isEmpty ? null : man.kpiMonths.last.key;
-      if (ReportRepository.team == 'tan' &&
+      // team 'all' cần cả 2: Tân mới (trừ 'vy' vì không đụng data/ của Tân) lẫn Vy mới.
+      var changed = false;
+      if (ReportRepository.team != 'vy' &&
           mk != null &&
           await LocalEngine.instance.checkLive(widget.repo.remoteSc, mk)) {
-        man = (await widget.repo.manifest()).value;
-      } else if (ReportRepository.team != 'tan' &&
+        changed = true;
+      }
+      if (ReportRepository.team != 'tan' &&
           await LocalEngine.instance.checkLiveVy(widget.repo.remoteDsc)) {
+        changed = true;
+      }
+      if (changed) {
         man = (await widget.repo.manifest()).value;
       }
       final old = _manifest;

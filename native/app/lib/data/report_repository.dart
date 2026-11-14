@@ -184,6 +184,12 @@ class ReportRepository {
   static bool _isLive(String monthKey) =>
       team == 'tan' && _live.liveSc != null && _live.liveMonth == monthKey;
 
+  /// Như [_isLive] nhưng cũng áp dụng cho team 'all' (Cả 2 Sup cần data mới nhất của CẢ Tân lẫn
+  /// Vy, không chỉ Tân) — team 'vy' không cần vì không đụng data/ của Tân, chỉ cần App.py của Tân
+  /// (đã có qua GitHub publish bình thường, không cấp bách bằng data bán hàng).
+  static bool _isLiveTanData(String monthKey) =>
+      team != 'vy' && _live.liveSc != null && _live.liveMonth == monthKey;
+
   /// team khác Tân: repo Vyntt có bản mới hơn bản GitHub đã xuất (xem [LocalEngine.checkLiveVy]).
   static bool get _isLiveVy => team != 'tan' && _live.liveVyDsc != null;
 
@@ -194,7 +200,7 @@ class ReportRepository {
     // KPI_REMOTE_SC (chỉ để thử trên Mac): giả như GitHub mới xuất tới commit cũ → Mac tự tính
     remoteSc =
         Platform.environment['KPI_REMOTE_SC'] ?? j['source_commit'] as String?;
-    if (team == 'tan' && _live.liveSc != null && _live.liveSc != remoteSc) {
+    if (team != 'vy' && _live.liveSc != null && _live.liveSc != remoteSc) {
       j['source_commit'] = _live.liveSc;
       if (_live.liveAt != null)
         j['generated_at'] = _live.liveAt!.toIso8601String();
@@ -210,28 +216,23 @@ class ReportRepository {
     String monthKey, {
     bool refresh = false,
   }) async {
-    final key = _isLive(monthKey)
-        ? '$monthKey@${_live.liveSc}'
-        : _isLiveVy
+    final liveTan = _isLiveTanData(monthKey);
+    final liveVy = _isLiveVy;
+    final key = liveTan
+        ? '$monthKey@${_live.liveSc}${liveVy ? '+${_live.liveVyDsc}' : ''}'
+        : liveVy
         ? '$monthKey@${_live.liveVyDsc}'
         : monthKey;
     if (!refresh && _turnover.containsKey(key)) {
       return Loaded(_turnover[key]!, false);
     }
-    if (_isLive(monthKey)) {
-      final m = TurnoverMonth.fromJson(
-        await _live.turnover(_live.liveSc!, monthKey),
-      );
-      _turnover[key] = m;
-      return Loaded(m, false);
-    }
-    if (_isLiveVy) {
+    if (liveTan || liveVy) {
       final m = TurnoverMonth.fromJson(
         await _live.turnoverFor({
           'month_key': monthKey,
-          'sc': remoteSc,
+          'sc': liveTan ? _live.liveSc : remoteSc,
           'team': team,
-          'dsc': _live.liveVyDsc,
+          'dsc': liveVy ? _live.liveVyDsc : remoteDsc,
         }),
       );
       _turnover[key] = m;
@@ -362,10 +363,14 @@ extension KpiRepository on ReportRepository {
     String date,
     String? nv,
   ) async {
-    if (ReportRepository._isLive(idx.monthKey)) {
+    final liveTan = ReportRepository._isLiveTanData(idx.monthKey);
+    final liveVy = ReportRepository._isLiveVy;
+    if (liveTan || liveVy) {
       final live = ReportRepository._live;
-      final sc = live.liveSc!;
-      final k = '$sc|$code|$date|${nv ?? ''}';
+      final team = ReportRepository.team;
+      final sc = liveTan ? live.liveSc! : remoteSc;
+      final dsc = liveVy ? live.liveVyDsc! : remoteDsc;
+      final k = '$team|$sc|$dsc|$code|$date|${nv ?? ''}';
       final hit = _liveDocs[k];
       if (hit != null) return Loaded(hit, false);
       final rep = idx.reports.firstWhere((r) => r.code == code);
@@ -378,6 +383,8 @@ extension KpiRepository on ReportRepository {
         'ddkd': nv == null ? <String>[] : [nv],
         'values': <String, dynamic>{},
         'sc': sc,
+        'team': team,
+        'dsc': dsc,
       });
       final doc = ReportDoc.fromJson({
         'code': code,
@@ -390,44 +397,8 @@ extension KpiRepository on ReportRepository {
         'code': code,
         'date': date,
         'nv': nv,
+        'team': team,
         'sc': sc,
-      }, items);
-      if (_liveDocs.length > 200) _liveDocs.clear();
-      _liveDocs[k] = doc;
-      return Loaded(doc, false);
-    }
-    if (ReportRepository._isLiveVy) {
-      final live = ReportRepository._live;
-      final dsc = live.liveVyDsc!;
-      final team = ReportRepository.team;
-      final k = '$team|$dsc|$code|$date|${nv ?? ''}';
-      final hit = _liveDocs[k];
-      if (hit != null) return Loaded(hit, false);
-      final rep = idx.reports.firstWhere((r) => r.code == code);
-      final items = await live.compute({
-        'month_key': idx.monthKey,
-        'date': date,
-        'code': code,
-        'name': rep.name,
-        'nav': rep.group == 'tab' ? rep.name : null,
-        'ddkd': nv == null ? <String>[] : [nv],
-        'values': <String, dynamic>{},
-        'sc': remoteSc,
-        'team': team,
-        'dsc': dsc,
-      });
-      final doc = ReportDoc.fromJson({
-        'code': code,
-        'name': rep.name,
-        'date': date,
-        'filter': nv == null ? <String>[] : [nv],
-        'items': items,
-      })..local = true;
-      live.log('live doc vy', {
-        'code': code,
-        'date': date,
-        'nv': nv,
-        'team': team,
         'dsc': dsc,
       }, items);
       if (_liveDocs.length > 200) _liveDocs.clear();

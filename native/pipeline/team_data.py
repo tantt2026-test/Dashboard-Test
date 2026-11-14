@@ -34,11 +34,16 @@ def _key(fn):
 
 
 def _header_row(a, b, max_rows=15):
+    # so không phân biệt hoa/thường: 2 team xuất file cùng mẫu nhưng có lúc lệch chữ hoa/thường
+    # 1 ô tiêu đề (vd 'SaleTeam' / 'Saleteam') → so phân biệt hoa thường sẽ không khớp dòng nào,
+    # combine_xlsx tưởng khác mẫu rồi bỏ hẳn file B (im lặng mất hết KPI/Target của team đó).
     n = min(len(a), len(b), max_rows)
     for i in range(n):
         ra = [str(x).strip() for x in a.iloc[i].tolist()]
         rb = [str(x).strip() for x in b.iloc[i].tolist()]
-        if ra == rb and sum(1 for x in ra if x and x.lower() != 'nan') >= 3:
+        if [x.lower() for x in ra] == [x.lower() for x in rb] and sum(
+            1 for x in ra if x and x.lower() != 'nan'
+        ) >= 3:
             return i
     return None
 
