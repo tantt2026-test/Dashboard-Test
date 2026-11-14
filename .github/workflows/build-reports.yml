@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: build-reports
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:
