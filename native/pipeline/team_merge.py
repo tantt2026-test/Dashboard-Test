@@ -132,6 +132,24 @@ def team_label(items, default):
     return default
 
 
+def _align(ta, tt, tv):
+    """Ghép cặp bảng của bản 'all' với bảng Tân / Vy. Cùng số bảng → theo thứ tự; khác (vd team
+    không có đơn ngày đó nên thiếu bảng chi tiết) → bảng kế tiếp cùng tên cột, không có thì None."""
+    if len(ta) == len(tt) == len(tv):
+        return list(zip(ta, tt, tv))
+
+    def pick(src):
+        out, j = [], 0
+        for a in ta:
+            names = fp.col_names(a)
+            k = next((k for k in range(j, len(src)) if fp.col_names(src[k]) == names), None)
+            out.append(None if k is None else src[k])
+            if k is not None:
+                j = k + 1
+        return out
+    return list(zip(ta, pick(tt), pick(tv)))
+
+
 def merge_items(tan, vy, al, labels=None):
     """Gộp nội dung (list item) của 3 bản. tan/vy None → giữ bản data ghép.
     labels: tên 2 Sale Sup (dòng tên đầu phần mỗi team ở bảng không có dòng Tổng)."""
@@ -140,10 +158,10 @@ def merge_items(tan, vy, al, labels=None):
         return out
     labels = labels or (team_label(tan, 'Team Tân'), team_label(vy, 'Team Vy'))
     ta, tt, tv = _tables(out), _tables(tan), _tables(vy)
-    if not (len(ta) == len(tt) == len(tv)):
-        return out
     tmap = {}
-    for i, (a, t, v) in enumerate(zip(ta, tt, tv)):
+    for i, (a, t, v) in enumerate(_align(ta, tt, tv)):
+        if t is None or v is None:
+            continue  # 1 team không có bảng này (vd ngày không có đơn) → giữ bảng data ghép
         m = merge_table(t, v, a, labels)
         if m is None:
             continue

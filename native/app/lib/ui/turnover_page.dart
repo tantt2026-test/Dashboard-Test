@@ -65,7 +65,7 @@ class _TurnoverPageState extends State<TurnoverPage> {
         _filter = _filter.where(tm.value.nv.contains).toList();
       });
     } catch (e) {
-      setState(() => _error = '$e');
+      if (mounted) setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

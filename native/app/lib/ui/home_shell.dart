@@ -120,7 +120,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Future<void> _load() async {
-    setState(() => _error = null);
+    if (mounted) setState(() => _error = null);
     try {
       final man = await widget.repo.manifest();
       final months = man.value.kpiMonths;
@@ -143,13 +143,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             })
             .catchError((Object _) => '');
       }
-      setState(() {
-        _manifest = man.value;
-        _kpiMonth = mk;
-        _idx = idx;
-      });
+      if (mounted) {
+        setState(() {
+          _manifest = man.value;
+          _kpiMonth = mk;
+          _idx = idx;
+        });
+      }
     } catch (e) {
-      setState(() => _error = '$e');
+      if (mounted) setState(() => _error = '$e');
     }
   }
 
@@ -166,7 +168,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   void _select(String code) {
-    setState(() => _code = code);
+    if (mounted) setState(() => _code = code);
     if (_scaffold.currentState?.isDrawerOpen ?? false)
       Navigator.of(context).pop();
   }

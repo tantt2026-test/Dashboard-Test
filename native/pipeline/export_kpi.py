@@ -64,6 +64,9 @@ def _state(mk, day, nv, label=None, nav=NAV_KPI):
          'main_nav_section': nav}
     if day is not None:
         s['ngay'] = day
+        # App.py: chưa có '_last_month_for_ngay' (lần chạy đầu của tiến trình) hoặc khác tháng →
+        # tự đặt lại 'ngay' = T-1, bỏ qua ngày đã chọn → báo cáo đầu tiên mỗi worker ra sai ngày
+        s['_last_month_for_ngay'] = mk
     if label is not None and str(label).startswith(SUP_PREFIX):
         # báo cáo SUP: app có thể gửi nav là tên báo cáo / None → luôn về tab SUP, đã đăng nhập
         s['main_nav_section'] = SUP_NAV
