@@ -606,15 +606,17 @@ MONTH_OPTIONS = {
             '04HP00638', '08CF00980', '08CF00979', '08TR00055', '08TR00056', '08TR00057',
             '08TL00111',
         ],
-        # CV 26 gửi lại: ASO thành công = mua ĐỒNG THỜI 2 nhóm SP Tết, mỗi nhóm đạt MOQ
+        # CV 32 (15/11, áp dụng cả T11): ASO_Focus đổi tên Outlet_Focus — tính theo CỬA HÀNG trong tháng:
+        # CH mua đủ 2 nhóm (Chanté + Trà Bupnon TEA365), mỗi nhóm thỏa MOQ trên ít nhất 1 đơn
+        # (2 nhóm không bắt buộc cùng đơn). Danh sách 37 mã SP Tết giữ nguyên.
         'aso_focus_both': {
             'Nước giặt xả Chanté (Tết)': ['04HP00636', '04HP00637', '04HP00638'],
             'Trà Bupnon TEA365 (Tết)': ['08TR00055', '08TR00056', '08TR00057'],
         },
         'aso_focus_pat': r'',
-        'aso_focus_name': 'ASO_Focus - Trận Xanh (SP Tết)',
-        'aso_focus_short': 'SP Tết',
-        'aso_focus_card': 'SP Tết',
+        'aso_focus_name': 'Outlet_Focus - Trận Xanh (Chanté + Tea 365)',
+        'aso_focus_short': 'Chanté + Tea 365',
+        'aso_focus_card': 'Chanté + Tea365',
         'aso_focus_target': 20,
         # CV 26 (T11): ASO_Focus_2 = Hạt nêm Chinsu ngọt thanh xương hầm cô đặc 170/400/900gr, 15 ASO/ĐDKD
         'aso_focus2_pat': r'(?=.*h[aạ]t\s*n[eê]m)(?=.*ng[oọ]t\s*thanh)(?=.*x[uư][oơ]ng\s*h[aầ]m\s*c[oô]\s*[dđ][aặ]c)(?=.*(?<!\d)(?:170|400|900)\s*g)',
@@ -643,7 +645,7 @@ MONTH_OPTIONS = {
             'PC_BT': '100%: 2.400.000đ',
             'LPPC': 'Mức 1 (4,3): 1.980.000đ | Mức 2 (4,7): 2.200.000đ',
             'ASO_ALL': '100%: 1.100.000đ',
-            'ASO_FOCUS': '90%: 880.000đ | 100%: 1.100.000đ (SP Tết)',
+            'ASO_FOCUS': '90%: 880.000đ | 100%: 1.100.000đ (Outlet_Focus: Chanté + Tea 365)',
             'ASO_FOCUS_2': '90%: 720.000đ | 100%: 900.000đ (Hạt nêm Chinsu xương hầm)',
             'PC_ON': '100%: 1.500.000đ',
             'LPPC_MEAT': '100%: 400.000đ',
