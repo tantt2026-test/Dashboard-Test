@@ -1801,7 +1801,7 @@ def format_scaled_thousand(x):
 
 
 def find_col(df, candidates):
-  cols = {c.lower().strip(): c for c in df.columns}
+  cols = {str(c).lower().strip(): c for c in df.columns}
   for c in candidates:
     if c.lower() in cols:
       return cols[c.lower()]
@@ -29488,8 +29488,20 @@ _SUP_TB_BO_DAT = 2  # số bộ ảnh duyệt đạt của chương trình
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def _sup_read_excel(path, mtime, header):
-  return pd.read_excel(path, header=header)
+def _sup_read_excel(path, mtime, header, need=()):
+  """need: các chữ phải có trong dòng tiêu đề → tự dò dòng tiêu đề trong 15 dòng đầu (file tải lại
+  có thể thêm/bớt dòng tiêu đề phụ phía trên, vd TARGETACTUAL 16/11 tiêu đề ở dòng 1 thay vì dòng 3);
+  không thấy → dùng dòng [header]."""
+  if need:
+    raw = pd.read_excel(path, header=None, nrows=15)
+    for i in range(len(raw)):
+      cells = [str(v).strip().lower() for v in raw.iloc[i].tolist() if pd.notna(v)]
+      if all(any(k in c for c in cells) for k in need):
+        header = i
+        break
+  t = pd.read_excel(path, header=header)
+  t.columns = [str(c).strip() for c in t.columns]
+  return t
 
 
 def _sup_file(*names):
@@ -29505,7 +29517,7 @@ def _sup_targets(sub_div):
   p = _sup_file('TARGETACTUAL BY STD SKU -BY SM.xlsx', 'TARGETACTUAL BY STD SKU -BY SM.xls')
   if not p:
     return {}
-  t = _sup_read_excel(p, os.path.getmtime(p), 2)
+  t = _sup_read_excel(p, os.path.getmtime(p), 2, ('month', 'sm name', 'target so'))
   c_m, c_nv = find_col(t, ['MONTH']), find_col(t, ['SM NAME', 'SM_NAME'])
   c_sub, c_tg = find_col(t, ['SUB DIV', 'SUB_DIV']), find_col(t, ['TARGET SO'])
   if not (c_m and c_nv and c_sub and c_tg):
@@ -29744,7 +29756,7 @@ def sup_pl_target():
   p = _sup_file('CHI TIEU THUONG PHUC LONG.xlsx')
   if not p:
     return {}
-  t = _sup_read_excel(p, os.path.getmtime(p), 2)
+  t = _sup_read_excel(p, os.path.getmtime(p), 2, ('ship to', 'target'))
   c_ship, c_tg = find_col(t, ['Ship To code', 'Ship To', 'Ship-To']), find_col(t, ['Target DSO giá RTL (+VAT)', 'Target'])
   if not (c_ship and c_tg):
     return {}
@@ -29783,7 +29795,7 @@ def sup_calc_tb(d):
   p = _sup_file('DanhSachXetBoHinhTrungBay.xlsx')
   det = pd.DataFrame(columns=['Tên NVBH', 'Chương trình', 'Mã KH', 'Tên KH', 'Số bộ đạt', 'Kết quả CT'])
   if p:
-    t = _sup_read_excel(p, os.path.getmtime(p), 2)
+    t = _sup_read_excel(p, os.path.getmtime(p), 2, ('tên ct', 'kết quả'))
     c_ct, c_kq = find_col(t, ['Tên CT']), find_col(t, ['Kết quả'])
     c_ma, c_ten, c_nv = find_col(t, ['Mã cửa hàng']), find_col(t, ['Tên cửa hàng']), find_col(t, ['NVBH'])
     if c_ct and c_kq and c_ma and c_nv:
