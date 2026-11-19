@@ -18,6 +18,26 @@ if not getattr(pd.DataFrame.sort_values, '_stable', False):
     return sort_values
   pd.DataFrame.sort_values = _stable_sort(pd.DataFrame.sort_values)
   pd.Series.sort_values = _stable_sort(pd.Series.sort_values)
+
+# File Excel xuất từ hệ thống có ô số ghi 'Infinity' / 'NaN' (vd %Actual vs Target khi Target = 0 trong
+# TARGETACTUAL BY OUTLET T11) → openpyxl lỗi int('Infinity') và bỏ cả file. Cho đọc thành ô trống.
+try:
+  from openpyxl.worksheet import _reader as _oxr
+  if not getattr(_oxr, '_inf_ok', False):
+    _oxr_cast = _oxr._cast_number
+
+    def _cast_number_safe(value):
+      try:
+        return _oxr_cast(value)
+      except ValueError:
+        # pandas đổi ô số bằng int(...) → inf / nan cũng lỗi; để trống (ô này chỉ là cột % phụ)
+        if str(value).strip().lower().lstrip('+-') in ('infinity', 'inf', 'nan'):
+          return None
+        raise
+    _oxr._cast_number = _cast_number_safe
+    _oxr._inf_ok = True
+except Exception:
+  pass
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -8024,6 +8044,34 @@ def build_turnover_vip_ds(df, mcp_df, report_date, filter_nv=None, full_month=Fa
   if not nv_list:
     return empty
 
+  # Tuần chẵn/lẻ (cột ODD_WEEK trên MCP) — cùng cách lọc CH có lịch VT như Call Plan bảng PC BT:
+  # CH F2 chỉ VT tuần chẵn hoặc lẻ → ngày BC rơi vào tuần không VT thì không tính; số lần VT trong tháng
+  # cũng chỉ đếm các tuần CH được VT.
+  def _wk_set(dd):
+    try:
+      w = filter_by_odd_week(mcp_df, dd)
+      c = find_col(w, ['Outlet_code', 'Outlet Code', 'Mã CH', 'Mã KH'])
+      return {_norm_ma(x) for x in w[c]} if c else None
+    except Exception:
+      return None
+  _wk_this = _wk_set(report_date)                       # CH được VT tuần của ngày BC
+  _wk_other = _wk_set(report_date + timedelta(days=7))  # CH được VT tuần còn lại
+  _par = report_date.isocalendar()[1] % 2
+
+  def _n_visit_month(ma, freq):
+    wds = _freq_to_weekdays(freq)
+    if not wds:
+      return 0
+    hol = {(2026, 9): {1, 2}}.get((y, mth), set())
+    cur, n = date(y, mth, 1), 0
+    while cur.month == mth:
+      if cur.weekday() in wds and cur.day not in hol:
+        ks = _wk_this if cur.isocalendar()[1] % 2 == _par else _wk_other
+        if ks is None or ma in ks:
+          n += 1
+      cur += timedelta(days=1)
+    return n
+
   # CT theo nhóm
   ct_nv_g = {g: {nv: 0.0 for nv in nv_list} for g in groups}
   for nv in nv_list:
@@ -8036,10 +8084,15 @@ def build_turnover_vip_ds(df, mcp_df, report_date, filter_nv=None, full_month=Fa
         # Full Tháng: nguyên chỉ tiêu cả tháng của CH
         ct_nv_g[g][nv] += float(tg_map.get(ma, 0) or 0)
         continue
-      # Theo ngày: Call Plan = chỉ tiêu tháng CH ÷ số lần VT trong tháng (chỉ CH có lịch VT ngày BC)
+      # Theo ngày: Call Plan = chỉ tiêu tháng CH ÷ số lần VT trong tháng (chỉ CH có lịch VT ngày BC,
+      # đúng tuần chẵn/lẻ như PC BT)
       freq = ma_to_freq.get(ma, '')
-      _nvt = _count_call_days_in_month(freq, y, mth)
-      if _nvt and _rd_wd in _freq_to_weekdays(freq):
+      if _rd_wd not in _freq_to_weekdays(freq):
+        continue
+      if _wk_this is not None and ma not in _wk_this:
+        continue
+      _nvt = _n_visit_month(ma, freq)
+      if _nvt:
         ct_nv_g[g][nv] += float(tg_map.get(ma, 0) or 0) / _nvt
 
   # TH / MTD
