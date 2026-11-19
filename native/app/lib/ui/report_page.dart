@@ -1,3 +1,4 @@
+import 'home_shell.dart' show supName;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -305,12 +306,15 @@ class _KpiReportPageState extends State<KpiReportPage> {
 
   @override
   Widget build(BuildContext context) {
-    final name =
+    final name0 =
         _idx?.reports
             .where((r) => r.code == widget.code)
             .map((r) => r.name)
             .firstOrNull ??
         widget.code;
+    final name = widget.code.startsWith('SUP_')
+        ? supName(widget.code, name0)
+        : name0;
     final upd = widget.manifest.generatedAt?.toUtc().add(
       const Duration(hours: 7),
     );

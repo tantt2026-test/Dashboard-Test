@@ -18,6 +18,18 @@ import 'turnover_page.dart';
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
 const appVersion = '1.7.21';
 
+/// Icon theo từng chương trình thưởng SUP (thay ổ khoá 🔒) — áp ngay cả khi manifest GitHub còn tên cũ.
+const _supIcons = {
+  'SUP_TONG': '🏆', 'SUP_MI': '🍜', 'SUP_XOT': '🥫', 'SUP_HOMEY': '🧴', 'SUP_MEAT': '🌭',
+  'SUP_BIA': '🍺', 'SUP_PL': '🍵', 'SUP_TB': '🖼️', 'SUP_GS_MEAT': '🥩',
+};
+
+String supName(String code, String name) {
+  final i = name.indexOf('SUP ·');
+  final rest = i >= 0 ? name.substring(i) : name.replaceFirst('🔒', '').trim();
+  return '${_supIcons[code] ?? '🎁'} $rest';
+}
+
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
   const HomeShell({super.key, required this.repo});
@@ -437,7 +449,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                     if (_supOk)
                       for (final r in reports.where((r) => r.group == 'sup'))
                         _MenuTile(
-                          name: r.name,
+                          name: supName(r.code, r.name),
                           selected: r.code == _code,
                           onTap: () => _openSup(r.code),
                         )
