@@ -16,7 +16,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.21';
+const appVersion = '1.7.22';
 
 /// Icon theo từng chương trình thưởng SUP (thay ổ khoá 🔒) — áp ngay cả khi manifest GitHub còn tên cũ.
 const _supIcons = {
@@ -24,10 +24,21 @@ const _supIcons = {
   'SUP_BIA': '🍺', 'SUP_PL': '🍵', 'SUP_TB': '🖼️', 'SUP_GS_MEAT': '🥩',
 };
 
+/// Tên báo cáo thưởng: '<icon> ĐDKD · ...' (thưởng NV) / '<icon> GSBH · ...' (thưởng GSBH).
+/// Manifest cũ còn '🔒 SUP · ...' → đổi tại máy theo mã báo cáo.
 String supName(String code, String name) {
-  final i = name.indexOf('SUP ·');
-  final rest = i >= 0 ? name.substring(i) : name.replaceFirst('🔒', '').trim();
-  return '${_supIcons[code] ?? '🎁'} $rest';
+  var rest = name.replaceFirst('🔒', '').trim();
+  for (final p in ['ĐDKD · ', 'GSBH · ', 'SUP · ']) {
+    final i = rest.indexOf(p);
+    if (i >= 0 && i < 6) {
+      rest = rest.substring(i + p.length);
+      break;
+    }
+  }
+  if (code == 'SUP_TONG') rest = rest.replaceFirst(' ĐDKD', '');
+  if (code == 'SUP_GS_MEAT') rest = rest.replaceFirst('Thưởng GSBH ngành', 'Thưởng ngành');
+  final who = code == 'SUP_GS_MEAT' ? 'GSBH' : 'ĐDKD';
+  return '${_supIcons[code] ?? '🎁'} $who · $rest';
 }
 
 class HomeShell extends StatefulWidget {
@@ -442,7 +453,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                     ),
                     Row(
                       children: [
-                        Expanded(child: _section('🎁 TRACKING SALE SUP')),
+                        Expanded(child: _section('🎁 TRACKING THƯỞNG')),
                       ],
                     ),
                     // chưa đăng nhập: ẩn danh sách báo cáo, chỉ có nút đăng nhập

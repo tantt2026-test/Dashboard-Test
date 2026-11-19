@@ -27,12 +27,14 @@ import warnings
 NAV_KPI = '📊 BÁO CÁO KPI'
 # Tab 🔒 TRACKING SALE SUP (cần đăng nhập): mỗi chương trình = 1 báo cáo, tên bắt đầu '🔒 SUP',
 # chọn bằng ô 'sup_prog' của App.py (App.py.SUP_PROGRAMS)
-SUP_NAV = '🔒 TRACKING SALE SUP'
-SUP_PREFIX = 'SUP · '  # tên báo cáo SUP: '<icon> SUP · ...' (icon theo loại thưởng)
+SUP_NAV = '🎁 TRACKING THƯỞNG'  # phải trùng App.py.SUP_NAV
+SUP_PREFIX = 'SUP · '  # tên cũ: '<icon> SUP · ...'; tên mới: '<icon> ĐDKD · ...' / '<icon> GSBH · ...'
+SUP_PREFIXES = ('SUP · ', 'ĐDKD · ', 'GSBH · ')
 
 
 def is_sup(label):
-    return SUP_PREFIX in str(label or '')[:12]
+    head = str(label or '')[:12]
+    return any(p in head for p in SUP_PREFIXES)
 
 
 def report_group(nav):

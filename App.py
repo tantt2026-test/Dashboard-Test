@@ -23891,7 +23891,7 @@ components.html(
 
 st.markdown('---')
 
-SUP_NAV = '🔒 TRACKING SALE SUP'  # tab theo dõi các chương trình ĐDKD theo công văn tháng (cần đăng nhập)
+SUP_NAV = '🎁 TRACKING THƯỞNG'  # tab theo dõi các chương trình ĐDKD theo công văn tháng (cần đăng nhập)
 BRAND_NAV = '🏷️ TRACKING MBS - BRAND'
 _mbs_bn = get_month_cfg().get('mbs_brand_name')
 if _mbs_bn:
@@ -29878,15 +29878,15 @@ def _sup_hash(u, p):
 
 SUP_USER_HASH = 'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4'  # sha256('ID:mật khẩu') — không lưu mật khẩu trong code
 
-SUP_PROG_TONG = '🏆 SUP · Tổng hợp thưởng ĐDKD'
-SUP_PROG_MI = '🍜 SUP · Thưởng DS ngành Mì (CV 483)'
-SUP_PROG_XOT = '🥫 SUP · ASO Combo Xốt mỹ vị CHIN-SU (CV 483)'
-SUP_PROG_HOMEY = '🧴 SUP · Cửa hàng Homey (CV 483)'
-SUP_PROG_MEAT = '🌭 SUP · Thưởng DS Thịt chế biến (CV 483)'
-SUP_PROG_BIA = '🍺 SUP · Thưởng đầu thùng Bia (CV 026)'
-SUP_PROG_PL = '🍵 SUP · Thưởng DS Trà Phúc Long (CV 484)'
-SUP_PROG_TB = '🖼️ SUP · Thưởng Trưng bày (CV 485 · 486 · 487)'
-SUP_PROG_GS_MEAT = '🥩 SUP · Thưởng GSBH ngành Meats (CV 131)'
+SUP_PROG_TONG = '🏆 ĐDKD · Tổng hợp thưởng'
+SUP_PROG_MI = '🍜 ĐDKD · Thưởng DS ngành Mì (CV 483)'
+SUP_PROG_XOT = '🥫 ĐDKD · ASO Combo Xốt mỹ vị CHIN-SU (CV 483)'
+SUP_PROG_HOMEY = '🧴 ĐDKD · Cửa hàng Homey (CV 483)'
+SUP_PROG_MEAT = '🌭 ĐDKD · Thưởng DS Thịt chế biến (CV 483)'
+SUP_PROG_BIA = '🍺 ĐDKD · Thưởng đầu thùng Bia (CV 026)'
+SUP_PROG_PL = '🍵 ĐDKD · Thưởng DS Trà Phúc Long (CV 484)'
+SUP_PROG_TB = '🖼️ ĐDKD · Thưởng Trưng bày (CV 485 · 486 · 487)'
+SUP_PROG_GS_MEAT = '🥩 GSBH · Thưởng ngành Meats (CV 131)'
 SUP_PROGRAMS = [
     ('SUP_TONG', SUP_PROG_TONG), ('SUP_MI', SUP_PROG_MI), ('SUP_XOT', SUP_PROG_XOT),
     ('SUP_HOMEY', SUP_PROG_HOMEY), ('SUP_MEAT', SUP_PROG_MEAT), ('SUP_BIA', SUP_PROG_BIA),
@@ -30386,7 +30386,7 @@ def _sup_note(thuong, muc, ket_qua, luu_y=None):
 
 if _nav == SUP_NAV:
   st.markdown('<h3 style="text-align:center;color:#1a365d;font-weight:800;">'
-              '🎁 TRACKING SALE SUP — ' + get_month_cfg().get('label', '') + '</h3>', unsafe_allow_html=True)
+              '🎁 TRACKING THƯỞNG — ' + get_month_cfg().get('label', '') + '</h3>', unsafe_allow_html=True)
   if not st.session_state.get('sup_ok'):
     st.markdown('<p style="text-align:center;">Khu vực dành cho Giám sát — vui lòng đăng nhập.</p>',
                 unsafe_allow_html=True)
