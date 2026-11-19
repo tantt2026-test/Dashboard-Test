@@ -29868,7 +29868,8 @@ if _nav == '📋 DSKH_Combo ON':
 
 # ====================== 🔒 TRACKING SALE SUP — CHƯƠNG TRÌNH ĐDKD THEO CÔNG VĂN THÁNG (T11/2026) ======================
 # CV 483 (Mì, Combo Xốt mỹ vị, Homey, Thịt chế biến 3 nhóm) · CV 026 (Bia) · CV 484 (DS Trà Phúc Long; CV 494: chỉ VIP3/VIP5/VIPSI)
-# CV 485/486/487 (Trưng bày: Xốt CHIN-SU mỹ vị, Trà Phúc Long, Tủ mát NGK). Xem cần đăng nhập.
+# CV 485/486/487 (Trưng bày: Xốt CHIN-SU mỹ vị, Trà Phúc Long, Tủ mát NGK) · CV 131 (thưởng GSBH ngành Meats).
+# Streamlit cần đăng nhập; App native mở thẳng (bỏ đăng nhập từ 19/11/2026).
 # App native: mỗi chương trình = 1 báo cáo (tên bắt đầu "🔒 SUP"), chọn bằng ô 'sup_prog'.
 
 def _sup_hash(u, p):
@@ -29885,11 +29886,21 @@ SUP_PROG_MEAT = '🔒 SUP · Thưởng DS Thịt chế biến (CV 483)'
 SUP_PROG_BIA = '🔒 SUP · Thưởng đầu thùng Bia (CV 026)'
 SUP_PROG_PL = '🔒 SUP · Thưởng DS Trà Phúc Long (CV 484)'
 SUP_PROG_TB = '🔒 SUP · Thưởng Trưng bày (CV 485 · 486 · 487)'
+SUP_PROG_GS_MEAT = '🔒 SUP · Thưởng GSBH ngành Meats (CV 131)'
 SUP_PROGRAMS = [
     ('SUP_TONG', SUP_PROG_TONG), ('SUP_MI', SUP_PROG_MI), ('SUP_XOT', SUP_PROG_XOT),
     ('SUP_HOMEY', SUP_PROG_HOMEY), ('SUP_MEAT', SUP_PROG_MEAT), ('SUP_BIA', SUP_PROG_BIA),
-    ('SUP_PL', SUP_PROG_PL), ('SUP_TB', SUP_PROG_TB),
+    ('SUP_PL', SUP_PROG_PL), ('SUP_TB', SUP_PROG_TB), ('SUP_GS_MEAT', SUP_PROG_GS_MEAT),
 ]
+# CV 131 (29/10/2026) — thưởng GSBH: team đạt chỉ tiêu lương tất cả SP Meats ≥100% (Mức 1) / ≥105% (Mức 2)
+# → % doanh số thực đạt của nhóm SP; tối đa 2.000.000đ/GSBH mỗi nhóm. (tên nhóm, nhóm SP, tỷ lệ M1, tỷ lệ M2)
+_SUP_GS_MEAT = [
+    ('Nhóm 1 · Heo cao bồi xì xèo / Hotdog Ponnie', ['Xúc xích Heo cao bồi xì xèo', 'Hotdog Ponnie'], 0.01, 0.02),
+    ('Nhóm 2 · Cao Bồi / Đũa Phép / Chân gà / Snack / Ponnie Cao Cấp / Cao Bồi Lắc',
+     ['Xúc Xích Cao Bồi', 'Xúc Xích Cao Bồi Đũa Phép', 'Chân gà Ponnie', 'Snack Ponnie',
+      'Xúc xích Ponnie Cao Cấp', 'Xúc Xích Cao Bồi Lắc'], 0.02, 0.04),
+]
+_SUP_GS_MEAT_CAP = 2000000
 
 _SUP_MEAT_GROUPS = {
     'Nhóm Trọng điểm': (['Xúc Xích Cao Bồi Xốt Lắc', 'Xúc Xích Cao Bồi Cuốn Cuốn', 'Xúc xích Ponnie',
@@ -30148,6 +30159,38 @@ def sup_calc_meat(d):
     r['Thưởng'] = tot
     rows.append(r)
   return pd.DataFrame(rows), det
+
+
+def sup_calc_gs_meat(d):
+  """CV 131: thưởng GSBH theo % đạt chỉ tiêu lương Meats của cả team. Trả (bảng theo ĐDKD, bảng thưởng GSBH, info)."""
+  tg = _sup_targets('Processed Meats')
+  m = d[d['_sub'] == 'Processed Meats'] if not d.empty else d
+  act = m.groupby('_nv')['_v'].sum().to_dict() if not m.empty else {}
+  g2i = {g.lower(): i for i, (_n, grps, _a, _b) in enumerate(_SUP_GS_MEAT) for g in grps}
+  ds = {}
+  if not m.empty:
+    mm = m.assign(_gi=m['_grp'].str.lower().map(g2i)).dropna(subset=['_gi'])
+    ds = mm.groupby(['_nv', '_gi'])['_v'].sum().to_dict()
+  rows = []
+  for n in _sup_roster(d, tg):
+    t, a = float(tg.get(n, 0)), float(act.get(n, 0))
+    r = {'Tên NVBH': n, 'Chỉ tiêu Meat': t, 'Thực đạt Meat': a, '% đạt': _sup_pct(a, t)}
+    for i in range(len(_SUP_GS_MEAT)):
+      r[f'DS Nhóm {i + 1}'] = float(ds.get((n, float(i)), ds.get((n, i), 0.0)))
+    rows.append(r)
+  t_tg, t_act = sum(r['Chỉ tiêu Meat'] for r in rows), sum(r['Thực đạt Meat'] for r in rows)
+  p = _sup_pct(t_act, t_tg)
+  lv = 2 if p >= 105 else (1 if p >= 100 else 0)
+  gs = []
+  for i, (gname, grps, r1, r2) in enumerate(_SUP_GS_MEAT):
+    g_ds = sum(r[f'DS Nhóm {i + 1}'] for r in rows)
+    rate = r2 if lv == 2 else (r1 if lv == 1 else 0)
+    gs.append({'Nhóm SP': gname, 'DS nhóm': g_ds,
+               'Tỷ lệ thưởng': f'{rate * 100:g}%' if lv else f'M1 {r1 * 100:g}% · M2 {r2 * 100:g}%',
+               'Thưởng nếu đạt M1': round(min(_SUP_GS_MEAT_CAP, g_ds * r1)),
+               'Thưởng nếu đạt M2': round(min(_SUP_GS_MEAT_CAP, g_ds * r2)),
+               'Thưởng': round(min(_SUP_GS_MEAT_CAP, g_ds * rate))})
+  return pd.DataFrame(rows), pd.DataFrame(gs), {'tg': t_tg, 'act': t_act, 'pct': p, 'lv': lv}
 
 
 def sup_calc_bia(d):
@@ -30464,3 +30507,26 @@ if _nav == SUP_NAV:
     _sup_summary(_t, sum_cols=[c for c in _t.columns if c != 'Tên NVBH'], kq_key='sup_tb_kq')
     _sup_detail('CHI TIẾT CỬA HÀNG THEO CHƯƠNG TRÌNH TRƯNG BÀY', _det, 'sup_tb_d',
                 extra=[('Chương trình', 'Chương trình'), ('Kết quả CT', 'Kết quả')])
+
+  elif _prog == SUP_PROG_GS_MEAT:
+    _t, _gs, info = sup_calc_gs_meat(_d)
+    _gt = float(_gs['Thưởng'].sum()) if not _gs.empty else 0.0
+    _sup_note('Thưởng GSBH đạt chỉ tiêu lương tất cả sản phẩm ngành Meats (CV 131 · 01-30/11/2026)',
+              'Mức 1 (team đạt ≥100% chỉ tiêu Meats): Nhóm 1 1% · Nhóm 2 2% DS thực đạt | '
+              'Mức 2 (≥105%): Nhóm 1 2% · Nhóm 2 4% — tối đa 2.000.000đ/GSBH',
+              f'{format_number_vn(info["tg"])}đ / {format_number_vn(info["act"])}đ ({info["pct"]}%) → '
+              + (f'Mức {info["lv"]} → {format_number_vn(_gt)}đ' if info['lv'] else
+                 f'chưa đạt mức (thiếu {format_number_vn(max(0, info["tg"] - info["act"]))}đ để đạt 100%) → 0đ'),
+              luu_y='Chỉ tiêu tính thưởng = chỉ tiêu lương đầu tháng (tổng các ĐDKD của team); '
+                    'GSBH/ASM vào giữa tháng không được tham gia; chỉ tính đơn INVOICED đúng hạn.')
+    st.markdown('<p style="font-weight:800;color:#034ea2;margin:10px 0 4px;">THƯỞNG GSBH THEO NHÓM SẢN PHẨM</p>',
+                unsafe_allow_html=True)
+    if not _gs.empty:
+      _mc = ['DS nhóm', 'Thưởng nếu đạt M1', 'Thưởng nếu đạt M2', 'Thưởng']
+      _g = _sup_tong_cong(_sup_stt(_gs), label_col='Nhóm SP', sum_cols=_mc)
+      st.markdown(_sup_table_html(_g, money=_mc), unsafe_allow_html=True)
+    st.markdown('<p style="font-weight:800;color:#034ea2;margin:14px 0 4px;">ĐÓNG GÓP THEO ĐDKD</p>',
+                unsafe_allow_html=True)
+    _sup_summary(_t, sum_cols=[c for c in _t.columns if c not in ('Tên NVBH', '% đạt')],
+                 pct={'% đạt': ('Thực đạt Meat', 'Chỉ tiêu Meat')},
+                 groups=[('THÔNG TIN ĐDKD', 2), ('CHỈ TIÊU LƯƠNG MEATS', 3), ('DS NHÓM SP TÍNH THƯỞNG', len(_SUP_GS_MEAT))])

@@ -16,7 +16,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.19';
+const appVersion = '1.7.20';
 
 class HomeShell extends StatefulWidget {
   final ReportRepository repo;
@@ -176,7 +176,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   // Tab 🔒 TRACKING SALE SUP: đăng nhập 1 lần mỗi lần mở app. Chỉ lưu mã băm sha256('ID:mật khẩu').
   static const _supHash =
       'fb9cddadb09f9202efde9aa4efe5862694547ff21d31007167bee2d4891c8eb4';
-  bool _supOk = false;
+  // 19/11/2026: bỏ đăng nhập trên App — mở thẳng các báo cáo SUP (giữ code đăng nhập nếu cần bật lại)
+  bool _supOk = true;
 
   // Vân tay (Android) / Touch ID (Mac): bật sau 1 lần đăng nhập đúng bằng mật khẩu trên máy này
   final _bio = LocalAuthentication();
@@ -430,17 +431,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                     Row(
                       children: [
                         Expanded(child: _section('🔒 TRACKING SALE SUP')),
-                        if (_supOk)
-                          TextButton(
-                            onPressed: () => setState(() {
-                              _supOk = false;
-                              if (_code.startsWith('SUP_')) _code = 'TURNOVER';
-                            }),
-                            child: const Text(
-                              'Đăng xuất',
-                              style: TextStyle(fontSize: 11),
-                            ),
-                          ),
                       ],
                     ),
                     // chưa đăng nhập: ẩn danh sách báo cáo, chỉ có nút đăng nhập
