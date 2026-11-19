@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'charts.dart';
 import 'filter_widgets.dart';
@@ -93,22 +94,29 @@ class ReportItems extends StatelessWidget {
         final bd = hexColor(it['bd']) ?? Brand.blue;
         final boxBg = adaptBg(context, hexColor(it['bg']), dark: Brand.darkPanelBg) ??
             (isDark(context) ? Brand.darkPanelBg : const Color(0xFFF0F7FF));
+        final boxItems = (it['ch'] as List).cast<Map<String, dynamic>>();
+        // Khung nhận xét / đề xuất: chọn được chữ + nút copy góc phải trên
         return Container(
           margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: boxBg,
             borderRadius: BorderRadius.circular(8),
             border: Border(left: BorderSide(color: bd, width: 4)),
           ),
-          child: keepLight(
-            context,
-            boxBg,
-            DefaultTextStyle.merge(
-              style: TextStyle(color: isDark(context) ? Brand.darkText : const Color(0xFF1A202C)),
-              child: ReportItems(items: (it['ch'] as List).cast<Map<String, dynamic>>(), wide: wide),
+          child: Stack(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 40, 12),
+              child: keepLight(
+                context,
+                boxBg,
+                DefaultTextStyle.merge(
+                  style: TextStyle(color: isDark(context) ? Brand.darkText : const Color(0xFF1A202C)),
+                  child: SelectionArea(child: ReportItems(items: boxItems, wide: wide)),
+                ),
+              ),
             ),
-          ),
+            Positioned(top: 4, right: 4, child: _CopyButton(text: boxPlainText(boxItems), color: bd)),
+          ]),
         );
       case 'exp':
         // Mục thu gọn (st.expander của App.py, vd Kết quả ngày theo từng NV): mặc định chỉ hiện tiêu đề
@@ -172,6 +180,70 @@ class ReportItems extends StatelessWidget {
         return const SizedBox.shrink();
     }
   }
+}
+
+String _runsText(Object? runs) =>
+    runs is List ? runs.map((r) => (r as Map)['x'] ?? '').join().trim() : '';
+
+/// Chữ thuần của 1 khung nhận xét để copy (bỏ dòng tiêu đề viết hoa đầu khung, vd "📝 NHẬN XÉT …").
+String boxPlainText(List<Map<String, dynamic>> items) {
+  final lines = <String>[];
+  void walk(List<Map<String, dynamic>> xs) {
+    for (final x in xs) {
+      switch (x['t']) {
+        case 'p' || 'h':
+          final s = _runsText(x['r']);
+          if (s.isNotEmpty) lines.add(x['li'] == 1 ? '• $s' : s);
+        case 'box' || 'exp':
+          walk(((x['ch'] as List?) ?? const []).cast<Map<String, dynamic>>());
+        case 'tbl':
+          for (final r in ((x['b'] as List?) ?? const [])) {
+            lines.add((r as List).map((c) => '${(c as Map)['x'] ?? ''}'.replaceAll('\n', ' ')).join('\t'));
+          }
+      }
+    }
+  }
+
+  walk(items);
+  if (lines.length > 1) {
+    final first = lines.first;
+    final letters = first.replaceAll(RegExp(r'[^A-Za-zÀ-ỹ]'), '');
+    if (letters.isNotEmpty && letters == letters.toUpperCase()) lines.removeAt(0);
+  }
+  return lines.join('\n');
+}
+
+class _CopyButton extends StatefulWidget {
+  final String text;
+  final Color color;
+  const _CopyButton({required this.text, required this.color});
+
+  @override
+  State<_CopyButton> createState() => _CopyButtonState();
+}
+
+class _CopyButtonState extends State<_CopyButton> {
+  bool _done = false;
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.text));
+    if (!mounted) return;
+    setState(() => _done = true);
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('Đã copy nội dung'), duration: Duration(seconds: 2)));
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (mounted) setState(() => _done = false);
+  }
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        tooltip: 'Copy nội dung',
+        visualDensity: VisualDensity.compact,
+        iconSize: 18,
+        onPressed: widget.text.isEmpty ? null : _copy,
+        icon: Icon(_done ? Icons.check : Icons.copy_rounded, color: widget.color),
+      );
 }
 
 class _Cards extends StatelessWidget {
