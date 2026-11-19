@@ -34,7 +34,12 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-COMBINE_VER = '4'  # đổi khi đổi cách ghép → bỏ kết quả ghép đã lưu (cache)
+COMBINE_VER = '4'
+try:
+    import python_calamine  # noqa: F401
+    _HAS_CALAMINE = True
+except Exception:  # noqa: BLE001
+    _HAS_CALAMINE = False  # đổi khi đổi cách ghép → bỏ kết quả ghép đã lưu (cache)
 
 TEAMS = {
     'tan': {'name': 'Trương Thanh Tân', 'prefix': ''},
@@ -69,9 +74,20 @@ def _header_row(a, b, max_rows=15):
     return None
 
 
+def _read_raw(p):
+    """Đọc thô (header=None). App Mac có python-calamine → nhanh gấp nhiều lần openpyxl; không có
+    (GitHub / Streamlit) hoặc lỗi → openpyxl như cũ. File ghép ra đọc lại giống hệt (đã so từng file)."""
+    if _HAS_CALAMINE:
+        try:
+            return pd.read_excel(p, header=None, engine='calamine')
+        except Exception:  # noqa: BLE001
+            pass
+    return pd.read_excel(p, header=None)
+
+
 def combine_xlsx(pa, pb, out):
-    a = pd.read_excel(pa, header=None)
-    b = pd.read_excel(pb, header=None)
+    a = _read_raw(pa)
+    b = _read_raw(pb)
     h = _header_row(a, b) if a.shape[1] == b.shape[1] else None
     if h is None:
         shutil.copyfile(pa, out)  # khác mẫu → không ghép được, giữ bản A

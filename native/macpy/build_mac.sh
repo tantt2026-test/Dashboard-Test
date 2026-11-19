@@ -14,7 +14,7 @@ if [ ! -f "$STAGE/.ok" ] || [ "$ROOT/requirements.txt" -nt "$STAGE/.ok" ]; then
   # streamlit không cần (pipeline giả lập) → cài thư viện còn lại, có phụ thuộc
   grep -v -i '^streamlit' "$ROOT/requirements.txt" > "$STAGE/req.txt"
   "$STAGE/python/bin/python3" -m pip install -q --no-cache-dir --disable-pip-version-check \
-    -r "$STAGE/req.txt" beautifulsoup4
+    -r "$STAGE/req.txt" beautifulsoup4 python-calamine   # calamine: đọc Excel nhanh khi ghép data Cả 2 Sup
   "$STAGE/python/bin/python3" -m pip uninstall -y -q streamlit 2>/dev/null || true
   # bớt dung lượng
   P="$STAGE/python/lib/python3.12"
