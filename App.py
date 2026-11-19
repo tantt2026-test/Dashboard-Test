@@ -29949,8 +29949,9 @@ def _sup_file(*names):
   return None
 
 
-def _sup_targets(sub_div):
-  """Chỉ tiêu lương tháng (đầu tháng) theo ngành của từng ĐDKD — TARGETACTUAL (TARGET SO)."""
+def _sup_targets(sub_div, cats=None):
+  """Chỉ tiêu lương tháng (đầu tháng) theo ngành của từng ĐDKD — TARGETACTUAL (TARGET SO).
+  cats: chỉ lấy các nhóm SP (cột KPI_OBJ_CATLOG = Group STD SKU) trong danh sách."""
   p = _sup_file('TARGETACTUAL BY STD SKU -BY SM.xlsx', 'TARGETACTUAL BY STD SKU -BY SM.xls')
   if not p:
     return {}
@@ -29962,6 +29963,11 @@ def _sup_targets(sub_div):
   cfg = get_month_cfg()
   lab = f"{int(cfg['month']):02d}/{int(cfg['year'])}"
   x = t[(t[c_m].astype(str).str.strip() == lab) & (t[c_sub].astype(str).str.strip() == sub_div)]
+  if cats is not None:
+    c_cat = find_col(t, ['KPI_OBJ_CATLOG', 'KPI OBJ CATLOG'])
+    if not c_cat:
+      return {}
+    x = x[x[c_cat].astype(str).str.strip().str.lower().isin({str(c).strip().lower() for c in cats})]
   return pd.to_numeric(x[c_tg], errors='coerce').fillna(0).groupby(x[c_nv].astype(str).str.strip()).sum().to_dict()
 
 
@@ -30162,35 +30168,27 @@ def sup_calc_meat(d):
 
 
 def sup_calc_gs_meat(d):
-  """CV 131: thưởng GSBH theo % đạt chỉ tiêu lương Meats của cả team. Trả (bảng theo ĐDKD, bảng thưởng GSBH, info)."""
-  tg = _sup_targets('Processed Meats')
+  """CV 131: thưởng GSBH — mỗi mục (STT 1 / STT 2) xét riêng: chỉ tiêu & thực đạt chỉ của nhóm SP mục đó,
+  team đạt ≥100% (Mức 1) / ≥105% (Mức 2) → % DS thực đạt của nhóm, tối đa 2.000.000đ.
+  Trả list [(tên mục, bảng theo ĐDKD, info)]."""
   m = d[d['_sub'] == 'Processed Meats'] if not d.empty else d
-  act = m.groupby('_nv')['_v'].sum().to_dict() if not m.empty else {}
-  g2i = {g.lower(): i for i, (_n, grps, _a, _b) in enumerate(_SUP_GS_MEAT) for g in grps}
-  ds = {}
-  if not m.empty:
-    mm = m.assign(_gi=m['_grp'].str.lower().map(g2i)).dropna(subset=['_gi'])
-    ds = mm.groupby(['_nv', '_gi'])['_v'].sum().to_dict()
-  rows = []
-  for n in _sup_roster(d, tg):
-    t, a = float(tg.get(n, 0)), float(act.get(n, 0))
-    r = {'Tên NVBH': n, 'Chỉ tiêu Meat': t, 'Thực đạt Meat': a, '% đạt': _sup_pct(a, t)}
-    for i in range(len(_SUP_GS_MEAT)):
-      r[f'DS Nhóm {i + 1}'] = float(ds.get((n, float(i)), ds.get((n, i), 0.0)))
-    rows.append(r)
-  t_tg, t_act = sum(r['Chỉ tiêu Meat'] for r in rows), sum(r['Thực đạt Meat'] for r in rows)
-  p = _sup_pct(t_act, t_tg)
-  lv = 2 if p >= 105 else (1 if p >= 100 else 0)
-  gs = []
-  for i, (gname, grps, r1, r2) in enumerate(_SUP_GS_MEAT):
-    g_ds = sum(r[f'DS Nhóm {i + 1}'] for r in rows)
+  out = []
+  for gname, grps, r1, r2 in _SUP_GS_MEAT:
+    tg = _sup_targets('Processed Meats', grps)
+    low = {g.lower() for g in grps}
+    x = m[m['_grp'].str.lower().isin(low)] if not m.empty else m
+    act = x.groupby('_nv')['_v'].sum().to_dict() if not x.empty else {}
+    rows = [{'Tên NVBH': n, 'Chỉ tiêu': float(tg.get(n, 0)), 'Thực đạt': float(act.get(n, 0)),
+             '% đạt': _sup_pct(act.get(n, 0), tg.get(n, 0))} for n in _sup_roster(d, tg)]
+    t_tg, t_act = sum(r['Chỉ tiêu'] for r in rows), sum(r['Thực đạt'] for r in rows)
+    p = _sup_pct(t_act, t_tg)
+    lv = 2 if p >= 105 else (1 if p >= 100 else 0)
     rate = r2 if lv == 2 else (r1 if lv == 1 else 0)
-    gs.append({'Nhóm SP': gname, 'DS nhóm': g_ds,
-               'Tỷ lệ thưởng': f'{rate * 100:g}%' if lv else f'M1 {r1 * 100:g}% · M2 {r2 * 100:g}%',
-               'Thưởng nếu đạt M1': round(min(_SUP_GS_MEAT_CAP, g_ds * r1)),
-               'Thưởng nếu đạt M2': round(min(_SUP_GS_MEAT_CAP, g_ds * r2)),
-               'Thưởng': round(min(_SUP_GS_MEAT_CAP, g_ds * rate))})
-  return pd.DataFrame(rows), pd.DataFrame(gs), {'tg': t_tg, 'act': t_act, 'pct': p, 'lv': lv}
+    out.append((gname, pd.DataFrame(rows), {
+        'tg': t_tg, 'act': t_act, 'pct': p, 'lv': lv, 'r1': r1, 'r2': r2,
+        'm1': round(min(_SUP_GS_MEAT_CAP, t_act * r1)), 'm2': round(min(_SUP_GS_MEAT_CAP, t_act * r2)),
+        'thuong': round(min(_SUP_GS_MEAT_CAP, t_act * rate)), 'grps': grps}))
+  return out
 
 
 def sup_calc_bia(d):
@@ -30509,24 +30507,26 @@ if _nav == SUP_NAV:
                 extra=[('Chương trình', 'Chương trình'), ('Kết quả CT', 'Kết quả')])
 
   elif _prog == SUP_PROG_GS_MEAT:
-    _t, _gs, info = sup_calc_gs_meat(_d)
-    _gt = float(_gs['Thưởng'].sum()) if not _gs.empty else 0.0
-    _sup_note('Thưởng GSBH đạt chỉ tiêu lương tất cả sản phẩm ngành Meats (CV 131 · 01-30/11/2026)',
-              'Mức 1 (team đạt ≥100% chỉ tiêu Meats): Nhóm 1 1% · Nhóm 2 2% DS thực đạt | '
-              'Mức 2 (≥105%): Nhóm 1 2% · Nhóm 2 4% — tối đa 2.000.000đ/GSBH',
-              f'{format_number_vn(info["tg"])}đ / {format_number_vn(info["act"])}đ ({info["pct"]}%) → '
-              + (f'Mức {info["lv"]} → {format_number_vn(_gt)}đ' if info['lv'] else
-                 f'chưa đạt mức (thiếu {format_number_vn(max(0, info["tg"] - info["act"]))}đ để đạt 100%) → 0đ'),
-              luu_y='Chỉ tiêu tính thưởng = chỉ tiêu lương đầu tháng (tổng các ĐDKD của team); '
-                    'GSBH/ASM vào giữa tháng không được tham gia; chỉ tính đơn INVOICED đúng hạn.')
-    st.markdown('<p style="font-weight:800;color:#034ea2;margin:10px 0 4px;">THƯỞNG GSBH THEO NHÓM SẢN PHẨM</p>',
-                unsafe_allow_html=True)
-    if not _gs.empty:
-      _mc = ['DS nhóm', 'Thưởng nếu đạt M1', 'Thưởng nếu đạt M2', 'Thưởng']
-      _g = _sup_tong_cong(_sup_stt(_gs), label_col='Nhóm SP', sum_cols=_mc)
-      st.markdown(_sup_table_html(_g, money=_mc), unsafe_allow_html=True)
-    st.markdown('<p style="font-weight:800;color:#034ea2;margin:14px 0 4px;">ĐÓNG GÓP THEO ĐDKD</p>',
-                unsafe_allow_html=True)
-    _sup_summary(_t, sum_cols=[c for c in _t.columns if c not in ('Tên NVBH', '% đạt')],
-                 pct={'% đạt': ('Thực đạt Meat', 'Chỉ tiêu Meat')},
-                 groups=[('THÔNG TIN ĐDKD', 2), ('CHỈ TIÊU LƯƠNG MEATS', 3), ('DS NHÓM SP TÍNH THƯỞNG', len(_SUP_GS_MEAT))])
+    _res = sup_calc_gs_meat(_d)
+    _gt = sum(i['thuong'] for _, _, i in _res)
+    _sup_note('Thưởng GSBH ngành Meats — mỗi mục xét riêng theo chỉ tiêu lương của nhóm SP mục đó (CV 131 · 01-30/11/2026)',
+              'Mục 1: Mức 1 (≥100%) 1% · Mức 2 (≥105%) 2% DS thực đạt | '
+              'Mục 2: Mức 1 2% · Mức 2 4% DS thực đạt — tối đa 2.000.000đ/GSBH mỗi mục',
+              ' · '.join(f'Mục {k + 1}: {i["pct"]}% → {format_number_vn(i["thuong"])}đ' for k, (_, _, i) in enumerate(_res))
+              + f' → tổng {format_number_vn(_gt)}đ',
+              luu_y='Chỉ tiêu tính thưởng = chỉ tiêu lương đầu tháng (TARGETACTUAL, cột KPI_OBJ_CATLOG) của các nhóm SP '
+                    'trong mục, cộng các ĐDKD của team; GSBH/ASM vào giữa tháng không được tham gia; '
+                    'chỉ tính đơn INVOICED đúng hạn.')
+    for _k, (_gn, _t, _i) in enumerate(_res):
+      st.markdown(f'<p style="font-weight:800;color:#034ea2;margin:16px 0 2px;">MỤC {_k + 1} · {_gn.split(" · ", 1)[1]}</p>',
+                  unsafe_allow_html=True)
+      _kq = (f'Mức {_i["lv"]} → thưởng {format_number_vn(_i["thuong"])}đ' if _i['lv'] else
+             f'chưa đạt (thiếu {format_number_vn(max(0, _i["tg"] - _i["act"]))}đ để đạt 100%) → 0đ')
+      st.markdown(
+          f'<div style="color:#2f855a;font-weight:800;font-size:13px;margin:2px 0 6px;">'
+          f'Chỉ tiêu {format_number_vn(_i["tg"])}đ / Thực đạt {format_number_vn(_i["act"])}đ ({_i["pct"]}%) → {_kq}'
+          f'<br>Nếu đạt Mức 1 ({_i["r1"] * 100:g}%): {format_number_vn(_i["m1"])}đ · '
+          f'Mức 2 ({_i["r2"] * 100:g}%): {format_number_vn(_i["m2"])}đ (theo DS hiện tại)</div>',
+          unsafe_allow_html=True)
+      _sup_summary(_t, sum_cols=['Chỉ tiêu', 'Thực đạt'], pct={'% đạt': ('Thực đạt', 'Chỉ tiêu')},
+                   groups=[('THÔNG TIN ĐDKD', 2), (f'MỤC {_k + 1} · CHỈ TIÊU LƯƠNG NHÓM SP', 3)])
