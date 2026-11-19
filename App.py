@@ -30355,6 +30355,9 @@ def _sup_summary(df, sum_cols, pct=None, groups=None, kq_key=None):
     if kq:
       has = pd.to_numeric(v['Thưởng'], errors='coerce').fillna(0) > 0
       v = v[(has & ('Có thưởng' in kq)) | (~has & ('Chưa có thưởng' in kq))]
+  _pc = [c for c in v.columns if str(c).startswith('%')]
+  if _pc:  # bảng có cột % → xếp từ thấp đến cao
+    v = v.assign(_k=pd.to_numeric(v[_pc[0]], errors='coerce')).sort_values('_k', kind='stable').drop(columns='_k')
   v = _sup_tong_cong(_sup_stt(v), sum_cols=sum_cols, pct=pct)
   st.markdown(_sup_table_html(v, money=_sup_money_cols(v), pct=[c for c in v.columns if c.startswith('%')],
                               groups=groups), unsafe_allow_html=True)
