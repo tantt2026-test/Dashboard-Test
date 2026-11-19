@@ -28,7 +28,11 @@ NAV_KPI = '📊 BÁO CÁO KPI'
 # Tab 🔒 TRACKING SALE SUP (cần đăng nhập): mỗi chương trình = 1 báo cáo, tên bắt đầu '🔒 SUP',
 # chọn bằng ô 'sup_prog' của App.py (App.py.SUP_PROGRAMS)
 SUP_NAV = '🔒 TRACKING SALE SUP'
-SUP_PREFIX = '🔒 SUP'
+SUP_PREFIX = 'SUP · '  # tên báo cáo SUP: '<icon> SUP · ...' (icon theo loại thưởng)
+
+
+def is_sup(label):
+    return SUP_PREFIX in str(label or '')[:12]
 
 
 def report_group(nav):
@@ -67,7 +71,7 @@ def _state(mk, day, nv, label=None, nav=NAV_KPI):
         # App.py: chưa có '_last_month_for_ngay' (lần chạy đầu của tiến trình) hoặc khác tháng →
         # tự đặt lại 'ngay' = T-1, bỏ qua ngày đã chọn → báo cáo đầu tiên mỗi worker ra sai ngày
         s['_last_month_for_ngay'] = mk
-    if label is not None and str(label).startswith(SUP_PREFIX):
+    if label is not None and is_sup(label):
         # báo cáo SUP: app có thể gửi nav là tên báo cáo / None → luôn về tab SUP, đã đăng nhập
         s['main_nav_section'] = SUP_NAV
         s['sup_prog'] = label
