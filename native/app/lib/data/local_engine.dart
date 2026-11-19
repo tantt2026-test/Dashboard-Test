@@ -192,7 +192,11 @@ class LocalEngine {
               'a': '$tan/data',
               'b': '${vyDir.path}/data',
               'out': '${dir.path}/data',
-            }, root: dir.path);
+              // lưu kết quả ghép từng file (ngoài snap/ để không bị dọn) → data / App.py mới
+              // chỉ ghép lại file đổi; lần đầu ghép song song 3 file một lúc
+              'cache': '$_home/combcache',
+              'workers': 3,
+            }, root: dir.path, wait: const Duration(minutes: 20));
           }
           done.writeAsStringSync(key);
           _prune(key);
@@ -366,13 +370,14 @@ class LocalEngine {
     String? sc,
     Map<String, dynamic> msg, {
     String? root,
+    Duration wait = const Duration(minutes: 5),
   }) async {
     root ??= await snapshot(sc!);
     await _ensureProc();
     final id = ++_nextId;
     final c = _wait[id] = Completer<Map<String, dynamic>>();
     _proc!.stdin.writeln(jsonEncode({...msg, 'id': id, 'root': root}));
-    final res = await c.future.timeout(const Duration(minutes: 5));
+    final res = await c.future.timeout(wait);
     if (res['error'] != null) throw StateError('${res['error']}');
     return res;
   }

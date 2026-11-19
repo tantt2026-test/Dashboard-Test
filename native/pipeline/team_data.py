@@ -15,6 +15,27 @@ import sys
 
 import pandas as pd
 
+# File Onetech có ô số ghi 'Infinity' / 'NaN' (vd TARGETACTUAL BY OUTLET T11) → openpyxl lỗi khi đọc
+# và bỏ cả file B khi ghép. Đọc thành ô trống (giống App.py).
+try:
+    from openpyxl.worksheet import _reader as _oxr
+    if not getattr(_oxr, '_inf_ok', False):
+        _oxr_cast = _oxr._cast_number
+
+        def _cast_number_safe(value):
+            try:
+                return _oxr_cast(value)
+            except ValueError:
+                if str(value).strip().lower().lstrip('+-') in ('infinity', 'inf', 'nan'):
+                    return None
+                raise
+        _oxr._cast_number = _cast_number_safe
+        _oxr._inf_ok = True
+except Exception:  # noqa: BLE001
+    pass
+
+COMBINE_VER = '4'  # đổi khi đổi cách ghép → bỏ kết quả ghép đã lưu (cache)
+
 TEAMS = {
     'tan': {'name': 'Trương Thanh Tân', 'prefix': ''},
     'vy': {'name': 'Nguyễn Thị Tường Vy', 'prefix': 't/vy/', 'repo': 'Tantt2026/Vyntt_Dashboard'},
@@ -62,24 +83,62 @@ def combine_xlsx(pa, pb, out):
 
 
 def _write_xlsx(df, out):
-    """xlsxwriter (nhanh hơn openpyxl) + ngày tạo cố định → cùng data thì file giống hệt từng byte
-    (export_kpi so dấu vân tay file để biết tháng nào không đổi)."""
+    """xlsxwriter ghi thẳng từng dòng (nhanh gấp ~2 lần df.to_excel, đọc lại ra y hệt) + ngày tạo cố
+    định → cùng data thì file giống hệt từng byte (export_kpi so dấu vân tay file để biết tháng nào
+    không đổi)."""
     import datetime as dt
-    with pd.ExcelWriter(out, engine='xlsxwriter') as w:
-        df.to_excel(w, header=False, index=False)
-        w.book.set_properties({'created': dt.datetime(2000, 1, 1)})
+    import xlsxwriter
+    wb = xlsxwriter.Workbook(out, {
+        'constant_memory': True, 'default_date_format': 'yyyy-mm-dd hh:mm:ss', 'nan_inf_to_errors': True,
+        'strings_to_formulas': False, 'strings_to_urls': False, 'strings_to_numbers': False,
+    })
+    wb.set_properties({'created': dt.datetime(2000, 1, 1)})
+    ws = wb.add_worksheet('Sheet1')
+    for i, row in enumerate(df.astype(object).where(pd.notna(df), None).values.tolist()):
+        ws.write_row(i, 0, row)
+    wb.close()
 
 
 def _combine_job(args):
-    pa, pb, dst, label = args
+    pa, pb, dst, label = args[:4]
+    cached = args[4] if len(args) > 4 else None
     try:
         combine_xlsx(pa, pb, dst)
+        if cached:
+            try:
+                shutil.copyfile(dst, cached + '.tmp')
+                os.replace(cached + '.tmp', cached)
+            except OSError:
+                pass
     except Exception as e:  # noqa: BLE001
         print(f'⚠ ghép {label} lỗi: {e}', file=sys.stderr)
         shutil.copyfile(pa, dst)
 
 
-def combine_dirs(da, db, out, workers=None):
+def _file_sha(p):
+    import hashlib
+    h = hashlib.sha1()
+    with open(p, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _cache_prune(cache_dir, days=4):
+    import time
+    lim = time.time() - days * 86400
+    try:
+        for f in os.listdir(cache_dir):
+            fp = os.path.join(cache_dir, f)
+            if os.path.isfile(fp) and os.path.getmtime(fp) < lim:
+                os.remove(fp)
+    except OSError:
+        pass
+
+
+def combine_dirs(da, db, out, workers=None, cache_dir=None):
+    """cache_dir (app Mac): lưu kết quả ghép từng file theo nội dung 2 file nguồn → lần sau
+    (data / App.py mới nhưng phần lớn file không đổi) chỉ ghép lại file thật sự đổi."""
     """Ghép data/ThangXX của 2 team → out/ThangXX (nhiều file cùng lúc)."""
     os.makedirs(out, exist_ok=True)
     jobs = []
@@ -95,7 +154,16 @@ def combine_dirs(da, db, out, workers=None):
             name = fa.get(k) or fb.get(k)
             dst = os.path.join(mo, name)
             if k in fa and k in fb and name.lower().endswith(('.xlsx', '.xls')):
-                jobs.append((os.path.join(ma, fa[k]), os.path.join(mb, fb[k]), dst, f'{m}/{name}'))
+                pa, pb = os.path.join(ma, fa[k]), os.path.join(mb, fb[k])
+                cached = None
+                if cache_dir:
+                    os.makedirs(cache_dir, exist_ok=True)
+                    cached = os.path.join(cache_dir, f'{COMBINE_VER}_{_file_sha(pa)}_{_file_sha(pb)}.xlsx')
+                    if os.path.isfile(cached):
+                        shutil.copyfile(cached, dst)
+                        os.utime(cached)  # còn dùng → không bị dọn
+                        continue
+                jobs.append((pa, pb, dst, f'{m}/{name}', cached))
             else:
                 shutil.copyfile(os.path.join(ma, fa[k]) if k in fa else os.path.join(mb, fb[k]), dst)
     # file lớn trước cho chia đều
@@ -107,6 +175,8 @@ def combine_dirs(da, db, out, workers=None):
         import multiprocessing as mp
         with mp.get_context('spawn').Pool(workers or min(6, os.cpu_count() or 2)) as pool:
             pool.map(_combine_job, jobs, chunksize=1)
+    if cache_dir:
+        _cache_prune(cache_dir)
 
 
 def prepare(team, out_root, app='App.py', tan='data', vy='data_vy'):

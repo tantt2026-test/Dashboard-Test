@@ -75,7 +75,9 @@ def main():
             if op == 'combine':
                 # Sale Sup 'Cả 2': ghép data 2 team (team_data.py — giống GitHub)
                 import team_data
-                team_data.combine_dirs(msg['a'], msg['b'], msg['out'], workers=1)
+                # cache: chỉ ghép lại file đổi nội dung; workers: ghép song song nhiều file (lần đầu)
+                team_data.combine_dirs(msg['a'], msg['b'], msg['out'], workers=msg.get('workers') or 1,
+                                       cache_dir=msg.get('cache'))
                 out.write(json.dumps({'id': msg.get('id'), 'ok': True, 'secs': round(time.time() - t, 1)}) + '\n')
                 out.flush()
                 continue
