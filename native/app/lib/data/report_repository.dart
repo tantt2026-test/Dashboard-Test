@@ -187,8 +187,12 @@ class ReportRepository {
   /// Như [_isLive] nhưng cũng áp dụng cho team 'all' (Cả 2 Sup cần data mới nhất của CẢ Tân lẫn
   /// Vy, không chỉ Tân) — team 'vy' không cần vì không đụng data/ của Tân, chỉ cần App.py của Tân
   /// (đã có qua GitHub publish bình thường, không cấp bách bằng data bán hàng).
+  /// 19/11/2026: áp dụng cả team 'vy' — App.py mới (thêm/sửa báo cáo) phải dùng ngay cho mọi team,
+  /// không thì Vy tính bằng App.py cũ (thiếu báo cáo mới) tới khi GitHub xuất xong.
   static bool _isLiveTanData(String monthKey) =>
-      team != 'vy' && _live.liveSc != null && _live.liveMonth == monthKey;
+      _live.liveSc != null &&
+      _live.liveMonth == monthKey &&
+      (team != 'vy' || _live.liveApp);
 
   /// team khác Tân: repo Vyntt có bản mới hơn bản GitHub đã xuất (xem [LocalEngine.checkLiveVy]).
   static bool get _isLiveVy => team != 'tan' && _live.liveVyDsc != null;
@@ -200,7 +204,9 @@ class ReportRepository {
     // KPI_REMOTE_SC (chỉ để thử trên Mac): giả như GitHub mới xuất tới commit cũ → Mac tự tính
     remoteSc =
         Platform.environment['KPI_REMOTE_SC'] ?? j['source_commit'] as String?;
-    if (team != 'vy' && _live.liveSc != null && _live.liveSc != remoteSc) {
+    if (_live.liveSc != null &&
+        _live.liveSc != remoteSc &&
+        (team != 'vy' || _live.liveApp)) {
       j['source_commit'] = _live.liveSc;
       if (_live.liveAt != null)
         j['generated_at'] = _live.liveAt!.toIso8601String();
@@ -340,6 +346,9 @@ extension KpiRepository on ReportRepository {
         ..['nv'] = p['nv']
         ..['stale_dates'] = <String>[]
         ..['reports'] = p['reports'];
+    } else if (ReportRepository._isLiveTanData(monthKey) && p != null) {
+      // team khác Tân: ngày / NV giữ theo data của team, chỉ lấy danh sách báo cáo của App.py mới
+      j['reports'] = p['reports'];
     }
     return Loaded(KpiIndex.fromJson(j), r.fromCache);
   }

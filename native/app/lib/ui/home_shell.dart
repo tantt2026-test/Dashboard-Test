@@ -16,7 +16,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.22';
+const appVersion = '1.7.23';
 
 /// Icon theo từng chương trình thưởng SUP (thay ổ khoá 🔒) — áp ngay cả khi manifest GitHub còn tên cũ.
 const _supIcons = {
@@ -77,8 +77,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       final mk = man.kpiMonths.isEmpty ? null : man.kpiMonths.last.key;
       // team 'all' cần cả 2: Tân mới (trừ 'vy' vì không đụng data/ của Tân) lẫn Vy mới.
       var changed = false;
-      if (ReportRepository.team != 'vy' &&
-          mk != null &&
+      if (mk != null &&
           await LocalEngine.instance.checkLive(widget.repo.remoteSc, mk)) {
         changed = true;
       }

@@ -40,6 +40,8 @@ def compute(app, export_kpi, report_doc, filters_probe, req, name, nav=None):
     export_kpi._reset_widgets()
     base = export_kpi._state(req['month_key'], day, None, name, nav)
     base['ddkd'] = list(req.get('ddkd') or [])
+    if base.get('main_nav_section') in export_kpi.SUP_NAVS:  # theo đúng bản App.py đang tính
+        base['main_nav_section'] = export_kpi.app_sup_nav(app.app_path)
     blocks, _, _ = app.run(dict(base))
     raw = {b['key']: dict(zip(b.get('options') or [], b.get('_raw_options') or []))
            for b in blocks if b['kind'] == 'widget' and b.get('key')}

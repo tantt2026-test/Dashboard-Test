@@ -28,6 +28,20 @@ NAV_KPI = '📊 BÁO CÁO KPI'
 # Tab 🔒 TRACKING SALE SUP (cần đăng nhập): mỗi chương trình = 1 báo cáo, tên bắt đầu '🔒 SUP',
 # chọn bằng ô 'sup_prog' của App.py (App.py.SUP_PROGRAMS)
 SUP_NAV = '🎁 TRACKING THƯỞNG'  # phải trùng App.py.SUP_NAV
+# tên cũ (App.py trước 19/11/2026) — app Mac có thể tính trên bản App.py cũ
+SUP_NAVS = (SUP_NAV, '🔒 TRACKING SALE SUP')
+
+
+def app_sup_nav(app_path):
+    """SUP_NAV đúng của bản App.py đang chạy (bản cũ dùng tên cũ)."""
+    try:
+        with open(app_path, encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('SUP_NAV = '):
+                    return line.split("'")[1]
+    except Exception:
+        pass
+    return SUP_NAV
 SUP_PREFIX = 'SUP · '  # tên cũ: '<icon> SUP · ...'; tên mới: '<icon> ĐDKD · ...' / '<icon> GSBH · ...'
 SUP_PREFIXES = ('SUP · ', 'ĐDKD · ', 'GSBH · ')
 
@@ -38,7 +52,7 @@ def is_sup(label):
 
 
 def report_group(nav):
-    return 'kpi' if nav == NAV_KPI else ('sup' if nav == SUP_NAV else 'tab')
+    return 'kpi' if nav == NAV_KPI else ('sup' if nav in SUP_NAVS else 'tab')
 # Giai đoạn cuối: các tab còn lại của App.py (code app → tên tab trên Streamlit)
 TAB_CODES = {'🗺️ MCP VISIT': 'TAB_MCP', '📦 TRACKING MBS - CAT': 'TAB_CAT',
              '🏷️ TRACKING MBS - BRAND': 'TAB_BRAND', '📋 DSKH_Combo OFF': 'TAB_OFF',
@@ -63,6 +77,10 @@ def _init(app_path):
     print(f'  [worker {os.getpid()}] sẵn sàng', file=sys.stderr, flush=True)
 
 
+def _sup_nav_now():
+    return app_sup_nav(_app.app_path) if _app is not None else SUP_NAV
+
+
 def _state(mk, day, nv, label=None, nav=NAV_KPI):
     # month_select_box = None: ô chọn tháng của App.py nhớ tháng của lần chạy trước → nếu không
     # xoá, App.py tự đổi về tháng cũ (lỗi báo cáo 4-7 ra Turnover khi xuất tháng 9 rồi tháng 10)
@@ -75,7 +93,7 @@ def _state(mk, day, nv, label=None, nav=NAV_KPI):
         s['_last_month_for_ngay'] = mk
     if label is not None and is_sup(label):
         # báo cáo SUP: app có thể gửi nav là tên báo cáo / None → luôn về tab SUP, đã đăng nhập
-        s['main_nav_section'] = SUP_NAV
+        s['main_nav_section'] = _sup_nav_now()
         s['sup_prog'] = label
         s['sup_ok'] = True
     elif label is not None and nav == NAV_KPI:
@@ -182,8 +200,8 @@ def plan_month(app_path, mk, now_utc):
         code = TAB_CODES.get(nav) or ('TAB_BRAND' if nav.startswith('🏷️ TRACKING') else None)
         if code:  # T11: tab Brand đổi tên '🏷️ TRACKING HỘI VIÊN TẾT 2027'
             reports.append((code, nav, nav))
-        elif nav == SUP_NAV:
-            reports += [(c, lab, SUP_NAV) for c, lab in ns.get('SUP_PROGRAMS') or []]
+        elif nav in SUP_NAVS:
+            reports += [(c, lab, nav) for c, lab in ns.get('SUP_PROGRAMS') or []]
     nv = list(ns.get('nv_list') or [])
     return {
         'month_key': mk, 'month_label': cfg['label'], 'year': y, 'month': m,

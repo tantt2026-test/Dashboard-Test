@@ -454,6 +454,32 @@ class LocalEngine {
         return had;
       }
       if (head == _lastVyHead) return false;
+      // commit chỉ đổi App.py / code (không đổi data/) → data như bản GitHub đã xuất, không cần tự tính
+      if (remoteDsc != null) {
+        final cmp = await _client
+            .get(
+              Uri.parse(
+                'https://api.github.com/repos/$vyRepo/compare/$remoteDsc...$head',
+              ),
+              headers: _headers,
+            )
+            .timeout(const Duration(seconds: 20));
+        if (cmp.statusCode == 200) {
+          final files = [
+            for (final f
+                in ((jsonDecode(cmp.body) as Map)['files'] as List? ??
+                    const []))
+              '${(f as Map)['filename']}',
+          ];
+          if (!files.any((f) => f.startsWith('data/'))) {
+            final had = liveVyDsc != null;
+            liveVyDsc = null;
+            _lastVyHead = head;
+            log('checkLiveVy chỉ đổi code', {'remoteDsc': remoteDsc, 'head': head}, null);
+            return had;
+          }
+        }
+      }
       liveVyDsc = head;
       _lastVyHead = head;
       log('checkLiveVy có bản mới', {
@@ -471,6 +497,7 @@ class LocalEngine {
 
   /// Commit dữ liệu Mac đang tự tính (null = dùng bản GitHub đã xuất).
   String? liveSc;
+  bool liveApp = false; // bản tự tính có đổi App.py (team Vy chỉ cần tự tính khi App.py đổi)
   DateTime? liveAt;
   String? liveMonth;
   Map<String, dynamic>? livePlan;
@@ -496,6 +523,7 @@ class LocalEngine {
         // GitHub đã xuất xong bản mới nhất → bỏ bản tự tính
         final had = liveSc != null;
         liveSc = null;
+        liveApp = false;
         livePlan = null;
         liveMonth = null;
         liveAt = null;
@@ -504,6 +532,7 @@ class LocalEngine {
       }
       if (head == _lastHead && (liveSc == null || liveMonth == monthKey))
         return false;
+      var appChanged = true;
       if (remoteSc != null) {
         final cmp = await _client
             .get(
@@ -523,9 +552,11 @@ class LocalEngine {
           _lastHead = head;
           return false; // chỉ đổi code app, data như cũ
         }
+        appChanged = files.contains('App.py');
       }
       final plan = await this.plan(head, monthKey);
       liveSc = head;
+      liveApp = appChanged;
       liveMonth = monthKey;
       livePlan = plan;
       liveAt = DateTime.tryParse(
