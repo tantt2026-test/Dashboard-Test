@@ -14856,16 +14856,19 @@ def render_chi_so_ngay_html(res):
   grp_st = ('background-color:#e2e8f0 !important;color:#1a365d !important;font-weight:800 !important;'
             'text-align:left !important;border:1px solid #cbd5e0 !important;padding:5px 10px;')
 
-  def _pc_bg(p):
-    try:
-      v = float(str(p).replace('%', '').replace(',', '.'))
-    except Exception:
-      return '', '#1a202c'
-    if v >= 100:
-      return '#c6f6d5', '#22543d'
-    if v >= 80:
-      return '#fefcbf', '#744210'
-    return '#fed7d7', '#9b2c2c'
+  # Rule màu chung của App: < mốc đỏ · mốc → mốc+5 xanh · > mốc+5 tím
+  #   %TH MTN: mốc 100% · %TH tháng: mốc = % Timegone ngày BC (như các KPI tháng)
+  try:
+    _tg = float(_CURRENT_TIMEGONE)
+  except Exception:
+    _tg = 100.0
+
+  def _pc_td(p, moc, bold_bg='#ffffff'):
+    if not p:
+      return f'<td style="{td}text-align:center !important;background-color:{bold_bg} !important;"></td>'
+    v = str(p).replace('%', '').replace(',', '.')
+    return (f'<td data-colored="1" class="{color_pct_class(v, moc)}" style="{td}{color_pct_bg(v, moc)}'
+            f'text-align:center !important;font-weight:800 !important;">{p}</td>')
 
   h = [
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin:6px 0 8px;">',
@@ -14887,9 +14890,7 @@ def render_chi_so_ngay_html(res):
       last_grp = r['grp']
     k = r['kind']
     pm = _csn_pct_month(r)
-    bg, fg = _pc_bg(pm)
     pdy = _csn_pct_day(r)
-    bgd, fgd = _pc_bg(pdy) if pdy else ('', '#1a202c')
     cells = [_csn_fmt(r['THN'], k), _csn_fmt(r['T7'], k), _csn_fmt(r['MTN'], k), _csn_fmt(r['CTN'], k)]
     h.append('<tr>')
     h.append(
@@ -14898,17 +14899,12 @@ def render_chi_so_ngay_html(res):
     )
     for v in cells:
       h.append(f'<td style="{td}text-align:right !important;background-color:#ffffff !important;">{v}</td>')
-    h.append(
-        f'<td style="{td}text-align:center !important;font-weight:800;'
-        + (f'background-color:{bgd} !important;color:{fgd} !important;' if pdy else 'background-color:#ffffff !important;')
-        + f'">{pdy}</td>'
-    )
+    h.append(_pc_td(pdy, 100.0))
     h.append(f'<td style="{td}text-align:right !important;font-weight:800;background-color:#ffffff !important;">'
              f'{_csn_fmt(r["THCD"], k)}</td>')
     h.append(f'<td style="{td}text-align:right !important;background-color:#ffffff !important;">'
              f'{_csn_fmt(r["CTT"], k)}</td>')
-    h.append(f'<td style="{td}text-align:center !important;font-weight:800;background-color:{bg} !important;'
-             f'color:{fg} !important;">{pm}</td>')
+    h.append(_pc_td(pm, _tg))
     h.append('</tr>')
   h.append('</tbody></table></div>')
   return ''.join(h)
