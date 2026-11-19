@@ -14573,6 +14573,375 @@ def build_muc_tieu_ngay(
   return df_out
 
 
+# =====================================================================
+# BÁO CÁO CHỈ SỐ NGÀY (nằm dưới bảng Mục Tiêu Ngày) — theo Biên bản bàn giao 19/11/2026
+#   9 dòng: SO / ASO / PC OFF+ON / LPPC / HV chưa mua / Đạt cả 2 nhiệm vụ / DS MBS / Combo OFF / ON
+#   Ngày: THN · TH (T-7) · MTN (= 80% CTN) · CTN · %TH MTN | Tháng: THCD · CTT/Import · %TH
+# =====================================================================
+_CSN_BRANDS = {'chanté': 'Chanté', 'chante': 'Chanté', 'chinsu': 'Chinsu', 'kokomi': 'Kokomi', 'nam ngư': 'Nam Ngư'}
+
+
+def _csn_num(x):
+  try:
+    if isinstance(x, (int, float)) and not (isinstance(x, float) and x != x):
+      return float(x)
+    s = str(x).strip().replace(' ', '').replace('%', '')
+    if not s or s.lower() in ('nan', 'none', '-'):
+      return 0.0
+    if s.count('.') > 1 or (s.count('.') == 1 and ',' not in s and len(s.split('.')[-1]) == 3):
+      s = s.replace('.', '').replace(',', '.')
+    else:
+      s = s.replace(',', '.')
+    return float(s)
+  except Exception:
+    return 0.0
+
+
+def _csn_left_days(rd):
+  """Ngày bán còn lại của tháng: tính cả ngày BC, bỏ Chủ nhật + lễ (19/11/2026 → 10)."""
+  total = _working_days_in_month(rd.year, rd.month)
+  prev = rd - timedelta(days=1)
+  done = _working_days_in_month(rd.year, rd.month, as_of=prev) if prev.month == rd.month else 0
+  return max(total - done, 1)
+
+
+def _csn_total_row(df_r, name_col='Tên NVBH'):
+  if df_r is None or getattr(df_r, 'empty', True):
+    return {}
+  if name_col in df_r.columns:
+    m = df_r[name_col].astype(str).str.upper().str.contains('TOTAL|TỔNG', regex=True, na=False)
+    if m.any():
+      return df_r[m].iloc[-1].to_dict()
+  return df_r.iloc[-1].to_dict()
+
+
+class _CsnHV:
+  """Hội viên Tết: DS RPT MTD + nhiệm vụ 4 nhãn tính lại từ RPT (khớp Nhóm 1 BC Hội viên Tết)."""
+
+  def __init__(self, df_rpt, det):
+    self.hv = {}
+    if det is None or getattr(det, 'empty', True):
+      return
+    c_ma = 'Outlet Code' if 'Outlet Code' in det.columns else find_col(det, ['Outlet Code', 'Mã CH', 'Mã KH'])
+    for _, r in det.iterrows():
+      ma = str(r.get(c_ma, '')).strip()
+      ma = ma[:-2] if ma.endswith('.0') else ma
+      if not ma:
+        continue
+      self.hv[ma] = {
+          't': _csn_num(r.get('Target', 0)),
+          'a0': _csn_num(r.get('Actual', 0)),
+          'thu': str(r.get('Thứ VT', '') or '').strip(),
+          'ds': 'DAISU' in str(r.get('Member type', '')).upper(),
+      }
+    self.d = pd.DataFrame()
+    if df_rpt is None or getattr(df_rpt, 'empty', True) or not self.hv:
+      return
+    d = df_rpt
+    c_st = find_col(d, ['Tình trạng đơn hàng', 'Trạng thái', 'Status'])
+    if c_st:
+      d = d[~d[c_st].astype(str).str.contains('hủy|huy|cancel', case=False, na=False)]
+    c_ma2 = find_col(d, ['Mã CH', 'Outlet Code', 'Outlet_code', 'Mã KH'])
+    c_val = find_col(d, ['Tổng tiền', 'Giá trị sau CK', 'Doanh thu', 'Thành tiền', 'Sales Before Discount'])
+    c_dt = 'date' if 'date' in d.columns else find_col(d, ['Ngày', 'Order Date', 'ORDER_DATE', 'Ngày đơn'])
+    c_br = find_col(d, ['Group STD SKU', 'Brand', 'Nhãn hàng'])
+    if not (c_ma2 and c_val and c_dt):
+      return
+    o = pd.DataFrame({
+        'ma': d[c_ma2].astype(str).str.strip().str.replace(r'\.0$', '', regex=True),
+        'v': pd.to_numeric(d[c_val], errors='coerce').fillna(0),
+        'dt': pd.to_datetime(d[c_dt], errors='coerce').dt.date,
+        'b': d[c_br].astype(str).str.lower() if c_br else '',
+    })
+    o = o[o['ma'].isin(self.hv.keys()) & o['dt'].notna()]
+
+    def _br(s):
+      s = str(s).lower()
+      for k, v in _CSN_BRANDS.items():
+        if k in s:
+          return v
+      return None
+    o['b'] = o['b'].map(_br) if c_br else None
+    self.d = o
+
+  def _upto(self, upto):
+    if self.d.empty:
+      return {}, None
+    start = date(upto.year, upto.month, 1)
+    x = self.d[(self.d['dt'] >= start) & (self.d['dt'] <= upto)]
+    pb = x.dropna(subset=['b']).groupby(['ma', 'b'])['v'].sum().unstack(fill_value=0) if not x.empty else None
+    return x.groupby('ma')['v'].sum().to_dict(), pb
+
+  def state(self, upto, fallback=True):
+    """{ma: (actual, đạt HV)} tính đến hết ngày upto."""
+    mtd, pb = self._upto(upto)
+    brands = sorted(set(_CSN_BRANDS.values()))
+    out = {}
+    for k, v in self.hv.items():
+      a = float(mtd.get(k, 0) or 0)
+      if a <= 0 and fallback:
+        a = v['a0']
+      row = pb.loc[k] if (pb is not None and k in pb.index) else None
+      g = (lambda b: float(row.get(b, 0)) if row is not None else 0.0)
+      ok = all(g(b) >= 150000 for b in brands) if v['ds'] else sum(g(b) for b in brands) >= 500000
+      out[k] = (a, v['t'] > 0 and a >= 0.95 * v['t'] and ok)
+    return out
+
+  def bought(self, upto):
+    mtd, _ = self._upto(upto)
+    return sum(1 for k in self.hv if float(mtd.get(k, 0) or 0) > 0)
+
+  def day_sales(self, d):
+    if self.d.empty:
+      return 0.0
+    return float(self.d.loc[self.d['dt'] == d, 'v'].sum())
+
+  def route(self, d):
+    thu = str(d.weekday() + 2) if d.weekday() < 6 else '#'
+    return [k for k, v in self.hv.items() if thu in v['thu']]
+
+
+def build_chi_so_ngay(df, mcp, report_date, targets, filter_nv=None, df_mtn=None,
+                      df_brand=None, df_combo_off=None, df_combo_on=None):
+  """Các dòng Báo cáo Chỉ số ngày: list dict {grp, name, unit, kind, THN, T7, CTN, MTN, THCD, CTT, lab}.
+  kind: 'tr' (triệu đồng) · 'n' (KH/PC) · 'l' (LPPC). THN = None khi ngày BC chưa có đơn."""
+  rd = report_date.date() if hasattr(report_date, 'date') else report_date
+  t7 = rd - timedelta(days=7)
+  left = _csn_left_days(rd)
+
+  if df_mtn is None:
+    df_mtn = build_muc_tieu_ngay(df, mcp, rd, targets, filter_nv=filter_nv, df_brand=df_brand,
+                                 df_combo_off=df_combo_off, df_combo_on=df_combo_on)
+  df_mtn7 = build_muc_tieu_ngay(df, mcp, t7, targets, filter_nv=filter_nv, df_brand=df_brand,
+                                df_combo_off=df_combo_off, df_combo_on=df_combo_on)
+  m, m7 = _csn_total_row(df_mtn), _csn_total_row(df_mtn7)
+  g = lambda r, *cols: sum(_csn_num(r.get(c, 0)) for c in cols)
+
+  # Ngày BC đã có đơn chưa (chạy sáng sớm → THN để trống)
+  has_day = False
+  try:
+    if df is not None and not df.empty and 'date' in df.columns:
+      has_day = bool((pd.to_datetime(df['date'], errors='coerce').dt.date == rd).any())
+  except Exception:
+    has_day = False
+
+  def _rep(code, d=rd):
+    try:
+      r, _, _ = build_report(df, d, targets, code, filter_nv, mcp_df=mcp)
+      return _csn_total_row(r)
+    except Exception:
+      return {}
+
+  r_aso, r_pc, r_pon, r_lp = (_rep(c) for c in ('ASO_ALL', 'PC_BT', 'PC_ON', 'LPPC'))
+  try:
+    _rt, _, _ = build_turnover_report(df, rd, get_turnover_targets(), filter_nv)
+    r_to = _csn_total_row(_rt)
+  except Exception:
+    r_to = {}
+  r_lp7 = _rep('LPPC', t7)
+
+  fnv_key = ('||'.join(str(x) for x in filter_nv) if isinstance(filter_nv, (list, tuple))
+             else (str(filter_nv) if filter_nv else '')) or '__ALL__'
+  try:
+    mk = get_month_key()
+  except Exception:
+    mk = st.session_state.get('report_month_key', 'Thang10')
+
+  def _combo(d):
+    try:
+      c, _, _ = cached_combo_matrix(mk, str(d), fnv_key)
+      return _csn_total_row(c)
+    except Exception:
+      return {}
+  cb, cb7 = _combo(rd), _combo(t7)
+
+  # Hội viên Tết
+  det = pd.DataFrame()
+  try:
+    if df_brand is not None and not df_brand.empty:
+      det = build_mbs_brand_report(df_brand, filter_nv, mcp_df=mcp).get('df_detail', pd.DataFrame())
+  except Exception:
+    det = pd.DataFrame()
+  hv = _CsnHV(df, det)
+  imp = len(hv.hv)
+  s_now, s_prev = hv.state(rd), hv.state(rd - timedelta(days=1))
+  s_t7 = hv.state(t7, fallback=False)
+  n_dat, n_dat_prev = sum(x[1] for x in s_now.values()), sum(x[1] for x in s_prev.values())
+  tgt_hv = sum(v['t'] for v in hv.hv.values())
+  ds_now, ds_prev = sum(x[0] for x in s_now.values()), sum(x[0] for x in s_prev.values())
+
+  thn = lambda v: v if has_day else None
+  rows = [
+      dict(grp='1. SO TURNOVER', name='SO Turnover', unit='triệu đồng', kind='tr',
+           THN=thn(g(m, 'SO TH') * 1e3), T7=g(m, 'SO MT(T-7)') * 1e3, CTN=g(m, 'SO CT') * 1e3,
+           THCD=g(r_to, 'Doanh Số MTD'), CTT=g(r_to, 'Chỉ Tiêu Doanh Số'), lab='CTT'),
+      dict(grp='2. ASO', name='ASO (OFF + ON)', unit='KH', kind='n',
+           THN=thn(g(m, 'ASO OFF TH', 'ASO ON TH')), T7=g(m7, 'ASO OFF TH', 'ASO ON TH'),
+           CTN=g(m, 'ASO OFF New', 'ASO ON New'),
+           THCD=g(r_aso, 'MTD'), CTT=g(r_aso, 'Chỉ Tiêu MCP') or g(r_aso, 'Chỉ Tiêu KPI'), lab='CTT'),
+      dict(grp='3. PC TỔNG OFF + ON', name='PC OFF + ON', unit='PC', kind='n',
+           THN=thn(g(m, 'PC OFF TH', 'PC ON TH')), T7=g(m, 'PC OFF T-7', 'PC ON T-7'),
+           CTN=g(m, 'PC OFF Call Plan', 'PC ON Call Plan'),
+           THCD=g(r_pc, 'MTD') + g(r_pon, 'MTD'), CTT=g(r_pc, 'Chỉ Tiêu KPI') + g(r_pon, 'Chỉ Tiêu KPI'),
+           lab='CTT'),
+      dict(grp='4. LPPC (không tính Meat & Bia)', name='LPPC', unit='line / PC', kind='l',
+           THN=thn(g(r_lp, 'Thực Hiện Ngày')), T7=g(r_lp7, 'Thực Hiện Ngày'), CTN=g(m, 'LPPC CT') or 5.0,
+           THCD=g(r_lp, 'MTD'), CTT=g(r_lp, 'Chỉ Tiêu KPI'), lab='CTT'),
+      dict(grp='5. MBS PHỦ DÀY – HỘI VIÊN TẾT', name='Hội viên chưa mua hàng', unit='KH', kind='n',
+           THN=thn(g(m, 'HV VIP TH', 'HV DAISU TH')), T7=g(m7, 'HV VIP TH', 'HV DAISU TH'),
+           CTN=g(m, 'HV VIP Active', 'HV DAISU Active'), THCD=hv.bought(rd), CTT=imp, lab='Import'),
+      dict(grp='5. MBS PHỦ DÀY – HỘI VIÊN TẾT', name='Đạt cả 2 nhiệm vụ', unit='KH', kind='n',
+           THN=thn(sum(1 for k in hv.route(rd) if s_now[k][1])),
+           T7=sum(1 for k in hv.route(t7) if s_t7[k][1]),
+           CTN=(imp - n_dat_prev) / left, THCD=n_dat, CTT=imp, lab='Import'),
+      dict(grp='5. MBS PHỦ DÀY – HỘI VIÊN TẾT', name='Doanh số MBS', unit='triệu đồng', kind='tr',
+           THN=thn(hv.day_sales(rd)), T7=hv.day_sales(t7), CTN=(tgt_hv - ds_prev) / left,
+           THCD=ds_now, CTT=tgt_hv, lab='CTT'),
+      dict(grp='6. MBS COMBO', name='Combo OFF', unit='KH', kind='n',
+           THN=thn(g(cb, 'Phát sinh Ngày (OFF)')), T7=g(cb7, 'Phát sinh Ngày (OFF)'),
+           CTN=g(m, 'Combo OFF Tham Gia'), THCD=g(cb, 'MTD (OFF)'), CTT=g(cb, 'Target (OFF)'), lab='Import'),
+      dict(grp='6. MBS COMBO', name='Combo ON', unit='KH', kind='n',
+           THN=thn(g(cb, 'Phát sinh Ngày (ON)')), T7=g(cb7, 'Phát sinh Ngày (ON)'),
+           CTN=g(m, 'Combo ON Tham Gia'), THCD=g(cb, 'MTD (ON)'), CTT=g(cb, 'Target (ON)'), lab='Import'),
+  ]
+  for r in rows:
+    r['CTN'] = max(float(r['CTN'] or 0), 0.0)
+    r['MTN'] = 0.8 * r['CTN']
+  return {'rows': rows, 'has_day': has_day, 'left': left, 't7': t7}
+
+
+def _csn_fmt(v, kind):
+  if v is None:
+    return ''
+  if kind == 'tr':
+    return f'{float(v) / 1e6:,.0f}'.replace(',', '.')
+  if kind == 'l':
+    return f'{float(v):.2f}'.replace('.', ',')
+  return f'{float(v):,.0f}'.replace(',', '.')
+
+
+def _csn_round(v, kind):
+  """Giá trị đúng như số hiển thị (để tính % theo số đã làm tròn)."""
+  if kind == 'tr':
+    return round(float(v) / 1e6)
+  if kind == 'l':
+    return round(float(v), 2)
+  return round(float(v))
+
+
+def _csn_pct(a, b):
+  if a is None or not b:
+    return ''
+  return f'{a / b * 100:.1f}'.replace('.', ',') + '%'
+
+
+def _csn_pct_month(r):
+  return _csn_pct(_csn_round(r['THCD'], r['kind']), _csn_round(r['CTT'], r['kind']))
+
+
+def _csn_pct_day(r):
+  if r['THN'] is None:
+    return ''
+  return _csn_pct(_csn_round(r['THN'], r['kind']), _csn_round(r['MTN'], r['kind']))
+
+
+def render_chi_so_ngay_html(res):
+  """Bảng Báo cáo Chỉ số ngày (giống ảnh PNG mẫu)."""
+  rows = (res or {}).get('rows') or []
+  if not rows:
+    return '<p style="color:#718096;">Không có dữ liệu Chỉ số ngày.</p>'
+  th = ('background-color:#1a365d !important;color:#ffffff !important;font-weight:800 !important;'
+        'text-align:center !important;border:1px solid #2b6cb0 !important;padding:6px 10px;white-space:nowrap;')
+  td = 'border:1px solid #cbd5e0 !important;padding:6px 10px;white-space:nowrap;'
+  grp_st = ('background-color:#e2e8f0 !important;color:#1a365d !important;font-weight:800 !important;'
+            'text-align:left !important;border:1px solid #cbd5e0 !important;padding:5px 10px;')
+
+  def _pc_bg(p):
+    try:
+      v = float(str(p).replace('%', '').replace(',', '.'))
+    except Exception:
+      return '', '#1a202c'
+    if v >= 100:
+      return '#c6f6d5', '#22543d'
+    if v >= 80:
+      return '#fefcbf', '#744210'
+    return '#fed7d7', '#9b2c2c'
+
+  h = [
+      '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin:6px 0 8px;">',
+      '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+      'width:max-content;min-width:100%;">',
+      '<thead><tr>',
+      f'<th rowspan="2" style="{th}min-width:220px;">Chỉ số</th>',
+      f'<th colspan="5" style="{th}">NGÀY</th>',
+      f'<th colspan="3" style="{th}">THÁNG</th>',
+      '</tr><tr>',
+  ]
+  for c in ('THN', 'TH (T-7)', 'MTN', 'CTN', '%TH MTN', 'THCD', 'CTT / Import', '%TH'):
+    h.append(f'<th style="{th}">{c}</th>')
+  h.append('</tr></thead><tbody>')
+  last_grp = None
+  for r in rows:
+    if r['grp'] != last_grp:
+      h.append(f'<tr><td colspan="9" style="{grp_st}">{r["grp"]}</td></tr>')
+      last_grp = r['grp']
+    k = r['kind']
+    pm = _csn_pct_month(r)
+    bg, fg = _pc_bg(pm)
+    pdy = _csn_pct_day(r)
+    bgd, fgd = _pc_bg(pdy) if pdy else ('', '#1a202c')
+    cells = [_csn_fmt(r['THN'], k), _csn_fmt(r['T7'], k), _csn_fmt(r['MTN'], k), _csn_fmt(r['CTN'], k)]
+    h.append('<tr>')
+    h.append(
+        f'<td style="{td}text-align:left !important;background-color:#ffffff !important;">'
+        f'<b>{r["name"]}</b><br><span style="color:#718096;font-size:11px;">{r["unit"]}</span></td>'
+    )
+    for v in cells:
+      h.append(f'<td style="{td}text-align:right !important;background-color:#ffffff !important;">{v}</td>')
+    h.append(
+        f'<td style="{td}text-align:center !important;font-weight:800;'
+        + (f'background-color:{bgd} !important;color:{fgd} !important;' if pdy else 'background-color:#ffffff !important;')
+        + f'">{pdy}</td>'
+    )
+    h.append(f'<td style="{td}text-align:right !important;font-weight:800;background-color:#ffffff !important;">'
+             f'{_csn_fmt(r["THCD"], k)}</td>')
+    h.append(f'<td style="{td}text-align:right !important;background-color:#ffffff !important;">'
+             f'{_csn_fmt(r["CTT"], k)}</td>')
+    h.append(f'<td style="{td}text-align:center !important;font-weight:800;background-color:{bg} !important;'
+             f'color:{fg} !important;">{pm}</td>')
+    h.append('</tr>')
+  h.append('</tbody></table></div>')
+  return ''.join(h)
+
+
+def chi_so_ngay_text(res, ss_name):
+  """Báo cáo Chỉ số ngày dạng chữ (format theo biên bản — không có cột TH (T-7))."""
+  rows = (res or {}).get('rows') or []
+  if not rows:
+    return ''
+  by = {r['name']: r for r in rows}
+
+  def two(r):
+    k = r['kind']
+    thn = _csn_fmt(r['THN'], k) if r['THN'] is not None else '___'
+    pdy = _csn_pct_day(r) or '___'
+    return [
+        f"Ngày: THN {thn} / MTN {_csn_fmt(r['MTN'], k)} / CTN {_csn_fmt(r['CTN'], k)} / %TH MTN {pdy}",
+        f"Tháng: THCD {_csn_fmt(r['THCD'], k)} / {r['lab']} {_csn_fmt(r['CTT'], k)} / %TH {_csn_pct_month(r)}",
+    ]
+  L = [f'Tên: SS {ss_name}']
+  L += ['1. SO Turnover — triệu đồng'] + two(by['SO Turnover'])
+  L += ['2. ASO — KH'] + two(by['ASO (OFF + ON)'])
+  L += ['3. PC tổng OFF + ON'] + two(by['PC OFF + ON'])
+  L += ['4. LPPC — không tính Meat và Bia'] + two(by['LPPC'])
+  L += ['5. MBS PHỦ DÀY', '• Hội viên chưa mua hàng — KH'] + two(by['Hội viên chưa mua hàng'])
+  L += ['• Đạt cả 2 nhiệm vụ — KH'] + two(by['Đạt cả 2 nhiệm vụ'])
+  L += ['• Doanh số MBS — triệu đồng'] + two(by['Doanh số MBS'])
+  L += ['6. MBS COMBO — KH', '• Combo OFF'] + two(by['Combo OFF'])
+  L += ['• Combo ON'] + two(by['Combo ON'])
+  return '\n'.join(L)
+
+
 def render_muc_tieu_ngay_html(df):
   """Header 2 tầng cho Báo cáo Mục Tiêu Ngày."""
   if df is None or getattr(df, 'empty', True):
@@ -26920,6 +27289,67 @@ if _nav == '📊 BÁO CÁO KPI':
       st.caption('Metric: TH/CT/% — Có TH ngày → % = TH/CT; chưa có TH → % = MT(T-7)/CT.')
 
       st.markdown(render_muc_tieu_ngay_html(df_mtn), unsafe_allow_html=True)
+
+      # ---- BÁO CÁO CHỈ SỐ NGÀY (Biên bản bàn giao 19/11/2026) ----
+      try:
+        _csn = build_chi_so_ngay(
+            df, mcp, report_date, targets, filter_nv=filter_nv, df_mtn=df_mtn,
+            df_brand=_df_brand_mt, df_combo_off=_df_combo_off, df_combo_on=_df_combo_on,
+        )
+      except Exception as _e_csn:
+        _csn = None
+        st.warning(f'Lỗi Báo cáo Chỉ số ngày: {_e_csn}')
+      if _csn and _csn.get('rows'):
+        _rd_csn = report_date.date() if hasattr(report_date, 'date') else report_date
+        _thu_csn = 'CHỦ NHẬT' if _rd_csn.weekday() == 6 else f'THỨ {_rd_csn.weekday() + 2}'
+        st.markdown(
+            f'<h3 style="color:#034ea2;font-weight:800;margin:18px 0 2px;font-size:clamp(20px, 3.6vw, 36px);'
+            f'text-align:center;line-height:1.15;">BÁO CÁO CHỈ SỐ NGÀY {_rd_csn.strftime("%d/%m/%Y")} ({_thu_csn})</h3>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            ('THN = thực hiện ngày BC' if _csn['has_day'] else 'Ngày BC chưa có đơn → THN để trống')
+            + f" · TH (T-7) = thực hiện {_thu_csn.lower()} tuần trước ({_csn['t7'].strftime('%d/%m')})"
+            + f" · MTN = 80% CTN · Còn {_csn['left']} ngày bán · CTN theo logic Mục Tiêu Ngày | Lọc: {nv_label(filter_nv)}"
+        )
+        st.markdown(render_chi_so_ngay_html(_csn), unsafe_allow_html=True)
+        try:
+          _ss_csn = _ss_name_m(get_month_key())
+        except Exception:
+          _ss_csn = ''
+        if filter_nv:
+          _ss_csn = f'{_ss_csn} — {nv_label(filter_nv)}'
+        _txt_csn = chi_so_ngay_text(_csn, _ss_csn)
+        _lines_csn = ''.join(
+            f'<div style="margin:0;{"font-weight:800;color:#034ea2;margin-top:4px;" if not ln.startswith(("Ngày:", "Tháng:")) else ""}">'
+            f'{__import__("html").escape(ln)}</div>'
+            for ln in _txt_csn.split('\n')
+        )
+        st.markdown(
+            '<div class="note-box">'
+            '<div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📝 NHẬN XÉT — BÁO CÁO CHỈ SỐ NGÀY (DẠNG CHỮ)</div>'
+            f'<div style="font-size:13px;line-height:1.55;">{_lines_csn}</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <div class="note-box">
+              <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC CHỈ SỐ NGÀY</div>
+              <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
+                <li><b>Chung:</b> MTN = 80% CTN · %TH MTN = THN ÷ MTN · %TH tháng = THCD ÷ CTT (Import) · ngày bán còn lại tính cả ngày BC, bỏ Chủ nhật.</li>
+                <li><b>SO / ASO / PC:</b> THN, TH (T-7), CTN lấy từ Mục Tiêu Ngày (ASO CTN = New ASO · PC CTN = Call Plan) · THCD/CTT từ BC Turnover, ASO ALL, PC BT + PC ON.</li>
+                <li><b>LPPC:</b> THN / TH (T-7) / THCD theo BC LPPC (trừ Meat & Bia) · CTN 5,0 · CTT 4,7.</li>
+                <li><b>HV chưa mua:</b> CTN = Active (80% HV chưa PSDS trên tuyến) · THCD = HV đã phát sinh ĐH trong tháng · Import = tổng HV.</li>
+                <li><b>Đạt cả 2 nhiệm vụ:</b> = Nhóm 1 BC Hội viên Tết (DS ≥95% target + nhiệm vụ 4 nhãn tính từ RPT) · TH (T-7) = HV tuyến cùng thứ đã đạt (MTD đến hết ngày T-7) · CTN = (Import − đã đạt đến hôm qua) ÷ ngày còn lại.</li>
+                <li><b>Doanh số MBS:</b> DS RPT (Tổng tiền, bỏ đơn hủy) của HV · CTN = (Target − DS đến hôm qua) ÷ ngày còn lại.</li>
+                <li><b>Combo:</b> THN / TH (T-7) = CH phát sinh ĐH combo trong ngày (BC ĐH Combo) · CTN = Tham gia · Import = DS CH chương trình.</li>
+              </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
       st.download_button(
           '📥 Tải CSV Mục Tiêu Ngày',
           data=df_mtn.to_csv(index=False).encode('utf-8-sig'),
