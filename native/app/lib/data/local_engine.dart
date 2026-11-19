@@ -193,9 +193,9 @@ class LocalEngine {
               'b': '${vyDir.path}/data',
               'out': '${dir.path}/data',
               // lưu kết quả ghép từng file (ngoài snap/ để không bị dọn) → data / App.py mới
-              // chỉ ghép lại file đổi; lần đầu ghép song song 3 file một lúc
+              // chỉ ghép lại file đổi. workers 1: app sandbox không cho multiprocessing (treo Pool)
               'cache': '$_home/combcache',
-              'workers': 3,
+              'workers': 1,
             }, root: dir.path, wait: const Duration(minutes: 20));
           }
           done.writeAsStringSync(key);
