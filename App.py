@@ -14859,7 +14859,15 @@ def build_chi_so_ngay(df, mcp, report_date, targets, filter_nv=None, df_mtn=None
   ]
   for r in rows:
     r['CTN'] = max(float(r['CTN'] or 0), 0.0)
-    r['MTN'] = 0.8 * r['CTN']
+    r['MTN'] = 0.8 * r['CTN']  # mặc định: 80% CTN (SO Turnover, ASO, Hội viên chưa mua hàng)
+  # MTN riêng từng chỉ số (20/11/2026)
+  _r = {x['name']: x for x in rows}
+  _r['PC OFF + ON']['MTN'] = float(_r['PC OFF + ON']['T7'] or 0) * 1.10   # 110% TH (T-7)
+  _r['LPPC']['MTN'] = 5.0
+  _r['Đạt cả 2 nhiệm vụ']['MTN'] = 0.35 * _r['Đạt cả 2 nhiệm vụ']['CTN']
+  _r['Doanh số MBS']['MTN'] = 0.75 * _r['SO Turnover']['MTN']             # 75% MTN SO Turnover
+  _r['Combo OFF']['MTN'] = 0.5 * _r['Combo OFF']['CTN']
+  _r['Combo ON']['MTN'] = 0.5 * _r['Combo ON']['CTN']
   return {'rows': rows, 'has_day': has_day, 'left': left, 't7': t7}
 
 
@@ -27359,7 +27367,7 @@ if _nav == '📊 BÁO CÁO KPI':
         st.caption(
             ('THN = thực hiện ngày BC' if _csn['has_day'] else 'Ngày BC chưa có đơn → THN để trống')
             + f" · TH (T-7) = thực hiện {_thu_csn.lower()} tuần trước ({_csn['t7'].strftime('%d/%m')})"
-            + f" · MTN = 80% CTN · Còn {_csn['left']} ngày bán · CTN theo logic Mục Tiêu Ngày | Lọc: {nv_label(filter_nv)}"
+            + f" · MTN = 80% CTN (riêng PC = 110% TH T-7 · LPPC = 5.0 · Đạt cả 2 NV = 35% CTN · DS MBS = 75% MTN SO · Combo = 50% CTN) · Còn {_csn['left']} ngày bán · CTN theo logic Mục Tiêu Ngày | Lọc: {nv_label(filter_nv)}"
         )
         st.markdown(render_chi_so_ngay_html(_csn), unsafe_allow_html=True)
         try:
@@ -27386,7 +27394,7 @@ if _nav == '📊 BÁO CÁO KPI':
             <div class="note-box">
               <div style="font-weight:800;color:#034ea2;margin-bottom:6px;font-size:13px;">📌 LOGIC CHỈ SỐ NGÀY</div>
               <ul style="margin:0;padding-left:18px;line-height:1.55;font-size:12.5px;">
-                <li><b>Chung:</b> MTN = 80% CTN · %TH MTN = THN ÷ MTN · %TH tháng = THCD ÷ CTT (Import) · ngày bán còn lại tính cả ngày BC, bỏ Chủ nhật.</li>
+                <li><b>Chung:</b> MTN = 80% CTN (SO Turnover, ASO, Hội viên chưa mua) · PC OFF + ON: MTN = 110% TH (T-7) · LPPC: MTN = 5.0 · Đạt cả 2 nhiệm vụ: MTN = 35% CTN · Doanh số MBS: MTN = 75% MTN SO Turnover · Combo OFF / ON: MTN = 50% CTN · %TH MTN = THN ÷ MTN · %TH tháng = THCD ÷ CTT (Import) · ngày bán còn lại tính cả ngày BC, bỏ Chủ nhật.</li>
                 <li><b>SO / ASO / PC:</b> THN, TH (T-7), CTN lấy từ Mục Tiêu Ngày (ASO CTN = New ASO · PC CTN = Call Plan) · THCD/CTT từ BC Turnover, ASO ALL, PC BT + PC ON.</li>
                 <li><b>LPPC:</b> THN / TH (T-7) / THCD theo BC LPPC (trừ Meat & Bia) · CTN 5,0 · CTT 4,7.</li>
                 <li><b>HV chưa mua:</b> CTN = Active (80% HV chưa PSDS trên tuyến) · THCD = HV đã phát sinh ĐH trong tháng · Import = tổng HV.</li>
