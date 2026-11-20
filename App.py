@@ -27843,7 +27843,7 @@ if _nav == '📊 BÁO CÁO KPI':
         'ASO_XOT': ('ASO Xốt Gia Vị', None, True),
     }
     if selected_kpi == 'ASO_FOCUS' and get_month_cfg().get('aso_focus_both'):
-      # Outlet Focus (CV 32): bảng CH đã phát sinh mã Tết — thay bảng chi tiết ĐH / SP chung
+      # Outlet Focus (CV 32): bảng CH đã phát sinh mã Tết — trên bảng chi tiết ĐH / SP
       try:
         _of_df, _of_grps = build_outlet_focus_detail(df, report_date, filter_nv, mcp_df=mcp)
         _of_nv = ''
@@ -27881,7 +27881,8 @@ if _nav == '📊 BÁO CÁO KPI':
         )
       except Exception as _e_of:
         st.caption(f'Không tải được bảng Outlet Focus: {_e_of}')
-    elif selected_kpi in _detail_kpis:
+    # Chi tiết ĐH / SP (ASO Focus Trận Xanh: nằm dưới bảng CH Outlet Focus)
+    if selected_kpi in _detail_kpis:
       _suf, _l1f, _show_l1 = _detail_kpis[selected_kpi]
       try:
         _render_detail_slicers_and_tables(
