@@ -16,7 +16,7 @@ import 'turnover_page.dart';
 /// Khung app: danh sách 18 báo cáo tab KPI (menu trượt trên điện thoại,
 /// thanh bên cố định trên Mac / màn hình rộng).
 /// Hiện ở cuối menu để biết đang dùng bản nào (tăng mỗi lần build bản mới).
-const appVersion = '1.7.24';
+const appVersion = '1.7.25';
 
 /// Icon theo từng chương trình thưởng SUP (thay ổ khoá 🔒) — áp ngay cả khi manifest GitHub còn tên cũ.
 const _supIcons = {

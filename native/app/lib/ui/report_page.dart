@@ -1,4 +1,5 @@
 import 'home_shell.dart' show supName;
+import 'timegone_bar.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -453,6 +454,12 @@ class _KpiReportPageState extends State<KpiReportPage> {
             ),
             children: [
               if (_idx != null) _mainBar(),
+              // thanh tiến độ thời gian (timegone) của ngày báo cáo, so với % MTD của báo cáo nếu có
+              if (_date != null && DateTime.tryParse(_date!) != null)
+                TimegoneBar(
+                  date: DateTime.parse(_date!),
+                  pctMtd: items == null ? null : reportPctMtd(items),
+                ),
               if (fromServer)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
