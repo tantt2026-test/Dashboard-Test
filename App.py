@@ -3702,6 +3702,12 @@ def build_report(
       'LPPC_MEAT': 3.8,
   }
 
+  _tb_ds_nv, _vip_nv = {}, {}
+  if report_type == 'ASO_FOCUS':
+    # Số CH TB Đại Sứ / Số CH VIP theo NV (cột ngay sau Tên NVBH)
+    _tb_ds_nv = tb_daisu_outlets_by_nv()
+    _vip_nv = vip_outlets_by_nv(mcp_df)
+
   results = []
   for sm in all_sms:
     if report_type == 'PC_ON':
@@ -3731,9 +3737,12 @@ def build_report(
       pct_off = round(m_off / tgt * 100, 1) if tgt else 0
       pct_on = round(m_on / tgt * 100, 1) if tgt else 0
       _g, _b = _gap_and_bq_day(tgt, m, _remain_days, as_int=True)
+      _nvn = str(sm_names.get(sm, '') or '').strip()
       row = {
           'Mã NVBH': sm,
           'Tên NVBH': sm_names.get(sm, ''),
+          'Số CH TB Đại Sứ': len(_tb_ds_nv.get(_nvn, ())),
+          'Số CH VIP': int(_vip_nv.get(_nvn, 0) or 0),
           'Chỉ Tiêu KPI': int(tgt) if not isinstance(tgt, float) else tgt,
           'Thực Hiện Ngày OFF': n_off,
           'MTD OFF': m_off,
@@ -3815,7 +3824,7 @@ def build_report(
         if report_type == 'ASO_ALL'
         else (
             [
-                'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+                'STT', 'Tên NVBH', 'Số CH TB Đại Sứ', 'Số CH VIP', 'Chỉ Tiêu KPI',
                 'Thực Hiện Ngày OFF', 'MTD OFF', '% MTD OFF',
                 'Thực Hiện Ngày ON', 'MTD ON', '% MTD ON',
                 'Thực Hiện Ngày', 'MTD', '% MTD',
@@ -3914,6 +3923,8 @@ def build_report(
             if not nv_selected(filter_nv)
             else nv_label(filter_nv)
         ),
+        'Số CH TB Đại Sứ': int(df_out['Số CH TB Đại Sứ'].sum()) if 'Số CH TB Đại Sứ' in df_out.columns else 0,
+        'Số CH VIP': int(df_out['Số CH VIP'].sum()) if 'Số CH VIP' in df_out.columns else 0,
         'Chỉ Tiêu KPI': team_tgt,
         'Thực Hiện Ngày OFF': sum_ngay_off,
         'MTD OFF': sum_mtd_off,
@@ -3928,7 +3939,7 @@ def build_report(
         'Bình quân ngày': _b,
     }])
     ordered = [
-        'STT', 'Tên NVBH', 'Chỉ Tiêu KPI',
+        'STT', 'Tên NVBH', 'Số CH TB Đại Sứ', 'Số CH VIP', 'Chỉ Tiêu KPI',
         'Thực Hiện Ngày OFF', 'MTD OFF', '% MTD OFF',
         'Thực Hiện Ngày ON', 'MTD ON', '% MTD ON',
         'Thực Hiện Ngày', 'MTD', '% MTD',
@@ -12346,10 +12357,9 @@ def render_summary_html_table(df, selected_metrics):
 
 
 def render_aso_focus_html(df):
-  """ASO Focus Trận Xanh — header 2 tầng:
-  Cột cố định: STT | Tên NVBH | Chỉ Tiêu (chung)
-  Tầng 1: KÊNH OFF | KÊNH ON | TOTAL
-  Tầng 2: Thực Hiện · MTD · % MTD
+  """ASO Focus (Outlet Focus) Trận Xanh — header 2 tầng, chỉ TOTAL (không tách Kênh OFF / ON):
+  Cột cố định: STT | Tên NVBH | Số CH TB Đại Sứ | Số CH VIP | Chỉ Tiêu (chung)
+  Tầng 1: TOTAL — Tầng 2: Thực Hiện · MTD · % MTD · GAP · BQ Ngày
   """
   if df is None or getattr(df, 'empty', True):
     return '<p style="color:#718096;">Không có dữ liệu ASO Focus Trận Xanh.</p>'
@@ -12384,11 +12394,14 @@ def render_aso_focus_html(df):
   total_cols = total_cols + extra_total
 
   groups = [
-      ('KÊNH OFF', off_cols),
-      ('KÊNH ON', on_cols),
       ('TOTAL', total_cols),
   ]
   groups = [(lab, [(a, b) for a, b in cols if b in df.columns]) for lab, cols in groups]
+  # Số CH TB Đại Sứ / Số CH VIP — cột cố định ngay sau Tên NVBH
+  fixed_cols = [(a, b) for a, b in (('Số CH TB Đại Sứ', 'Số CH TB Đại Sứ'), ('Số CH VIP', 'Số CH VIP'))
+                if b in df.columns]
+  if ct_col:
+    fixed_cols.append(('Chỉ Tiêu', ct_col))
   groups = [(lab, cols) for lab, cols in groups if cols]
 
   max_name = 12
@@ -12423,10 +12436,10 @@ def render_aso_focus_html(df):
       f'<th rowspan="2" style="{th}position:sticky;left:0;z-index:8;min-width:{stt_w}px;{sh}">STT</th>',
       f'<th rowspan="2" style="{th}position:sticky;left:{stt_w}px;z-index:8;min-width:{name_w}px;{sh}">Tên NVBH</th>',
   ]
-  # Chỉ Tiêu chung — rowspan 2, ngay sau Tên NVBH
-  if ct_col:
+  # Số CH TB Đại Sứ / Số CH VIP / Chỉ Tiêu chung — rowspan 2, ngay sau Tên NVBH
+  for lab, _c in fixed_cols:
     html.append(
-        f'<th rowspan="2" style="{th}min-width:{ct_w}px;">Chỉ Tiêu</th>'
+        f'<th rowspan="2" style="{th}min-width:{ct_w}px;">{lab}</th>'
     )
   for lab, cols in groups:
     html.append(f'<th colspan="{len(cols)}" style="{th}">{lab}</th>')
@@ -12465,9 +12478,9 @@ def render_aso_focus_html(df):
         f'text-align:left !important;font-weight:{"900" if is_tot else "600"};{sh}">{ten}</td>'
     )
 
-    # Chỉ Tiêu chung
-    if ct_col:
-      val = row.get(ct_col, '')
+    # Số CH TB Đại Sứ / Số CH VIP / Chỉ Tiêu chung
+    for _lab, _fc in fixed_cols:
+      val = row.get(_fc, '')
       if pd.isna(val):
         val = ''
       elif isinstance(val, (float, int)) and not isinstance(val, bool):
@@ -12519,6 +12532,143 @@ def render_aso_focus_html(df):
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
+
+
+def _of_grp_short(g):
+  """'Nước giặt xả Chanté (Tết)' → 'Chanté' · 'Trà Bupnon TEA365 (Tết)' → 'Tea365'."""
+  low = str(g).lower()
+  if 'chant' in low:
+    return 'Chanté'
+  if 'tea' in low and '365' in low:
+    return 'Tea365'
+  return re.sub(r'\s*\(.*?\)\s*', '', str(g)).strip()
+
+
+def build_outlet_focus_detail(df, report_date, filter_nv=None, mcp_df=None):
+  """Outlet Focus Trận Xanh (CV 32): CH đã phát sinh mã Tết của ít nhất 1 nhóm (dòng đạt MOQ, đơn 01 → ngày BC,
+  bỏ đơn hủy). Mỗi dòng = (NV, CH) như bảng chính; mỗi nhóm: SL lẻ, DS (Tổng tiền, sau CK), các ngày ĐH.
+  Trả (DataFrame dòng, danh sách nhóm)."""
+  both = get_month_cfg().get('aso_focus_both') or {}
+  grps = list(both.keys())
+  if not both or df is None or getattr(df, 'empty', True) or 'Mã sản phẩm' not in df.columns:
+    return pd.DataFrame(), grps
+  rd = report_date if isinstance(report_date, date) else pd.Timestamp(report_date).date()
+  x = df[(df['date'] >= date(rd.year, rd.month, 1)) & (df['date'] <= rd)].copy()
+  if nv_selected(filter_nv):
+    x = filter_df_by_nv(x, 'Tên NVBH', filter_nv)
+  c_st = find_col(x, ['Tình trạng đơn hàng'])
+  if c_st:
+    x = x[~x[c_st].astype(str).str.contains('hủy|huỷ', case=False, na=False)]
+  _grp_of = {str(c).strip().upper(): g for g, cs in both.items() for c in cs}
+  x = x[x['Mã sản phẩm'].astype(str).str.strip().str.upper().isin(_grp_of)].copy()
+  if x.empty:
+    return pd.DataFrame(), grps
+  x['_grp'] = x['Mã sản phẩm'].astype(str).str.strip().str.upper().map(_grp_of)
+  oks = []
+  for _, g in x.groupby('Mã đơn hàng', sort=False):
+    for _, gg in g.groupby('_grp', sort=False):
+      oks.append(apply_dual_moq_mask(gg))
+  x = x[pd.concat(oks).reindex(x.index).fillna(False).astype(bool)] if oks else x.iloc[0:0]
+  if x.empty:
+    return pd.DataFrame(), grps
+  c_val = find_col(x, ['Tổng tiền', 'Giá trị sau CK', 'Thành tiền trước CK'])
+  x['_ds'] = pd.to_numeric(x[c_val], errors='coerce').fillna(0) if c_val else 0.0
+  x['_sl'] = x.apply(lambda r: _qty_for_moq(r, 'le'), axis=1)
+  c_ten = find_col(x, ['Tên CH', 'Tên KH', 'Tên cửa hàng'])
+  vip = _mcp_vip_outlet_map(mcp_df, channel='ALL') if mcp_df is not None else {}
+  ma_g = {str(ma).strip(): g for g in ('VIP3', 'VIP5', 'VIPSI') for ma in (vip.get(g) or ())}
+
+  def _nma(v):
+    s = str(v).strip()
+    return s[:-2] if s.endswith('.0') else s
+
+  rows = []
+  for (sm, ma), g in x.groupby(['Mã NVBH', 'Mã CH'], sort=False):
+    ma_s = _nma(ma)
+    r = {
+        'Tên NVBH': str(g['Tên NVBH'].iloc[0]) if 'Tên NVBH' in g.columns else '',
+        'Mã CH': ma_s,
+        'Tên CH': str(g[c_ten].dropna().iloc[0]).strip() if c_ten and g[c_ten].notna().any() else '',
+        'Nhóm KH': ma_g.get(ma_s, 'LẺ'),
+    }
+    miss = []
+    for gname in grps:
+      gg = g[g['_grp'] == gname]
+      if gg.empty:
+        r[f'{gname}|SL'] = r[f'{gname}|DS'] = r[f'{gname}|Ngày'] = None
+        miss.append(_of_grp_short(gname))
+        continue
+      days = sorted(set(d for d in gg['date'].tolist() if hasattr(d, 'day')))
+      r[f'{gname}|SL'] = float(gg['_sl'].sum())
+      r[f'{gname}|DS'] = float(gg['_ds'].sum())
+      r[f'{gname}|Ngày'] = ', '.join(d.strftime('%d/%m') for d in days)
+    r['Outlet Focus'] = '✓ ĐẠT' if not miss else 'Thiếu ' + ' + '.join(miss)
+    rows.append(r)
+  out = pd.DataFrame(rows)
+  out['_ok'] = out['Outlet Focus'].str.startswith('✓')
+  out['_mk'] = out['Mã CH'].astype(str)
+  out = out.sort_values(['Tên NVBH', '_ok', '_mk'], ascending=[True, False, True], kind='stable')
+  return out.drop(columns=['_ok', '_mk']).reset_index(drop=True), grps
+
+
+def render_outlet_focus_detail_html(df, grps, show_nv=True):
+  """Bảng CH Outlet Focus — format như mẫu: STT | (NVBH) | Mã CH | Tên CH | Nhóm KH |
+  mỗi nhóm SP Tết (SL · DS (đ) · Ngày ĐH) | Outlet Focus (✓ ĐẠT xanh / Thiếu … cam)."""
+  if df is None or getattr(df, 'empty', True):
+    return '<p style="color:#718096;">Chưa có CH phát sinh mã Tết Outlet Focus.</p>'
+  th = ('background-color:#1a365d !important;color:#ffffff !important;font-weight:800 !important;'
+        'text-align:center !important;border:1px solid #2b6cb0 !important;padding:6px 8px;white-space:nowrap;')
+  th2 = th.replace('#1a365d', '#2c5282')
+  td = 'border:1px solid #bce2f5 !important;padding:5px 8px;white-space:nowrap;'
+  fix = ['STT'] + (['Tên NVBH'] if show_nv else []) + ['Mã CH', 'Tên CH', 'Nhóm KH']
+  h = ['<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:6px;">',
+       '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
+       'width:max-content;min-width:100%;"><thead><tr>']
+  for c in fix:
+    h.append(f'<th rowspan="2" style="{th}">{c}</th>')
+  for g in grps:
+    lab = re.sub(r'\s*\((.*?)\)', r' \1', str(g)).upper()
+    h.append(f'<th colspan="3" style="{th}">{lab}</th>')
+  h.append(f'<th rowspan="2" style="{th}">Outlet Focus</th></tr><tr>')
+  for _g in grps:
+    for c in ('SL', 'DS (đ)', 'Ngày ĐH'):
+      h.append(f'<th style="{th2}">{c}</th>')
+  h.append('</tr></thead><tbody>')
+  for i, (_, r) in enumerate(df.iterrows()):
+    bg = '#e6f4fc' if i % 2 == 0 else '#ffffff'
+    base = f'{td}background-color:{bg} !important;color:#1a202c !important;'
+    h.append('<tr>')
+    h.append(f'<td style="{base}text-align:center !important;">{i + 1}</td>')
+    if show_nv:
+      h.append(f'<td style="{base}text-align:left !important;font-weight:600;">{r["Tên NVBH"]}</td>')
+    h.append(f'<td style="{base}text-align:left !important;">{r["Mã CH"]}</td>')
+    h.append(f'<td style="{base}text-align:left !important;font-weight:700;">{r["Tên CH"]}</td>')
+    nk = r['Nhóm KH']
+    if nk == 'LẺ':
+      h.append(f'<td style="{base}text-align:center !important;font-weight:700;color:#4a5568 !important;">LẺ</td>')
+    else:
+      h.append(f'<td style="{td}background-color:#f3e8ff !important;color:#6b46c1 !important;'
+               f'text-align:center !important;font-weight:800;">{nk}</td>')
+    for g in grps:
+      sl, ds, ng = r.get(f'{g}|SL'), r.get(f'{g}|DS'), r.get(f'{g}|Ngày')
+      if sl is None or (isinstance(sl, float) and pd.isna(sl)):
+        for _k in range(3):
+          h.append(f'<td style="{base}text-align:center !important;color:#a0aec0 !important;">—</td>')
+        continue
+      unit = 'túi/chai' if 'chant' in str(g).lower() else 'chai'
+      h.append(f'<td style="{base}text-align:center !important;">{int(round(sl))} {unit}</td>')
+      _ds = f'{int(round(ds)):,}'.replace(',', '.')
+      h.append(f'<td style="{base}text-align:right !important;">{_ds}</td>')
+      h.append(f'<td style="{base}text-align:center !important;">{ng}</td>')
+    if str(r['Outlet Focus']).startswith('✓'):
+      h.append(f'<td style="{td}background-color:#c6f6d5 !important;color:#22543d !important;'
+               f'text-align:center !important;font-weight:900;">{r["Outlet Focus"]}</td>')
+    else:
+      h.append(f'<td style="{td}background-color:#feebc8 !important;color:#c05621 !important;'
+               f'text-align:center !important;font-weight:900;">{r["Outlet Focus"]}</td>')
+    h.append('</tr>')
+  h.append('</tbody></table></div>')
+  return ''.join(h)
 
 
 def render_aso_all_html(df):
@@ -18559,6 +18709,101 @@ def _load_bo_hinh_data_m(month_key):
     return pd.DataFrame()
 
 
+def _tb_daisu_ct_ok(ct):
+  """Chỉ đếm đúng 6 CT permanent Đại sứ ngành hàng (whitelist chặt).
+
+  1. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Hóa mỹ phẩm
+  2. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Gia Vị
+  3. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Mì
+  4. MSC_BEV_Cuộc thi ảnh Đại sứ ngành hàng Nước giải khát
+  5. MSJ_Cuộc thi ảnh Đại sứ Ngành hàng Thịt chế biến
+  6. MSC_POW_Cuộc thi ảnh Đại sứ Ngành hàng Cà phê
+
+  Loại: Sampling, Tích Lũy, TBTN, Khách hàng trọng điểm, và mọi CT khác.
+  """
+  s = str(ct or '').lower().replace('_', ' ')
+  s = ' '.join(s.split())  # normalize spaces
+
+  # Loại rõ ràng
+  deny = [
+      'trọng điểm', 'trong diem',
+      'sampling', 'tbtn',
+      'tích lũy', 'tich luy', 'tichluy', 'tích luỹ',
+  ]
+  for d in deny:
+    if d in s:
+      return False
+
+  # Bắt buộc có "đại sứ" (không chỉ "cuộc thi ảnh")
+  if 'đại sứ' not in s and 'dai su' not in s:
+    return False
+
+  # Phải khớp 1 trong 6 ngành
+  industries = [
+      ('hóa mỹ phẩm', 'hoa my pham'),
+      ('gia vị', 'gia vi'),
+      ('nước giải khát', 'nuoc giai khat'),
+      ('thịt chế biến', 'thit che bien'),
+      ('cà phê', 'ca phe'),
+      # Mì: tránh match nhầm — yêu cầu "mì" gần "ngành hàng" hoặc đứng sau đại sứ
+      ('ngành hàng mì', 'nganh hang mi'),
+      ('đại sứ ngành hàng mì', 'dai su nganh hang mi'),
+  ]
+  for pair in industries:
+    for kw in pair:
+      if kw in s:
+        return True
+
+  # Fallback riêng cho Mì: "đại sứ" + " mì" / " mi " (word boundary-ish)
+  if (' mì' in s or s.endswith(' mì') or ' mi ' in s or s.endswith(' mi')
+          or 'hàng mì' in s or 'hang mi' in s):
+    if 'đại sứ' in s or 'dai su' in s:
+      return True
+
+  return False
+
+
+def tb_daisu_outlets_by_nv():
+  """{Tên NVBH: set Mã CH} đang tham gia Trưng bày Đại sứ ngành hàng (6 CT permanent Đại sứ,
+  file DANH_SACH_KET_QUA_CUA_HANG_THAM_GIA_CHUONG_TRINH — bỏ dòng bị hủy / từ chối)."""
+  out = {}
+  try:
+    d = load_display_data()
+  except Exception:
+    d = pd.DataFrame()
+  if d is None or d.empty:
+    return out
+  c_nv = find_col(d, ['Nhân viên BH', 'Tên NVBH', 'NVBH'])
+  c_ma = find_col(d, ['Mã CH', 'Mã KH', 'Mã cửa hàng'])
+  c_ct = find_col(d, ['Tên chương trình', 'Chương trình', 'Tên CT'])
+  c_tt = find_col(d, ['Trạng thái'])
+  if not (c_nv and c_ma and c_ct):
+    return out
+  for _, r in d.iterrows():
+    if not _tb_daisu_ct_ok(r.get(c_ct)):
+      continue
+    if c_tt and re.search(r'h[uủ]y|t[uừ] ch[oố]i', str(r.get(c_tt) or ''), flags=re.IGNORECASE):
+      continue
+    nv = str(r.get(c_nv) or '').strip()
+    ma = str(r.get(c_ma) or '').strip()
+    if ma.endswith('.0'):
+      ma = ma[:-2]
+    if nv and ma and ma.lower() not in ('nan', 'none'):
+      out.setdefault(nv, set()).add(ma)
+  return out
+
+
+def vip_outlets_by_nv(mcp_df):
+  """{Tên NVBH: số CH VIP3 / VIP5 / VIPSI trên Data_MCP (OFF + ON)}."""
+  if mcp_df is None or getattr(mcp_df, 'empty', True):
+    return {}
+  try:
+    _g, ma_to_g, _nl, nv_ma, _m2n, _f = _vip_base_maps(mcp_df, None, channel='ALL')
+  except Exception:
+    return {}
+  return {nv: sum(1 for ma in mas if ma_to_g.get(ma) in ('VIP3', 'VIP5', 'VIPSI')) for nv, mas in nv_ma.items()}
+
+
 def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date, df_mcp=None):
   """Maps NV → so_ch_tb_per, chup_hinh_ddkd.
 
@@ -18587,58 +18832,7 @@ def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date, df_m
     except Exception:
       return s
 
-  def _is_allowed_ct(ct):
-    """Chỉ đếm đúng 6 CT permanent Đại sứ ngành hàng (whitelist chặt).
-
-    1. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Hóa mỹ phẩm
-    2. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Gia Vị
-    3. MSC_Cuộc thi ảnh Đại sứ Ngành hàng Mì
-    4. MSC_BEV_Cuộc thi ảnh Đại sứ ngành hàng Nước giải khát
-    5. MSJ_Cuộc thi ảnh Đại sứ Ngành hàng Thịt chế biến
-    6. MSC_POW_Cuộc thi ảnh Đại sứ Ngành hàng Cà phê
-
-    Loại: Sampling, Tích Lũy, TBTN, Khách hàng trọng điểm, và mọi CT khác.
-    """
-    s = str(ct or '').lower().replace('_', ' ')
-    s = ' '.join(s.split())  # normalize spaces
-
-    # Loại rõ ràng
-    deny = [
-        'trọng điểm', 'trong diem',
-        'sampling', 'tbtn',
-        'tích lũy', 'tich luy', 'tichluy', 'tích luỹ',
-    ]
-    for d in deny:
-      if d in s:
-        return False
-
-    # Bắt buộc có "đại sứ" (không chỉ "cuộc thi ảnh")
-    if 'đại sứ' not in s and 'dai su' not in s:
-      return False
-
-    # Phải khớp 1 trong 6 ngành
-    industries = [
-        ('hóa mỹ phẩm', 'hoa my pham'),
-        ('gia vị', 'gia vi'),
-        ('nước giải khát', 'nuoc giai khat'),
-        ('thịt chế biến', 'thit che bien'),
-        ('cà phê', 'ca phe'),
-        # Mì: tránh match nhầm — yêu cầu "mì" gần "ngành hàng" hoặc đứng sau đại sứ
-        ('ngành hàng mì', 'nganh hang mi'),
-        ('đại sứ ngành hàng mì', 'dai su nganh hang mi'),
-    ]
-    for pair in industries:
-      for kw in pair:
-        if kw in s:
-          return True
-
-    # Fallback riêng cho Mì: "đại sứ" + " mì" / " mi " (word boundary-ish)
-    if (' mì' in s or s.endswith(' mì') or ' mi ' in s or s.endswith(' mi')
-            or 'hàng mì' in s or 'hang mi' in s):
-      if 'đại sứ' in s or 'dai su' in s:
-        return True
-
-    return False
+  _is_allowed_ct = _tb_daisu_ct_ok
 
   def _is_excluded_ct(ct):
     # True = loại bỏ (không thuộc 6 CT whitelist)
@@ -27648,7 +27842,46 @@ if _nav == '📊 BÁO CÁO KPI':
         'ASO_PL': ('ASO Trà Phúc Long', None, True),
         'ASO_XOT': ('ASO Xốt Gia Vị', None, True),
     }
-    if selected_kpi in _detail_kpis:
+    if selected_kpi == 'ASO_FOCUS' and get_month_cfg().get('aso_focus_both'):
+      # Outlet Focus (CV 32): bảng CH đã phát sinh mã Tết — thay bảng chi tiết ĐH / SP chung
+      try:
+        _of_df, _of_grps = build_outlet_focus_detail(df, report_date, filter_nv, mcp_df=mcp)
+        _of_nv = ''
+        if nv_selected(filter_nv):
+          _vals = filter_nv if isinstance(filter_nv, list) else [filter_nv]
+          _of_nv = ' · NV ' + ', '.join(str(v) for v in _vals) if len(_vals) <= 2 else f' · {len(_vals)} NV'
+        _of_sh = [_of_grp_short(g) for g in _of_grps]
+        st.markdown(
+            '<p style="font-weight:900;color:#034ea2;font-size:1.05rem;margin:14px 0 2px;">'
+            f'📋 OUTLET FOCUS – TRẬN XANH · CH ĐÃ PHÁT SINH {" / ".join(x.upper() for x in _of_sh)} MÃ TẾT{_of_nv}</p>'
+            f'<p style="color:#4a5568;font-size:0.85rem;margin:0 0 6px;">Đơn RPT 01/{report_date.strftime("%m")} → '
+            f'hết {report_date.strftime("%d/%m")} · bỏ đơn hủy · chỉ tính mã Tết theo CV 32</p>',
+            unsafe_allow_html=True,
+        )
+        _n_ps = len(_of_df)
+        _n_g = [int(_of_df[f'{g}|SL'].notna().sum()) if _n_ps else 0 for g in _of_grps]
+        _n_ok = int(_of_df['Outlet Focus'].astype(str).str.startswith('✓').sum()) if _n_ps else 0
+        _of_cols = st.columns(2 + len(_of_grps))
+        with _of_cols[0]:
+          render_metric_card(f'CH có PS ({" hoặc ".join(_of_sh)})', f'{_n_ps:,}')
+        for _k, (_sh, _n) in enumerate(zip(_of_sh, _n_g)):
+          with _of_cols[1 + _k]:
+            render_metric_card(f'CH có {_sh} Tết', f'{_n:,}')
+        with _of_cols[-1]:
+          render_metric_card('Đạt Outlet Focus / CT', f'{_n_ok:,} / {int(team_tgt or 0):,}', value_color='#2f855a')
+        _show_nv = not (nv_selected(filter_nv) and len(filter_nv if isinstance(filter_nv, list) else [filter_nv]) == 1)
+        st.markdown(render_outlet_focus_detail_html(_of_df, _of_grps, show_nv=_show_nv), unsafe_allow_html=True)
+        _moq_txt = ' · '.join(
+            f'{_of_grp_short(g)} Tết: {"/".join(str(c) for c in cs)}' for g, cs in get_month_cfg()['aso_focus_both'].items())
+        st.caption(
+            'CV 32: CH đạt Outlet Focus khi mua đủ 2 nhóm mã Tết trong tháng, mỗi nhóm đạt MOQ trên ít nhất 1 đơn '
+            '(không cần cùng đơn). Chanté MOQ ≥2 chai/túi · Tea365 MOQ ≥6 chai/mã & ≥12 chai/nhóm trên đơn. '
+            f'{_moq_txt}. Tất cả dòng trong bảng đều đạt MOQ; DS = Tổng tiền (sau CK). '
+            'Nhóm KH: VIP3 / VIP5 / VIPSI theo Data_MCP (còn lại = LẺ).'
+        )
+      except Exception as _e_of:
+        st.caption(f'Không tải được bảng Outlet Focus: {_e_of}')
+    elif selected_kpi in _detail_kpis:
       _suf, _l1f, _show_l1 = _detail_kpis[selected_kpi]
       try:
         _render_detail_slicers_and_tables(
