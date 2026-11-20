@@ -12546,7 +12546,7 @@ def _of_grp_short(g):
 
 def build_outlet_focus_detail(df, report_date, filter_nv=None, mcp_df=None):
   """Outlet Focus Trận Xanh (CV 32): CH đã phát sinh mã Tết của ít nhất 1 nhóm (dòng đạt MOQ, đơn 01 → ngày BC,
-  bỏ đơn hủy). Mỗi dòng = (NV, CH) như bảng chính; mỗi nhóm: SL lẻ, DS (Tổng tiền, sau CK), các ngày ĐH.
+  bỏ đơn hủy). Mỗi dòng = (NV, CH) như bảng chính; mỗi nhóm: SL lẻ, DS (Thành tiền trước CK), các ngày ĐH.
   Trả (DataFrame dòng, danh sách nhóm)."""
   both = get_month_cfg().get('aso_focus_both') or {}
   grps = list(both.keys())
@@ -12571,7 +12571,7 @@ def build_outlet_focus_detail(df, report_date, filter_nv=None, mcp_df=None):
   x = x[pd.concat(oks).reindex(x.index).fillna(False).astype(bool)] if oks else x.iloc[0:0]
   if x.empty:
     return pd.DataFrame(), grps
-  c_val = find_col(x, ['Tổng tiền', 'Giá trị sau CK', 'Thành tiền trước CK'])
+  c_val = find_col(x, ['Thành tiền trước CK', 'Thành tiền trước chiết khấu', 'Tổng tiền'])
   x['_ds'] = pd.to_numeric(x[c_val], errors='coerce').fillna(0) if c_val else 0.0
   x['_sl'] = x.apply(lambda r: _qty_for_moq(r, 'le'), axis=1)
   c_ten = find_col(x, ['Tên CH', 'Tên KH', 'Tên cửa hàng'])
@@ -27876,7 +27876,7 @@ if _nav == '📊 BÁO CÁO KPI':
         st.caption(
             'CV 32: CH đạt Outlet Focus khi mua đủ 2 nhóm mã Tết trong tháng, mỗi nhóm đạt MOQ trên ít nhất 1 đơn '
             '(không cần cùng đơn). Chanté MOQ ≥2 chai/túi · Tea365 MOQ ≥6 chai/mã & ≥12 chai/nhóm trên đơn. '
-            f'{_moq_txt}. Tất cả dòng trong bảng đều đạt MOQ; DS = Tổng tiền (sau CK). '
+            f'{_moq_txt}. Tất cả dòng trong bảng đều đạt MOQ; DS = Thành tiền trước CK. '
             'Nhóm KH: VIP3 / VIP5 / VIPSI theo Data_MCP (còn lại = LẺ).'
         )
       except Exception as _e_of:
