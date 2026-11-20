@@ -15048,20 +15048,20 @@ def _csn_round(v, kind):
   return round(float(v))
 
 
-def _csn_pct(a, b):
+def _csn_pct(a, b, dec=1):
   if a is None or not b:
     return ''
-  return f'{a / b * 100:.1f}'.replace('.', ',') + '%'
+  return f'{a / b * 100:.{dec}f}'.replace('.', ',') + '%'
 
 
-def _csn_pct_month(r):
-  return _csn_pct(_csn_round(r['THCD'], r['kind']), _csn_round(r['CTT'], r['kind']))
+def _csn_pct_month(r, dec=1):
+  return _csn_pct(_csn_round(r['THCD'], r['kind']), _csn_round(r['CTT'], r['kind']), dec)
 
 
-def _csn_pct_day(r):
+def _csn_pct_day(r, dec=1):
   if r['THN'] is None:
     return ''
-  return _csn_pct(_csn_round(r['THN'], r['kind']), _csn_round(r['MTN'], r['kind']))
+  return _csn_pct(_csn_round(r['THN'], r['kind']), _csn_round(r['MTN'], r['kind']), dec)
 
 
 def render_chi_so_ngay_html(res):
@@ -15139,10 +15139,10 @@ def chi_so_ngay_text(res, ss_name):
   def two(r):
     k = r['kind']
     thn = _csn_fmt(r['THN'], k) if r['THN'] is not None else '___'
-    pdy = _csn_pct_day(r) or '___'
+    pdy = _csn_pct_day(r, 0) or '___'  # nhận xét dạng chữ: % làm tròn, không thập phân
     return [
         f"Ngày: THN {thn} / MTN {_csn_fmt(r['MTN'], k)} / CTN {_csn_fmt(r['CTN'], k)} / %TH MTN {pdy}",
-        f"Tháng: THCD {_csn_fmt(r['THCD'], k)} / {r['lab']} {_csn_fmt(r['CTT'], k)} / %TH {_csn_pct_month(r)}",
+        f"Tháng: THCD {_csn_fmt(r['THCD'], k)} / {r['lab']} {_csn_fmt(r['CTT'], k)} / %TH {_csn_pct_month(r, 0)}",
     ]
   L = [f'Tên: SS {ss_name}']
   L += ['1. SO Turnover — triệu đồng'] + two(by['SO Turnover'])
