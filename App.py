@@ -12577,6 +12577,12 @@ def build_outlet_focus_detail(df, report_date, filter_nv=None, mcp_df=None):
   c_ten = find_col(x, ['Tên CH', 'Tên KH', 'Tên cửa hàng'])
   vip = _mcp_vip_outlet_map(mcp_df, channel='ALL') if mcp_df is not None else {}
   ma_g = {str(ma).strip(): g for g in ('VIP3', 'VIP5', 'VIPSI') for ma in (vip.get(g) or ())}
+  ma_thu = {}
+  if mcp_df is not None and not getattr(mcp_df, 'empty', True):
+    try:
+      ma_thu = _vip_base_maps(mcp_df, None, channel='ALL')[5]
+    except Exception:
+      ma_thu = {}
 
   def _nma(v):
     s = str(v).strip()
@@ -12590,6 +12596,7 @@ def build_outlet_focus_detail(df, report_date, filter_nv=None, mcp_df=None):
         'Mã CH': ma_s,
         'Tên CH': str(g[c_ten].dropna().iloc[0]).strip() if c_ten and g[c_ten].notna().any() else '',
         'Nhóm KH': ma_g.get(ma_s, 'LẺ'),
+        'Thứ VT': str(ma_thu.get(ma_s, '') or '').replace('.0', ''),
     }
     miss = []
     for gname in grps:
@@ -12620,7 +12627,7 @@ def render_outlet_focus_detail_html(df, grps, show_nv=True):
         'text-align:center !important;border:1px solid #2b6cb0 !important;padding:6px 8px;white-space:nowrap;')
   th2 = th.replace('#1a365d', '#2c5282')
   td = 'border:1px solid #bce2f5 !important;padding:5px 8px;white-space:nowrap;'
-  fix = ['STT'] + (['Tên NVBH'] if show_nv else []) + ['Mã CH', 'Tên CH', 'Nhóm KH']
+  fix = ['STT'] + (['Tên NVBH'] if show_nv else []) + ['Mã CH', 'Tên CH', 'Nhóm KH', 'Thứ VT']
   h = ['<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:6px;">',
        '<table class="custom-kpi-table" style="border-collapse:separate;border-spacing:0;'
        'width:max-content;min-width:100%;"><thead><tr>']
@@ -12649,6 +12656,7 @@ def render_outlet_focus_detail_html(df, grps, show_nv=True):
     else:
       h.append(f'<td style="{td}background-color:#f3e8ff !important;color:#6b46c1 !important;'
                f'text-align:center !important;font-weight:800;">{nk}</td>')
+    h.append(f'<td style="{base}text-align:center !important;font-weight:700;">{r.get("Thứ VT", "") or "—"}</td>')
     for g in grps:
       sl, ds, ng = r.get(f'{g}|SL'), r.get(f'{g}|DS'), r.get(f'{g}|Ngày')
       if sl is None or (isinstance(sl, float) and pd.isna(sl)):
@@ -27881,7 +27889,8 @@ if _nav == '📊 BÁO CÁO KPI':
           _of_nk = [g for g in ('VIP3', 'VIP5', 'VIPSI', 'LẺ') if g in set(_of_df['Nhóm KH'])]
           st.markdown('<p style="font-weight:800;color:#034ea2;margin:10px 0 4px;">🔎 Lọc bảng CH Outlet Focus</p>',
                       unsafe_allow_html=True)
-          _oc = st.columns(6 if _show_nv else 5)
+          _of_thu = sorted({str(x) for x in _of_df['Thứ VT'] if str(x).strip()}, key=lambda s: (len(s), s))
+          _oc = st.columns(7 if _show_nv else 6)
           _i = 0
           f_of_nv = []
           if _show_nv:
@@ -27904,6 +27913,11 @@ if _nav == '📊 BÁO CÁO KPI':
             f_of_nk = st.multiselect('Nhóm KH', options=_of_nk, default=[], key='of_detail_nk',
                                      label_visibility='collapsed', placeholder='Tất cả nhóm')
           with _oc[_i + 3]:
+            st.markdown('<p class="filter-label">Thứ VT</p>', unsafe_allow_html=True)
+            f_of_thu = st.multiselect('Thứ VT', options=_of_thu, default=[], key='of_detail_thu',
+                                      label_visibility='collapsed', placeholder='Tất cả thứ')
+          _i += 1
+          with _oc[_i + 3]:
             st.markdown('<p class="filter-label">Ngày ĐH</p>', unsafe_allow_html=True)
             f_of_day = st.multiselect('Ngày ĐH', options=_of_days, default=[], key='of_detail_ngay',
                                       label_visibility='collapsed', placeholder='Tất cả ngày')
@@ -27920,6 +27934,8 @@ if _nav == '📊 BÁO CÁO KPI':
             m &= _of_df['Tên CH'].astype(str).str.contains(f_of_ten.strip(), case=False, regex=False, na=False)
           if f_of_nk:
             m &= _of_df['Nhóm KH'].isin(f_of_nk)
+          if f_of_thu:
+            m &= _of_df['Thứ VT'].astype(str).isin(f_of_thu)
           if f_of_day:
             _sd = set(f_of_day)
             m &= _of_df.apply(lambda r: any(
@@ -27934,7 +27950,7 @@ if _nav == '📊 BÁO CÁO KPI':
             'CV 32: CH đạt Outlet Focus khi mua đủ 2 nhóm mã Tết trong tháng, mỗi nhóm đạt MOQ trên ít nhất 1 đơn '
             '(không cần cùng đơn). Chanté MOQ ≥2 chai/túi · Tea365 MOQ ≥6 chai/mã & ≥12 chai/nhóm trên đơn. '
             f'{_moq_txt}. Tất cả dòng trong bảng đều đạt MOQ; DS = Thành tiền trước CK. '
-            'Nhóm KH: VIP3 / VIP5 / VIPSI theo Data_MCP (còn lại = LẺ).'
+            'Nhóm KH: VIP3 / VIP5 / VIPSI theo Data_MCP (còn lại = LẺ); Thứ VT theo cột Thứ trên Data_MCP.'
         )
       except Exception as _e_of:
         st.caption(f'Không tải được bảng Outlet Focus: {_e_of}')
