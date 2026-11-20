@@ -27870,7 +27870,64 @@ if _nav == '📊 BÁO CÁO KPI':
         with _of_cols[-1]:
           render_metric_card('Đạt Outlet Focus / CT', f'{_n_ok:,} / {int(team_tgt or 0):,}', value_color='#2f855a')
         _show_nv = not (nv_selected(filter_nv) and len(filter_nv if isinstance(filter_nv, list) else [filter_nv]) == 1)
-        st.markdown(render_outlet_focus_detail_html(_of_df, _of_grps, show_nv=_show_nv), unsafe_allow_html=True)
+        # Slicer lọc bảng CH: Tên NVBH · Mã KH · Tên KH · Nhóm KH · Ngày ĐH · Đạt / Thiếu Outlet Focus
+        _of_f = _of_df
+        if _of_df is not None and not _of_df.empty:
+          _of_days = sorted(
+              {d.strip() for g in _of_grps for v in _of_df[f'{g}|Ngày'].dropna().astype(str) for d in v.split(',')
+               if d.strip()},
+              key=lambda s: (s[3:5], s[:2]), reverse=True)
+          _of_stat = sorted(_of_df['Outlet Focus'].astype(str).unique().tolist(), key=lambda s: (not s.startswith('✓'), s))
+          _of_nk = [g for g in ('VIP3', 'VIP5', 'VIPSI', 'LẺ') if g in set(_of_df['Nhóm KH'])]
+          st.markdown('<p style="font-weight:800;color:#034ea2;margin:10px 0 4px;">🔎 Lọc bảng CH Outlet Focus</p>',
+                      unsafe_allow_html=True)
+          _oc = st.columns(6 if _show_nv else 5)
+          _i = 0
+          f_of_nv = []
+          if _show_nv:
+            with _oc[0]:
+              st.markdown('<p class="filter-label">Tên NVBH</p>', unsafe_allow_html=True)
+              f_of_nv = st.multiselect('Tên NVBH', options=sorted(_of_df['Tên NVBH'].astype(str).unique().tolist()),
+                                       default=[], key='of_detail_nv', label_visibility='collapsed',
+                                       placeholder='Tất cả NVBH')
+            _i = 1
+          with _oc[_i]:
+            st.markdown('<p class="filter-label">Mã KH</p>', unsafe_allow_html=True)
+            f_of_ma = st.text_input('Mã KH', value='', key='of_detail_ma', label_visibility='collapsed',
+                                    placeholder='Nhập Mã KH để tìm...')
+          with _oc[_i + 1]:
+            st.markdown('<p class="filter-label">Tên KH</p>', unsafe_allow_html=True)
+            f_of_ten = st.text_input('Tên KH', value='', key='of_detail_ten', label_visibility='collapsed',
+                                     placeholder='Nhập Tên KH để tìm...')
+          with _oc[_i + 2]:
+            st.markdown('<p class="filter-label">Nhóm KH</p>', unsafe_allow_html=True)
+            f_of_nk = st.multiselect('Nhóm KH', options=_of_nk, default=[], key='of_detail_nk',
+                                     label_visibility='collapsed', placeholder='Tất cả nhóm')
+          with _oc[_i + 3]:
+            st.markdown('<p class="filter-label">Ngày ĐH</p>', unsafe_allow_html=True)
+            f_of_day = st.multiselect('Ngày ĐH', options=_of_days, default=[], key='of_detail_ngay',
+                                      label_visibility='collapsed', placeholder='Tất cả ngày')
+          with _oc[_i + 4]:
+            st.markdown('<p class="filter-label">Outlet Focus</p>', unsafe_allow_html=True)
+            f_of_st = st.multiselect('Outlet Focus', options=_of_stat, default=[], key='of_detail_st',
+                                     label_visibility='collapsed', placeholder='Đạt + Thiếu')
+          m = pd.Series(True, index=_of_df.index)
+          if f_of_nv:
+            m &= _of_df['Tên NVBH'].astype(str).isin(f_of_nv)
+          if (f_of_ma or '').strip():
+            m &= _of_df['Mã CH'].astype(str).str.contains(f_of_ma.strip(), case=False, regex=False, na=False)
+          if (f_of_ten or '').strip():
+            m &= _of_df['Tên CH'].astype(str).str.contains(f_of_ten.strip(), case=False, regex=False, na=False)
+          if f_of_nk:
+            m &= _of_df['Nhóm KH'].isin(f_of_nk)
+          if f_of_day:
+            _sd = set(f_of_day)
+            m &= _of_df.apply(lambda r: any(
+                d.strip() in _sd for g in _of_grps for d in str(r.get(f'{g}|Ngày') or '').split(',')), axis=1)
+          if f_of_st:
+            m &= _of_df['Outlet Focus'].astype(str).isin(f_of_st)
+          _of_f = _of_df[m].reset_index(drop=True)
+        st.markdown(render_outlet_focus_detail_html(_of_f, _of_grps, show_nv=_show_nv), unsafe_allow_html=True)
         _moq_txt = ' · '.join(
             f'{_of_grp_short(g)} Tết: {"/".join(str(c) for c in cs)}' for g, cs in get_month_cfg()['aso_focus_both'].items())
         st.caption(
