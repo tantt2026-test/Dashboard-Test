@@ -16,6 +16,11 @@ class LocalEngine {
   static final instance = LocalEngine._();
 
   static String? get _pyDir {
+    if (Platform.isWindows) {
+      // Windows: thư mục "py" cạnh KPIDashboard.exe (native/winpy/build_win_bundle.sh)
+      final res = '${File(Platform.resolvedExecutable).parent.path}\\py\\';
+      return File('${res}python\\python.exe').existsSync() ? res : null;
+    }
     if (!Platform.isMacOS) return null;
     final res = File(Platform.resolvedExecutable).parent.parent.uri
         .resolve('Resources/py/')
@@ -23,8 +28,33 @@ class LocalEngine {
     return File('${res}python/bin/python3').existsSync() ? res : null;
   }
 
-  /// Có máy tính tại chỗ (chỉ bản Mac build bằng build_mac.sh).
+  /// Python của gói: Windows dùng pythonw.exe (không bật cửa sổ đen), Mac python3.
+  static String _pyExe(String py) {
+    if (!Platform.isWindows) return '${py}python/bin/python3';
+    final w = '${py}python\\pythonw.exe';
+    return File(w).existsSync() ? w : '${py}python\\python.exe';
+  }
+
+  /// Có máy tính tại chỗ (bản Mac build bằng build_mac.sh, bản Windows có thư mục py/).
   bool get available => _pyDir != null;
+
+  /// Windows không cho tạo symlink file (cần quyền admin) → chép file; thư mục dùng junction.
+  static bool get _win => Platform.isWindows;
+
+  /// Xoá thư mục an toàn: gỡ link / junction bên trong trước (không lần theo xoá nhầm data gốc).
+  static void _rmTree(Directory d) {
+    if (!d.existsSync()) return;
+    if (_win) {
+      for (final e in d.listSync(recursive: true, followLinks: false)) {
+        if (e is Link) {
+          try {
+            e.deleteSync();
+          } catch (_) {}
+        }
+      }
+    }
+    d.deleteSync(recursive: true);
+  }
 
   final http.Client _client = http.Client();
   final Map<String, Future<String>> _snaps = {};
@@ -34,8 +64,10 @@ class LocalEngine {
   int _nextId = 0;
   String _buf = '';
 
-  String get _home =>
-      '${Platform.environment['HOME']}/Library/Application Support/KPI Dashboard';
+  String get _home => _win
+      ? '${Platform.environment['LOCALAPPDATA'] ?? Platform.environment['APPDATA'] ?? Directory.systemTemp.path}'
+          '\\KPI Dashboard\\engine'
+      : '${Platform.environment['HOME']}/Library/Application Support/KPI Dashboard';
 
   /// Chuẩn bị sẵn (gọi khi app có manifest): tải data + bật Python để lần lọc đầu đỡ chờ.
   void warmUp(String sc) {
@@ -89,7 +121,7 @@ class LocalEngine {
     final dir = Directory('$_home/snap/${sc.substring(0, 12)}');
     final done = File('${dir.path}/.ok');
     if (done.existsSync()) return dir.path;
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
+    _rmTree(dir);
     await _fetchTree(
       ghRepo,
       sc,
@@ -160,7 +192,7 @@ class LocalEngine {
           );
           Future<void> ensureVyDir() async {
             if (File('${vyDir.path}/.ok').existsSync()) return;
-            if (vyDir.existsSync()) vyDir.deleteSync(recursive: true);
+            _rmTree(vyDir);
             await _fetchTree(
               vyRepo,
               dsc,
@@ -177,14 +209,21 @@ class LocalEngine {
 
           await ensureVyDir();
           await tanRoot();
-          if (dir.existsSync()) dir.deleteSync(recursive: true);
+          _rmTree(dir);
           dir.createSync(recursive: true);
           await ensureVyDir();
           final tan = await tanRoot();
-          await Link('${dir.path}/App.py')
-              .create(File('$tan/App.py').resolveSymbolicLinksSync());
+          if (_win) {
+            File('$tan/App.py').copySync('${dir.path}/App.py');
+          } else {
+            await Link('${dir.path}/App.py')
+                .create(File('$tan/App.py').resolveSymbolicLinksSync());
+          }
           if (team == 'vy') {
-            await Link('${dir.path}/data').create('${vyDir.path}/data');
+            // Windows: junction cần đường dẫn tuyệt đối dấu '\\'
+            await Link('${dir.path}/data').create(
+              _win ? '${vyDir.path}/data'.replaceAll('/', '\\') : '${vyDir.path}/data',
+            );
           } else {
             await _ensureProc();
             await _call(null, {
@@ -252,7 +291,12 @@ class LocalEngine {
       }
       final dst = File('$dirPath/$path');
       dst.parent.createSync(recursive: true);
-      await Link(dst.path).create(blob.path);
+      if (_win) {
+        blob.copySync(dst.path);
+        blob.setLastModifiedSync(DateTime.now()); // _prune giữ blob mới dùng
+      } else {
+        await Link(dst.path).create(blob.path);
+      }
     }
   }
 
@@ -263,7 +307,8 @@ class LocalEngine {
   // nhưng chưa kịp đọc xong data/ trong 1 lần build khác) → lỗi "No such file or directory".
   // Vì file nặng thật sự nằm ở blobs/ (dùng chung qua symlink, không nhân bản), giữ nhiều
   // thư mục snap/apppy hơn gần như không tốn ổ đĩa thêm.
-  static const _keepSnaps = 30;
+  // Windows chép file (không symlink) → mỗi bộ chiếm chỗ thật, giữ ít hơn.
+  static int get _keepSnaps => _win ? 10 : 30;
 
   void _prune(String keepSc) {
     try {
@@ -273,7 +318,7 @@ class LocalEngine {
               (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
             );
       for (final d in snaps.skip(_keepSnaps)) {
-        d.deleteSync(recursive: true);
+        _rmTree(d);
       }
       final apDir = Directory('$_home/apppy');
       final apSnaps = apDir.existsSync()
@@ -283,7 +328,15 @@ class LocalEngine {
         (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
       );
       for (final d in apSnaps.skip(_keepSnaps)) {
-        d.deleteSync(recursive: true);
+        _rmTree(d);
+      }
+      if (_win) {
+        // không có symlink để biết blob nào đang dùng → xoá blob không dùng tới 4 ngày
+        final old = DateTime.now().subtract(const Duration(days: 4));
+        for (final b in Directory('$_home/blobs').listSync().whereType<File>()) {
+          if (b.lastModifiedSync().isBefore(old)) b.deleteSync();
+        }
+        return;
       }
       final used = <String>{};
       for (final d in [...snaps.take(_keepSnaps), ...apSnaps.take(_keepSnaps)]) {
@@ -300,13 +353,15 @@ class LocalEngine {
   Future<void> _ensureProc() => _starting ??= () async {
     final py = _pyDir!;
     final p = await Process.start(
-      '${py}python/bin/python3',
-      ['-u', '${py}engine/local_engine.py'],
+      _pyExe(py),
+      ['-u', '${py}engine${_win ? '\\' : '/'}local_engine.py'],
       environment: {
         'PYTHONDONTWRITEBYTECODE': '1',
         'PYTHONIOENCODING': 'utf-8',
+        'PYTHONUTF8': '1', // Windows: đọc/ghi file mặc định UTF-8 như Mac
       },
     );
+    p.stdin.encoding = utf8; // Windows mặc định mã hoá hệ thống → hỏng chữ Việt trong yêu cầu
     final ready = Completer<void>();
     p.stdout.transform(utf8.decoder).listen((chunk) {
       _buf += chunk;
@@ -347,7 +402,7 @@ class LocalEngine {
     Map<String, dynamic> req,
     List<Map<String, dynamic>>? items,
   ) {
-    if (!Platform.isMacOS) return;
+    if (!Platform.isMacOS && !_win) return;
     try {
       String brief = '';
       if (items != null) {
