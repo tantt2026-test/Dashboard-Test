@@ -13582,12 +13582,14 @@ def is_mbs_t11_member(member_type):
 
 
 def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col_actual='_actual',
-                 col_loai='_loai'):
+                 col_loai='_loai', with_gap=False):
   """MBS Brand T11 (BRAND_VIP / BRAND_VIPDAISU), nhóm 4 nhãn Nam Ngư (gồm cả Đệ Nhị, Siêu Tiết Kiệm),
   Chinsu, Kokomi, Chanté:
     VIP: tổng DS 4 nhãn >= 500.000 | VIP Đại sứ: mua đủ 4 nhãn, mỗi nhãn >= 150.000
     Đạt chỉ tiêu DS nền tảng 95% / 100% / 105% → thưởng 1,2% / 1,5% / 2% DS thực đạt.
-  Trả về (đạt nhiệm vụ, DS 4 nhãn, mức, % thưởng, điểm thưởng, brand_da_mua, brand_chua_mua).
+  Trả về (đạt nhiệm vụ, DS 4 nhãn, mức, % thưởng, điểm thưởng, brand_da_mua, brand_chua_mua)
+  [+ GAP DS 4 nhãn khi with_gap: DS còn thiếu để đạt nhiệm vụ — VIP: 500.000 − DS 4 nhãn;
+  VIP Đại sứ: Σ phần thiếu của từng nhãn so với 150.000; đã đạt = 0].
   brand_da_mua / brand_chua_mua chỉ áp dụng BRAND_VIPDAISU (mốc 150.000/nhãn); BRAND_VIP = ''.
   """
   _disp = {
@@ -13635,6 +13637,7 @@ def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col
             by_use[std] = by_use.get(std, 0) + float(bv)
             break
     mission = all(by_use.get(k, 0) >= 150000 for k in MBS_T11_BRANDS)
+    gap = sum(max(0.0, 150000 - by_use.get(k, 0)) for k in MBS_T11_BRANDS)
     da = [_disp.get(k, k.title()) for k in MBS_T11_BRANDS if by_use.get(k, 0) >= 150000]
     chua = [_disp.get(k, k.title()) for k in MBS_T11_BRANDS if by_use.get(k, 0) < 150000]
     brand_da_mua = ', '.join(da)
@@ -13642,6 +13645,7 @@ def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col
   else:
     # BRAND_VIP: tổng DS 4 nhãn >= 500.000; Brand đã mua = có phát sinh DS (>0)
     mission = ds4 >= 500000
+    gap = max(0.0, 500000 - ds4)
     da = [_disp.get(k, k.title()) for k in MBS_T11_BRANDS if by_norm.get(k, 0) > 0]
     chua = [_disp.get(k, k.title()) for k in MBS_T11_BRANDS if by_norm.get(k, 0) <= 0]
     brand_da_mua = ', '.join(da)
@@ -13653,6 +13657,8 @@ def mbs_t11_eval(df_outlet, member_type, actual, target, col_brand='_brand', col
       if pct >= lim:
         muc, rate = name, r
         break
+  if with_gap:
+    return mission, ds4, muc, rate, round(actual * rate / 100), brand_da_mua, brand_chua, (0.0 if mission else gap)
   return mission, ds4, muc, rate, round(actual * rate / 100), brand_da_mua, brand_chua
 
 
@@ -15429,7 +15435,8 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
     df_out = df[df['_ma'] == ma]
     t11 = is_mbs_t11_member(member)
     if t11:
-      has_mission, ds4, muc, rate, diem, brand_da_mua, brand_chua = mbs_t11_eval(df_out, member, actual, target)
+      has_mission, ds4, muc, rate, diem, brand_da_mua, brand_chua, gap4 = mbs_t11_eval(
+          df_out, member, actual, target, with_gap=True)
       dat_ds = pct >= 95  # Mức 1 = 95% chỉ tiêu
     else:
       has_mission = check_mbs_mission(df_out, member, col_actual='_actual')
@@ -15468,7 +15475,7 @@ def build_mbs_brand_report(df_brand, filter_nv=None, mcp_df=None):
         'Brand Chưa mua': brand_chua if t11 else '',
         'Nhóm': nhom,
         'Tên nhóm': nhom_name,
-        **({'DS 4 nhãn': ds4, 'Mức đạt': muc, '% thưởng': rate,
+        **({'DS 4 nhãn': ds4, 'GAP DS 4 nhãn': (None if has_mission else gap4), 'Mức đạt': muc, '% thưởng': rate,
             'Điểm thưởng dự kiến': diem} if t11 else {}),
     })
 
@@ -25345,6 +25352,9 @@ if _nav == '📊 BÁO CÁO KPI':
         for _c in ('DS 4 nhãn', 'Điểm thưởng dự kiến'):
           if _c in df_show.columns:
             df_show[_c] = df_show[_c].apply(_fmt_num_b)
+        if 'GAP DS 4 nhãn' in df_show.columns:  # chỉ KH chưa đạt nhiệm vụ; đã đạt để trống
+          df_show['GAP DS 4 nhãn'] = df_show['GAP DS 4 nhãn'].map(
+              lambda x: '' if x is None or pd.isna(x) else _fmt_num_b(x))
         if '% thưởng' in df_show.columns:
           df_show['% thưởng'] = df_show['% thưởng'].map(
               lambda x: (f'{float(x):.1f}%'.replace('.', ',') if float(x or 0) > 0 else '')
@@ -25353,7 +25363,7 @@ if _nav == '📊 BÁO CÁO KPI':
             'STT', 'Outlet Code', 'Tên CH', 'Tên NVBH',
             'Thứ VT', 'Member type', 'Actual',
             'Actual (Not Cancel/Pending)', 'Target', '% TH',
-            'DS 4 nhãn', 'Đạt nhiệm vụ', 'Brand Đã Mua', 'Brand Chưa mua',
+            'DS 4 nhãn', 'Đạt nhiệm vụ', 'GAP DS 4 nhãn', 'Brand Đã Mua', 'Brand Chưa mua',
             'Mức đạt', '% thưởng', 'Điểm thưởng dự kiến', 'Tên nhóm',
         ]
         # Rút gọn Tên nhóm → Nhóm 1, Nhóm 2, ...
