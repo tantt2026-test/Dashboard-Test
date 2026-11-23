@@ -45,15 +45,46 @@ class LocalEngine {
   static void _rmTree(Directory d) {
     if (!d.existsSync()) return;
     if (_win) {
+      // junction (vd. data -> vydata_*/data): gỡ riêng link, KHÔNG xoá đệ quy qua nó
+      // (sẽ xoá luôn data gốc). rmdir không /s chỉ gỡ junction.
       for (final e in d.listSync(recursive: true, followLinks: false)) {
-        if (e is Link) {
+        if (e is Link || FileSystemEntity.isLinkSync(e.path)) {
           try {
-            e.deleteSync();
-          } catch (_) {}
+            Link(e.path).deleteSync();
+          } catch (_) {
+            Process.runSync('cmd', ['/c', 'rmdir', e.path]);
+          }
         }
       }
     }
     d.deleteSync(recursive: true);
+  }
+
+  /// Link thư mục. Windows: junction (mklink /J) — tài khoản thường không có quyền tạo
+  /// symlink (errno 1314) khi chưa bật Developer Mode; junction thì không cần quyền.
+  static Future<void> _linkDir(String linkPath, String target) async {
+    if (!_win) {
+      await Link(linkPath).create(target);
+      return;
+    }
+    final lp = linkPath.replaceAll('/', '\\');
+    final tp = Directory(target).absolute.path.replaceAll('/', '\\');
+    if (FileSystemEntity.typeSync(lp, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      if (Directory(lp).existsSync()) return; // junction tạo sẵn (tay) còn sống
+      try {
+        Link(lp).deleteSync();
+      } catch (_) {
+        Process.runSync('cmd', ['/c', 'rmdir', lp]);
+      }
+    }
+    final r = await Process.run('cmd', ['/c', 'mklink', '/J', lp, tp]);
+    if (r.exitCode != 0 || !Directory(lp).existsSync()) {
+      throw FileSystemException(
+        'Không tạo được junction (${r.exitCode}): ${r.stdout} ${r.stderr}'.trim(),
+        lp,
+      );
+    }
   }
 
   final http.Client _client = http.Client();
@@ -220,10 +251,7 @@ class LocalEngine {
                 .create(File('$tan/App.py').resolveSymbolicLinksSync());
           }
           if (team == 'vy') {
-            // Windows: junction cần đường dẫn tuyệt đối dấu '\\'
-            await Link('${dir.path}/data').create(
-              _win ? '${vyDir.path}/data'.replaceAll('/', '\\') : '${vyDir.path}/data',
-            );
+            await _linkDir('${dir.path}/data', '${vyDir.path}/data');
           } else {
             await _ensureProc();
             await _call(null, {
