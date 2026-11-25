@@ -3129,6 +3129,7 @@ def build_report(
   on_targets = {}
   mcp_off_tgt, mcp_on_tgt = {}, {}
   mtd_off = ngay_off = mtd_on = ngay_on = pd.Series(dtype=float)
+  _af_done = {}  # ASO Focus: {Mã NVBH: set Mã CH đạt Outlet Focus MTD}
   _aso_ds = None  # ASO Phúc Long / Xốt Gia Vị: Doanh Số MTD các SP của báo cáo theo NV (thay cột Bình quân ngày)
 
   if df is None:
@@ -3536,6 +3537,9 @@ def build_report(
       mtd_off, ngay_off = _aso_both(_src[_is_off])
       mtd_on, ngay_on = _aso_both(_src[_is_on])
       mtd, ngay = _aso_both(_src)
+      _af_per = aso_focus_both_done(_src, _both)
+      for _nvc, _mac in zip(_af_per['Mã NVBH'], _af_per['Mã CH']):
+        _af_done.setdefault(str(_nvc).strip(), set()).add(_norm_ma_ch(_mac))
     else:
       mtd_off, ngay_off = _aso_coverage(off_src, pat, min_qty=1)
       mtd_on, ngay_on = _aso_coverage(on_src, pat, min_qty=1)
@@ -3706,7 +3710,7 @@ def build_report(
   if report_type == 'ASO_FOCUS':
     # Số CH TB Đại Sứ / Số CH VIP theo NV (cột ngay sau Tên NVBH)
     _tb_ds_nv = tb_daisu_outlets_by_nv()
-    _vip_nv = vip_outlets_by_nv(mcp_df)
+    _vip_nv = vip_outlets_by_nv(mcp_df, as_sets=True)
 
   results = []
   for sm in all_sms:
@@ -3742,7 +3746,9 @@ def build_report(
           'Mã NVBH': sm,
           'Tên NVBH': sm_names.get(sm, ''),
           'Số CH TB Đại Sứ': len(_tb_ds_nv.get(_nvn, ())),
-          'Số CH VIP': int(_vip_nv.get(_nvn, 0) or 0),
+          'TH TB Đại Sứ': len({_norm_ma_ch(x) for x in _tb_ds_nv.get(_nvn, ())} & _af_done.get(str(sm).strip(), set())),
+          'Số CH VIP': len(_vip_nv.get(_nvn, ())),
+          'TH VIP': len(set(_vip_nv.get(_nvn, ())) & _af_done.get(str(sm).strip(), set())),
           'Chỉ Tiêu KPI': int(tgt) if not isinstance(tgt, float) else tgt,
           'Thực Hiện Ngày OFF': n_off,
           'MTD OFF': m_off,
@@ -3757,6 +3763,10 @@ def build_report(
           'Bình quân ngày': _b,
           '_ratio': ratio,
       }
+      _tbn, _tbt, _vn, _vt = row['Số CH TB Đại Sứ'], row['TH TB Đại Sứ'], row['Số CH VIP'], row['TH VIP']
+      row['% TH TB Đại Sứ'] = f'{round(_tbt / _tbn * 100, 1)}%' if _tbn else '-'
+      row['% TH VIP'] = f'{round(_vt / _vn * 100, 1)}%' if _vn else '-'
+      row['ĐK'] = _of_dk(_tbn, _tbt, _vn, _vt)
     else:
       row = {
           'Mã NVBH': sm,
@@ -3824,11 +3834,12 @@ def build_report(
         if report_type == 'ASO_ALL'
         else (
             [
-                'STT', 'Tên NVBH', 'Số CH TB Đại Sứ', 'Số CH VIP', 'Chỉ Tiêu KPI',
+                'STT', 'Tên NVBH', 'Số CH TB Đại Sứ', 'TH TB Đại Sứ', '% TH TB Đại Sứ',
+        'Số CH VIP', 'TH VIP', '% TH VIP', 'Chỉ Tiêu KPI',
                 'Thực Hiện Ngày OFF', 'MTD OFF', '% MTD OFF',
                 'Thực Hiện Ngày ON', 'MTD ON', '% MTD ON',
                 'Thực Hiện Ngày', 'MTD', '% MTD',
-                'GAP', 'Bình quân ngày',
+                'GAP', 'Bình quân ngày', 'ĐK',
             ]
             if report_type == 'ASO_FOCUS'
             else (
@@ -3915,6 +3926,13 @@ def build_report(
     pct_off = round(sum_mtd_off / team_tgt * 100, 1) if team_tgt else 0
     pct_on = round(sum_mtd_on / team_tgt * 100, 1) if team_tgt else 0
     _g, _b = _gap_and_bq_day(team_tgt, total_mtd, _remain_days, as_int=True)
+    _of_tot = {c: (int(df_out[c].sum()) if c in df_out.columns else 0)
+               for c in ('Số CH TB Đại Sứ', 'TH TB Đại Sứ', 'Số CH VIP', 'TH VIP')}
+    _tbn, _tbt, _vn, _vt = (_of_tot['Số CH TB Đại Sứ'], _of_tot['TH TB Đại Sứ'],
+                            _of_tot['Số CH VIP'], _of_tot['TH VIP'])
+    _of_tot['% TH TB Đại Sứ'] = f'{round(_tbt / _tbn * 100, 1)}%' if _tbn else '-'
+    _of_tot['% TH VIP'] = f'{round(_vt / _vn * 100, 1)}%' if _vn else '-'
+    _of_tot['ĐK'] = _of_dk(_tbn, _tbt, _vn, _vt)
     total_row = pd.DataFrame([{
         'STT': '-',
         'Mã NVBH': 'TỔNG CỘNG',
@@ -3923,8 +3941,7 @@ def build_report(
             if not nv_selected(filter_nv)
             else nv_label(filter_nv)
         ),
-        'Số CH TB Đại Sứ': int(df_out['Số CH TB Đại Sứ'].sum()) if 'Số CH TB Đại Sứ' in df_out.columns else 0,
-        'Số CH VIP': int(df_out['Số CH VIP'].sum()) if 'Số CH VIP' in df_out.columns else 0,
+        **_of_tot,
         'Chỉ Tiêu KPI': team_tgt,
         'Thực Hiện Ngày OFF': sum_ngay_off,
         'MTD OFF': sum_mtd_off,
@@ -3939,15 +3956,17 @@ def build_report(
         'Bình quân ngày': _b,
     }])
     ordered = [
-        'STT', 'Tên NVBH', 'Số CH TB Đại Sứ', 'Số CH VIP', 'Chỉ Tiêu KPI',
+        'STT', 'Tên NVBH', 'Số CH TB Đại Sứ', 'TH TB Đại Sứ', '% TH TB Đại Sứ',
+        'Số CH VIP', 'TH VIP', '% TH VIP', 'Chỉ Tiêu KPI',
         'Thực Hiện Ngày OFF', 'MTD OFF', '% MTD OFF',
         'Thực Hiện Ngày ON', 'MTD ON', '% MTD ON',
         'Thực Hiện Ngày', 'MTD', '% MTD',
-        'GAP', 'Bình quân ngày',
+        'GAP', 'Bình quân ngày', 'ĐK',
     ]
     for c in ordered:
       if c not in df_out.columns:
-        df_out[c] = 0 if c not in ('Tên NVBH', 'STT', '% MTD OFF', '% MTD ON', '% MTD') else ''
+        df_out[c] = 0 if c not in ('Tên NVBH', 'STT', '% MTD OFF', '% MTD ON', '% MTD', 'ĐK',
+                                   '% TH TB Đại Sứ', '% TH VIP') else ''
     df_out = df_out[[c for c in ordered if c in df_out.columns]]
     total_row = total_row[[c for c in ordered if c in total_row.columns]]
     return pd.concat([df_out, total_row], ignore_index=True), team_tgt, title
@@ -12393,16 +12412,48 @@ def render_aso_focus_html(df):
     extra_total.append(('BQ Ngày', 'Bình quân ngày'))
   total_cols = total_cols + extra_total
 
+  # Nhóm TB Đại Sứ / CH VIP (Số CH · TH · % TH) ngay sau Tên NVBH → Chỉ Tiêu → TOTAL → ĐK
+  pre_groups = [
+      ('TB ĐẠI SỨ', [('Số CH', 'Số CH TB Đại Sứ'), ('TH', 'TH TB Đại Sứ'), ('% TH', '% TH TB Đại Sứ')]),
+      ('CH VIP', [('Số CH', 'Số CH VIP'), ('TH', 'TH VIP'), ('% TH', '% TH VIP')]),
+  ]
+  pre_groups = [(lab, [(a, b) for a, b in cols if b in df.columns]) for lab, cols in pre_groups]
+  pre_groups = [(lab, cols) for lab, cols in pre_groups if cols]
   groups = [
       ('TOTAL', total_cols),
   ]
   groups = [(lab, [(a, b) for a, b in cols if b in df.columns]) for lab, cols in groups]
-  # Số CH TB Đại Sứ / Số CH VIP — cột cố định ngay sau Tên NVBH
-  fixed_cols = [(a, b) for a, b in (('Số CH TB Đại Sứ', 'Số CH TB Đại Sứ'), ('Số CH VIP', 'Số CH VIP'))
-                if b in df.columns]
+  fixed_cols = []
   if ct_col:
     fixed_cols.append(('Chỉ Tiêu', ct_col))
   groups = [(lab, cols) for lab, cols in groups if cols]
+  dk_col = 'ĐK' if 'ĐK' in df.columns else None
+
+  def _pre_th_cells(row, bg, fg, is_tot):
+    out = []
+    for _lab, cols in pre_groups:
+      for sub_lab, col in cols:
+        val = row.get(col, '')
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+          val = ''
+        elif isinstance(val, (float, int)) and not isinstance(val, bool):
+          val = int(val) if float(val).is_integer() else round(float(val), 2)
+        if sub_lab == '% TH' and str(val).endswith('%'):
+          try:
+            _p = float(str(val).rstrip('%'))
+          except Exception:
+            _p = None
+          _need = 100 if col == '% TH TB Đại Sứ' else 80
+          if _p is not None:
+            _c = ('#c6f6d5', '#22543d') if _p >= _need else ('#fed7d7', '#9b2c2c')
+            out.append(
+                f'<td style="{td}background-color:{_c[0]} !important;color:{_c[1]} !important;'
+                f'font-weight:900;">{val}</td>')
+            continue
+        out.append(
+            f'<td style="{td}background-color:{bg} !important;color:{fg} !important;'
+            f'font-weight:{"900" if is_tot else "800"};">{val}</td>')
+    return out
 
   max_name = 12
   if 'Tên NVBH' in df.columns:
@@ -12436,14 +12487,22 @@ def render_aso_focus_html(df):
       f'<th rowspan="2" style="{th}position:sticky;left:0;z-index:8;min-width:{stt_w}px;{sh}">STT</th>',
       f'<th rowspan="2" style="{th}position:sticky;left:{stt_w}px;z-index:8;min-width:{name_w}px;{sh}">Tên NVBH</th>',
   ]
-  # Số CH TB Đại Sứ / Số CH VIP / Chỉ Tiêu chung — rowspan 2, ngay sau Tên NVBH
+  for lab, cols in pre_groups:
+    html.append(f'<th colspan="{len(cols)}" style="{th}">{lab}</th>')
+  # Chỉ Tiêu chung — rowspan 2
   for lab, _c in fixed_cols:
     html.append(
         f'<th rowspan="2" style="{th}min-width:{ct_w}px;">{lab}</th>'
     )
   for lab, cols in groups:
     html.append(f'<th colspan="{len(cols)}" style="{th}">{lab}</th>')
+  if dk_col:
+    html.append(f'<th rowspan="2" style="{th}min-width:110px;" '
+                f'title="TB Đại Sứ phải 100% CH mua đạt · VIP ≥ 80%">ĐK</th>')
   html.append('</tr><tr>')
+  for _lab, cols in pre_groups:
+    for sub_lab, _c in cols:
+      html.append(f'<th style="{th_sub}">{sub_lab}</th>')
   for _lab, cols in groups:
     for sub_lab, _c in cols:
       html.append(f'<th style="{th_sub}">{sub_lab}</th>')
@@ -12478,7 +12537,8 @@ def render_aso_focus_html(df):
         f'text-align:left !important;font-weight:{"900" if is_tot else "600"};{sh}">{ten}</td>'
     )
 
-    # Số CH TB Đại Sứ / Số CH VIP / Chỉ Tiêu chung
+    html.extend(_pre_th_cells(row, bg, fg, is_tot))
+    # Chỉ Tiêu chung
     for _lab, _fc in fixed_cols:
       val = row.get(_fc, '')
       if pd.isna(val):
@@ -12529,6 +12589,12 @@ def render_aso_focus_html(df):
               f'<td style="{td}background-color:{bg} !important;color:{fg} !important;'
               f'font-weight:{"900" if is_tot else "800"};">{val}</td>'
           )
+    if dk_col:
+      _dk = str(row.get(dk_col, '') or '')
+      _c = ('#c6f6d5', '#22543d') if 'ĐẠT' in _dk else (('#feebc8', '#9c4221') if _dk else (bg, fg))
+      html.append(
+          f'<td style="{td}background-color:{_c[0]} !important;color:{_c[1]} !important;'
+          f'font-weight:900;">{_dk}</td>')
     html.append('</tr>')
   html.append('</tbody></table></div>')
   return ''.join(html)
@@ -18808,15 +18874,33 @@ def tb_daisu_outlets_by_nv():
   return out
 
 
-def vip_outlets_by_nv(mcp_df):
-  """{Tên NVBH: số CH VIP3 / VIP5 / VIPSI trên Data_MCP (OFF + ON)}."""
+def vip_outlets_by_nv(mcp_df, as_sets=False):
+  """{Tên NVBH: số CH VIP3 / VIP5 / VIPSI trên Data_MCP (OFF + ON)} (as_sets → set Mã CH)."""
   if mcp_df is None or getattr(mcp_df, 'empty', True):
     return {}
   try:
     _g, ma_to_g, _nl, nv_ma, _m2n, _f = _vip_base_maps(mcp_df, None, channel='ALL')
   except Exception:
     return {}
+  if as_sets:
+    return {nv: {_norm_ma_ch(ma) for ma in mas if ma_to_g.get(ma) in ('VIP3', 'VIP5', 'VIPSI')}
+            for nv, mas in nv_ma.items()}
   return {nv: sum(1 for ma in mas if ma_to_g.get(ma) in ('VIP3', 'VIP5', 'VIPSI')) for nv, mas in nv_ma.items()}
+
+
+def _norm_ma_ch(x):
+  s = str(x if x is not None else '').strip()
+  return s[:-2] if s.endswith('.0') else s
+
+
+def _of_dk(tb_n, tb_th, vip_n, vip_th):
+  """ĐK Outlet Focus: nhóm TB Đại Sứ phải 100% CH mua đạt, nhóm VIP ≥ 80%."""
+  tb_ok = tb_th >= tb_n
+  vip_ok = (vip_th >= 0.8 * vip_n) if vip_n else True
+  if tb_ok and vip_ok:
+    return '✓ ĐẠT'
+  miss = [m for m, ok in (('TB', tb_ok), ('VIP', vip_ok)) if not ok]
+  return '✗ Thiếu ' + ' + '.join(miss)
 
 
 def build_tb_discipline_maps(df_disp, df_bohinh, df_visit_day, report_date, df_mcp=None):
