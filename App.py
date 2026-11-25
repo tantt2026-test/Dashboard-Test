@@ -30433,8 +30433,9 @@ def _sup_targets(sub_div, cats=None):
   return pd.to_numeric(x[c_tg], errors='coerce').fillna(0).groupby(x[c_nv].astype(str).str.strip()).sum().to_dict()
 
 
-def _sup_orders(df_rpt, report_date):
-  """Đơn hàng từ đầu tháng tới ngày BC (loại Đã hủy) — DS = Thành tiền trước CK như TURNOVER."""
+def _sup_orders(df_rpt, report_date, all_nv=False):
+  """Đơn hàng từ đầu tháng tới ngày BC (loại Đã hủy) — DS = Thành tiền trước CK như TURNOVER.
+  all_nv=True: không lọc theo NV đang chọn (dùng cho chỉ tiêu xét theo cả NPP)."""
   if df_rpt is None or df_rpt.empty or 'date' not in df_rpt.columns:
     return pd.DataFrame()
   rd = report_date.date() if hasattr(report_date, 'date') else report_date
@@ -30454,7 +30455,7 @@ def _sup_orders(df_rpt, report_date):
   d['_chan'] = pd.to_numeric(d.get('Tổng chẵn', 0), errors='coerce').fillna(0)
   d['_le'] = pd.to_numeric(d.get('Tổng lẻ', 0), errors='coerce').fillna(0)
   d['_ord'] = d['Mã đơn hàng'].astype(str) if 'Mã đơn hàng' in d.columns else d.index.astype(str)
-  if nv_selected(filter_nv):
+  if not all_nv and nv_selected(filter_nv):
     vals = [str(v).strip() for v in (filter_nv if isinstance(filter_nv, list) else [filter_nv])]
     d = d[d['_nv'].isin(vals)]
   return d
@@ -30702,22 +30703,108 @@ def _sup_vip_outlets():
   return {str(m).strip() for g in ('VIP3', 'VIP5', 'VIPSI') for m in (vm.get(g) or set())}
 
 
-def sup_calc_pl(d):
-  x = d[d['_name'].str.contains('phúc long|phuc long', na=False, regex=True)] if not d.empty else d
-  # CV 494 (11/11/2026) điều chỉnh CV 484: chỉ tính nhóm KH Type_Outlet VIP3 / VIP5 / VIPSI
-  if not x.empty:
-    x = x[x['_ma'].astype(str).isin(_sup_vip_outlets())]
-  act = x.groupby('_nv')['_v'].sum().to_dict() if not x.empty else {}
+# Repo data của 2 Sale Sup cùng NPP Minh Phát Thành (KF1326) — cả 2 repo đều public
+_PL_TEAM_REPOS = {'Trương Thanh Tân': 'tantt2026-test/Dashboard-Test', 'Nguyễn Thị Tường Vy': 'Tantt2026/Vyntt_Dashboard'}
+
+
+def _pl_filter(d, vip):
+  """DS Trà Phúc Long ở CH VIP3 / VIP5 / VIPSI (CV 494)."""
+  if d is None or d.empty:
+    return d
+  x = d[d['_name'].str.contains('phúc long|phuc long', na=False, regex=True)]
+  return x[x['_ma'].astype(str).isin(vip)] if not x.empty else x
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _pl_other_team_act(repo, folder, rd_iso):
+  """DS Trà Phúc Long (CH VIP3/VIP5/VIPSI) của team còn lại — đọc data/<tháng> trên GitHub repo đó.
+  Trả về (DS, ghi chú lỗi hoặc '')."""
+  import io, json, urllib.request, urllib.parse
+  def _get(url):
+    req = urllib.request.Request(url, headers={'User-Agent': 'kpi-dashboard'})
+    with urllib.request.urlopen(req, timeout=30) as r:
+      return r.read()
+  base = f'https://raw.githubusercontent.com/{repo}/HEAD/data/{folder}/'
+  try:
+    lst = json.loads(_get(f'https://api.github.com/repos/{repo}/contents/data/{urllib.parse.quote(folder)}'))
+    names = [i['name'] for i in lst if isinstance(i, dict) and i.get('type') == 'file']
+  except Exception:
+    names = ['Data_MCP.xlsx', 'DanhSachChiTietDonHang.xlsx', 'DanhSachChiTietDonHang (1).xlsx',
+             'DanhSachChiTietDonHang (2).xlsx']
+  parts, mcp = [], None
+  for n in names:
+    is_sales = _is_sales_filename(n)
+    if not is_sales and n != 'Data_MCP.xlsx':
+      continue
+    try:
+      b = _get(base + urllib.parse.quote(n))
+    except Exception:
+      continue
+    try:
+      if is_sales:
+        parts.append(_read_sales_excel(io.BytesIO(b)))
+      else:
+        mcp = _norm_mcp_cols(pd.read_excel(io.BytesIO(b)))
+    except Exception:
+      pass
+  if not parts or mcp is None:
+    return 0.0, f'chưa đọc được data {repo.split("/")[-1]}/{folder}'
+  df = pd.concat(parts, ignore_index=True)
+  ren = {c: 'Mã CH' for c in df.columns if str(c).strip().lower() in ('mã ch', 'ma ch', 'outlet code', 'outlet_code')}
+  if ren and 'Mã CH' not in df.columns:
+    df = df.rename(columns={list(ren)[0]: 'Mã CH'})
+  dd = [c for c in ['Mã đơn hàng', 'Mã CH', 'Mã sản phẩm', 'Tên sản phẩm', 'Ngày tạo đơn hàng', 'Tổng tiền',
+                    'Giá trị sau CK'] if c in df.columns]
+  if dd:
+    df = df.drop_duplicates(subset=dd, keep='first')
+  df['date'] = pd.to_datetime(df.get('Ngày tạo đơn hàng'), dayfirst=True, errors='coerce').dt.date
+  df = df[df['date'].notna()]
+  d = _sup_orders(df, date.fromisoformat(rd_iso), all_nv=True)
+  vm = _mcp_vip_outlet_map(mcp, channel='ALL')
+  vip = {str(m).strip() for g in ('VIP3', 'VIP5', 'VIPSI') for m in (vm.get(g) or set())}
+  x = _pl_filter(d, vip)
+  return (float(x['_v'].sum()) if x is not None and not x.empty else 0.0), ''
+
+
+def sup_pl_npp_act(d_all, report_date):
+  """Thực đạt Trà Phúc Long cấp NPP = team đang xem (mọi NV) + team Sup còn lại (data repo kia).
+  Data đã gộp 2 Sup ('A & B') thì không tải thêm. Trả về {team: DS}, ghi chú."""
+  vip = _sup_vip_outlets()
+  me = _ss_name_m(get_month_key())
+  x = _pl_filter(d_all, vip)
+  parts = {me: float(x['_v'].sum()) if x is not None and not x.empty else 0.0}
+  note = ''
+  if '&' not in me:
+    rd = report_date.date() if hasattr(report_date, 'date') else report_date
+    for nm, repo in _PL_TEAM_REPOS.items():
+      if nm == me:
+        continue
+      try:
+        v, note = _pl_other_team_act(repo, get_month_cfg().get('folder', 'Thang10'), rd.isoformat())
+      except Exception as e:
+        v, note = 0.0, f'lỗi tải data team {nm}: {e}'
+      parts[nm] = v
+  return parts, note
+
+
+def sup_calc_pl(d, d_all=None, report_date=None):
+  x = _pl_filter(d, _sup_vip_outlets())
+  act = x.groupby('_nv')['_v'].sum().to_dict() if x is not None and not x.empty else {}
   ship = ''
-  if not d.empty and 'Ship-To NPP' in d.columns:
-    s = d['Ship-To NPP'].astype(str).str.strip()
+  src = d_all if d_all is not None and not d_all.empty else d
+  if not src.empty and 'Ship-To NPP' in src.columns:
+    s = src['Ship-To NPP'].astype(str).str.strip()
     ship = s.mode().iloc[0] if len(s) else ''
   tg = float(sup_pl_target().get(ship, 0))
-  team = float(sum(act.values()))
+  if d_all is not None and report_date is not None:
+    parts, note = sup_pl_npp_act(d_all, report_date)
+  else:
+    parts, note = {_ss_name_m(get_month_key()): float(sum(act.values()))}, ''
+  team = float(sum(parts.values()))
   p = _sup_pct(team, tg)
   rows = [{'Tên NVBH': n, 'DS Trà Phúc Long': float(act.get(n, 0)), 'Thưởng': 400000 if (tg and p >= 100) else 0}
           for n in _sup_roster(d)]
-  return pd.DataFrame(rows), {'ship': ship, 'tg': tg, 'act': team, 'pct': p}
+  return pd.DataFrame(rows), {'ship': ship, 'tg': tg, 'act': team, 'pct': p, 'parts': parts, 'note': note}
 
 
 def sup_calc_tb(d):
@@ -30867,13 +30954,14 @@ if _nav == SUP_NAV:
   _sup_labels = [l for _, l in SUP_PROGRAMS]
   _prog = st.radio('Chương trình', _sup_labels, key='sup_prog', label_visibility='collapsed')
   _d = _sup_orders(df, report_date)
+  _d_all = _sup_orders(df, report_date, all_nv=True)
   st.caption(f'Số liệu từ 01/{int(get_month_cfg()["month"]):02d} đến ngày {report_date.strftime("%d/%m/%Y")} '
              '| DS = Thành tiền trước CK (như TURNOVER), không tính đơn đã hủy | thưởng là số dự kiến theo công văn')
 
   if _prog == SUP_PROG_TONG:
     parts = {
         'Mì': sup_calc_mi(_d)[0], 'Combo Xốt': sup_calc_xot(_d)[0], 'Homey': sup_calc_homey(_d)[0],
-        'Thịt CB': sup_calc_meat(_d)[0], 'Bia': sup_calc_bia(_d)[0], 'Trà Phúc Long': sup_calc_pl(_d)[0],
+        'Thịt CB': sup_calc_meat(_d)[0], 'Bia': sup_calc_bia(_d)[0], 'Trà Phúc Long': sup_calc_pl(_d, _d_all, report_date)[0],
         'Trưng bày': sup_calc_tb(_d)[0],
     }
     names = sorted({n for p in parts.values() if not p.empty for n in p['Tên NVBH']})
@@ -30948,14 +31036,17 @@ if _nav == SUP_NAV:
     _sup_detail('CHI TIẾT CỬA HÀNG MUA BIA', _det, 'sup_bia_d', extra=[('Nhãn', 'Nhãn bia')])
 
   elif _prog == SUP_PROG_PL:
-    _t, info = sup_calc_pl(_d)
+    _t, info = sup_calc_pl(_d, _d_all, report_date)
     _sup_note('Doanh số Trà Phúc Long — NPP đạt chỉ tiêu bán ra tháng, tất cả SP Trà Phúc Long '
               '(CV 484, điều chỉnh CV 494: chỉ nhóm KH Type_Outlet VIP3 / VIP5 / VIPSI)',
               'NPP đạt từ 100% chỉ tiêu → 400.000đ/ĐDKD (DS chỉ tính CH VIP3 / VIP5 / VIPSI)',
               f'{format_number_vn(info["tg"])}đ (NPP {info["ship"]}, giá RTL +VAT) / '
               f'{format_number_vn(info["act"])}đ ({info["pct"]}%) → '
               f'{format_number_vn(400000 if (info["tg"] and info["pct"] >= 100) else 0)}đ/ĐDKD',
-              luu_y='Công văn xét theo cả NPP; ở đây tính theo data của team.')
+              luu_y='Công văn xét theo cả NPP → thực đạt = DS ' + ' + '.join(
+                  f'team {k} {format_number_vn(v)}đ' for k, v in info['parts'].items())
+                    + (f' (⚠️ {info["note"]})' if info['note'] else '')
+                    + '; bảng dưới là DS của team đang xem.')
     _sup_summary(_t, sum_cols=['DS Trà Phúc Long', 'Thưởng'], kq_key='sup_pl_kq')
 
   elif _prog == SUP_PROG_TB:
