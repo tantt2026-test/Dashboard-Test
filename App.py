@@ -30685,6 +30685,14 @@ def sup_pl_target():
   """Chỉ tiêu thưởng Trà Phúc Long của NPP (CHI TIEU THUONG PHUC LONG.xlsx — Target DSO giá RTL +VAT)."""
   p = _sup_file('CHI TIEU THUONG PHUC LONG.xlsx')
   if not p:
+    # file chỉ tiêu chỉ up ở repo 1 team → lấy bản trên repo team còn lại (chỉ tiêu chung NPP)
+    me = _ss_name_m(get_month_key())
+    for nm, repo in _PL_TEAM_REPOS.items():
+      if nm != me:
+        p = _pl_remote_file(repo, get_month_cfg().get('folder', 'Thang10'), 'CHI TIEU THUONG PHUC LONG.xlsx')
+        if p:
+          break
+  if not p:
     return {}
   t = _sup_read_excel(p, os.path.getmtime(p), 2, ('ship to', 'target'))
   c_ship, c_tg = find_col(t, ['Ship To code', 'Ship To', 'Ship-To']), find_col(t, ['Target DSO giá RTL (+VAT)', 'Target'])
@@ -30713,6 +30721,23 @@ def _pl_filter(d, vip):
     return d
   x = d[d['_name'].str.contains('phúc long|phuc long', na=False, regex=True)]
   return x[x['_ma'].astype(str).isin(vip)] if not x.empty else x
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _pl_remote_file(repo, folder, name):
+  """Tải 1 file data/<tháng>/<name> của repo GitHub về thư mục tạm → đường dẫn (None nếu không có)."""
+  import tempfile, urllib.request, urllib.parse
+  try:
+    req = urllib.request.Request(f'https://raw.githubusercontent.com/{repo}/HEAD/data/{folder}/{urllib.parse.quote(name)}',
+                                 headers={'User-Agent': 'kpi-dashboard'})
+    with urllib.request.urlopen(req, timeout=30) as r:
+      b = r.read()
+    p = os.path.join(tempfile.gettempdir(), f'kpi_{repo.replace("/", "_")}_{folder}_{name}')
+    with open(p, 'wb') as f:
+      f.write(b)
+    return p
+  except Exception:
+    return None
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
