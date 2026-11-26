@@ -391,7 +391,13 @@ class HeadlessApp:
         self.app_path = os.path.abspath(app_path)
         self.repo = os.path.dirname(self.app_path)
         src = open(self.app_path, encoding='utf-8').read()
-        self.code = compile(src, self.app_path, 'exec')
+        # Máy yếu (Windows): đọc Excel bằng calamine + cache theo nội dung file, cache bản dịch App.py
+        try:
+            import fast_excel
+            fast_excel.install()
+            self.code = fast_excel.compile_cached(src, self.app_path)
+        except Exception:  # noqa: BLE001
+            self.code = compile(src, self.app_path, 'exec')
         self.rec = Recorder()
         self.modules = make_streamlit(self.rec)
         self.ns = None

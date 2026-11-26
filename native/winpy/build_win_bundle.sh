@@ -32,7 +32,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/app"
 unzip -q "$EXE_ZIP" -d "$OUT/app"
 mkdir -p "$OUT/app/py/engine"
 cp -R "$STAGE/python" "$OUT/app/py/python"
-cp "$ROOT"/native/pipeline/{local_engine,headless,report_doc,export_kpi,filters_probe,run_request,app_logic,export_reports,team_data,team_merge}.py "$OUT/app/py/engine/"
+cp "$ROOT"/native/pipeline/{local_engine,headless,fast_excel,report_doc,export_kpi,filters_probe,run_request,app_logic,export_reports,team_data,team_merge}.py "$OUT/app/py/engine/"
 mkdir -p "$ROOT/native/dist"; rm -f "$ROOT/native/dist/KPIDashboard-windows.zip"
 (cd "$OUT/app" && zip -qr -9 "$ROOT/native/dist/KPIDashboard-windows.zip" .)
 du -sh "$OUT/app" "$ROOT/native/dist/KPIDashboard-windows.zip"

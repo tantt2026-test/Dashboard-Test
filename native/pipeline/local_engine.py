@@ -82,7 +82,7 @@ def main():
                 out.flush()
                 continue
             parts = msg.get('parts') or {}
-            keep = 3 if parts else 1
+            keep = 3 if parts else 2  # 2: đổi Sup Tân ↔ Vy không phải nạp lại App.py + data
             app = _app(msg['root'], keep)
             export_kpi._app = app
             if op == 'plan':
