@@ -105,7 +105,10 @@ def _reset_widgets():
     """Xoá giá trị các ô lọc phụ của lần chạy trước (giữ ô chính) → mỗi báo cáo bắt đầu mặc định."""
     keep = {'report_month_key', 'month_select_box', 'ddkd', 'main_nav_section', 'ngay'}
     for k in list(_app.rec.session_state):
-        if k not in keep and not str(k).startswith('kpi_') and not str(k).startswith('_'):
+        # chỉ giữ ô chọn báo cáo 'kpi_Thang11'; ô lọc 'kpi_<báo cáo>_detail_*' phải xoá, nếu không
+        # giá trị lần trước (vd Ngày ĐH) dính sang lần sau → dò ô lọc / đối chiếu sai
+        if (k not in keep and not re.match(r'^kpi_Thang\d+$', str(k))
+                and not str(k).startswith('_')):
             _app.rec.session_state.pop(k, None)
 
 

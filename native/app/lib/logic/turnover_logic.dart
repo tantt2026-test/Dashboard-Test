@@ -195,14 +195,14 @@ TurnoverReport buildTurnover(TurnoverMonth month, String isoDate, List<String> f
     ));
   }
 
-  TurnoverRow totalOf(List<TurnoverRow> rs, String name) {
+  TurnoverRow totalOf(List<TurnoverRow> rs, String name, {String stt = '-'}) {
     final totalMtd = npSum([for (final r in rs) r.mtd]);
     final totalToday = npSum([for (final r in rs) r.today]);
     final tgt = npSum([for (final r in rs) r.target]);
     final totalPct = tgt != 0 ? pyRound(totalMtd / tgt * 100, 1) : 0.0;
     final (tGap, tBq) = gapAndBq(tgt, totalMtd, remain);
     return TurnoverRow(
-      stt: '-',
+      stt: stt,
       code: 'TỔNG CỘNG',
       name: name,
       target: tgt,
@@ -218,7 +218,8 @@ TurnoverReport buildTurnover(TurnoverMonth month, String isoDate, List<String> f
 
   final teamTgt = npSum([for (final r in rows) r.target]);
   final label = filtered ? filterNv.join(', ') : allNvLabel;
-  final total = totalOf(rows, filtered ? label : month.totalLabel);
+  // như build_turnover_report (App.py): dòng tổng STT trống, lọc NV → 'TỔNG CỘNG (<NV>)'
+  final total = totalOf(rows, filtered ? 'TỔNG CỘNG ($label)' : month.totalLabel, stt: '');
 
   // Sale Sup 'Cả 2': tách NV theo team (giữ thứ tự sắp xếp) + dòng Tổng từng team, STT đánh lại
   List<TurnoverRow>? tableRows;

@@ -101,6 +101,23 @@ bool sameRowsAs(List<Map<String, dynamic>> base, List<Map<String, dynamic>> vari
   return true;
 }
 
+/// Có ô lọc kiểu chọn đang bật mà bớt CỘT của bảng (vd TLTB chọn chương trình → bỏ nhóm cột)?
+/// Khi đó số tổng/thứ tự sắp xếp của bản tính sẵn (vd Sort) không còn đúng → phải nhờ App.py.
+bool changesColumns(List<Map<String, dynamic>> widgets, FilterValues values) {
+  for (final w in widgets) {
+    final f = w['f'] as Map?;
+    if (f?['mode'] != 'select' || !isActive(w, values[w['key']])) continue;
+    final v = values[w['key']];
+    final sel = v is List ? v.map((e) => '$e') : ['$v'];
+    final masks = (f!['masks'] as Map?) ?? const {};
+    for (final o in sel) {
+      final m = masks[o] as Map?;
+      if (m != null && ((m['cols'] as List?) ?? const []).any((c) => c != null)) return true;
+    }
+  }
+  return false;
+}
+
 /// Ghi chỉ số duyệt (giống _walk của Python: item, rồi con của box) vào '_i', bảng thứ mấy vào '_ti'.
 void indexItems(List<Map<String, dynamic>> items) {
   var i = 0, ti = 0;

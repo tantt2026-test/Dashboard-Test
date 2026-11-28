@@ -656,27 +656,42 @@ class Prober:
     def _cols(self, w, default, R):
         """Ô chọn cột hiển thị: lựa chọn trùng tên cột bảng; chọn 1 cột → còn cột đó + cột cố định."""
         key, opts = w['key'], w.get('options') or []
+        # 1 ô có thể đổi cột của nhiều bảng cùng mẫu (vd Hội Viên: bảng BRAND_VIP + Đại sứ) → lấy hết
+        snaps = {}
+        targets, always_all = [], set()
         for ti, names in enumerate(default.cols):
             short = [n.split(' › ')[-1] for n in names]
             if len(set(opts) & set(short)) < max(2, len(opts) * 0.8):
                 continue
             always = None
+            ok = True
             for o in (opts[0], opts[-1]):
-                v, _ = self.snap({key: [R[o]]})
+                if o not in snaps:
+                    snaps[o] = self.snap({key: [R[o]]})[0]
+                v = snaps[o]
                 al = align(default, v)
                 vi = al[ti] if ti < len(al) else None
                 if vi is None or v.rows[vi] != default.rows[ti] and len(v.rows[vi]) != len(default.rows[ti]):
-                    return None
+                    ok = False
+                    break
                 vc = [n.split(' › ')[-1] for n in v.cols[vi]]
                 if o not in vc:
-                    return None
+                    ok = False
+                    break
                 rest = set(vc) - {o}
                 if always is None:
                     always = rest
                 elif rest != always:
-                    return None
-            return {'mode': 'cols', 'targets': [ti], 'always': sorted(always or [])}
-        return None
+                    ok = False
+                    break
+            if ok:
+                targets.append(ti)
+                always_all |= always or set()
+            elif not targets:
+                return None
+        if not targets:
+            return None
+        return {'mode': 'cols', 'targets': targets, 'always': sorted(always_all)}
 
     def _calc_each(self, w, values, to_state, variant_cb, default, raw=False):
         key = w['key']
@@ -819,6 +834,16 @@ def _num(x, style):
         return None, pct
 
 
+def _styles_for(x):
+    """Kiểu số hợp với chuỗi: '70.0%' / '1.4' (1 dấu + 1–2 chữ số cuối) chắc chắn là dấu thập phân →
+    chỉ thử kiểu có dấu thập phân đó (tránh đọc '70.0%' thành 700, '1.4' thành 14)."""
+    s = (x or '').strip().replace(' ', '').replace('\xa0', '').rstrip('%')
+    m = re.fullmatch(r'[-+]?\d+([.,])\d{1,2}', s)
+    if m:
+        return [st for st in _STYLES if st[1] == m.group(1)]
+    return _STYLES
+
+
 def _decimals(x, style):
     s = (x or '').strip().rstrip('%')
     return len(s.split(style[1])[1]) if style[1] in s else 0
@@ -838,7 +863,7 @@ def total_formulas(t):
     sums = {}
     for c in range(ncol):
         tv = tot[c] if c < len(tot) else ''
-        for style in _STYLES:
+        for style in _styles_for(tv):
             total, pct = _num(tv, style)
             if total is None or pct:
                 continue
@@ -851,29 +876,33 @@ def total_formulas(t):
                 out[c] = {'op': 'sum', 't': style[0], 'd': style[1], 'n': d}
                 sums[c] = (ssum, style)
                 break
-    # % = tỷ lệ của 2 cột tổng (a/b*100)
+    # % = tỷ lệ của 2 cột tổng (a/b*100). Nhiều cặp khớp số (vd 0%, 100%) → ưu tiên 2 cột cùng nhóm
+    # tiêu đề ('Nhóm › cột') với cột %, đứng trước và gần cột % nhất
+    names = col_names(t)
+    grp = [n.rsplit(' › ', 1)[0] if ' › ' in n else '' for n in names]
     for c in range(ncol):
         if c in out:
             continue
         tv = tot[c] if c < len(tot) else ''
-        for style in _STYLES:
+        best = None
+        for style in _styles_for(tv):
             total, pct = _num(tv, style)
             if total is None or not pct:
                 continue
             d = _decimals(tv, style)
-            hit = None
             for a in sums:
                 for b in sums:
                     if a == b or sums[b][0] == 0:
                         continue
                     if abs(round(sums[a][0] / sums[b][0] * 100, d) - total) <= 0.5 * 10 ** -d + 1e-9:
-                        hit = (a, b)
-                        break
-                if hit:
-                    break
-            if hit:
-                out[c] = {'op': 'ratio', 'a': hit[0], 'b': hit[1], 't': style[0], 'd': style[1], 'n': d}
-                break
+                        same = (grp[a] == grp[c]) + (grp[b] == grp[c])
+                        before = (a < c) + (b < c)
+                        key = (same, before, -(abs(c - a) + abs(c - b)), a > b)  # hoà: tử đứng sau mẫu (CT, TH, %)
+                        if best is None or key > best[0]:
+                            best = (key, a, b, style, d)
+        if best:
+            _, a, b, style, d = best
+            out[c] = {'op': 'ratio', 'a': a, 'b': b, 't': style[0], 'd': style[1], 'n': d}
     return {str(k): v for k, v in out.items()} or None
 
 

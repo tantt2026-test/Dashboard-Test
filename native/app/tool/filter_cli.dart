@@ -61,7 +61,7 @@ void main() {
     final otherActive = widgets.any((w) =>
         (w['f'] as Map?)?['mode'] != 'calc' && (w['f'] as Map?)?['mode'] != 'cols' && isActive(w, values[w['key']]));
     final res = applyFilters(base, widgets, values, onVariant: file != null && !reorderOnly, multiNv: nvs);
-    final allNotes = [?note, if (file != null && !reorderOnly && otherActive) 'cần App.py tính tổ hợp', ...res.notes];
+    final allNotes = [?note, if (file != null && (!reorderOnly && otherActive || reorderOnly && changesColumns(widgets, values))) 'cần App.py tính tổ hợp', ...res.notes];
     out.add({
       'note': allNotes.isEmpty ? null : allNotes.join(' | '),
       'variant': file,

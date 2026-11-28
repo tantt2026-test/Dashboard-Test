@@ -341,7 +341,9 @@ class _KpiReportPageState extends State<KpiReportPage> {
       // Lựa chọn app không tự tính chính xác → kết quả App.py do GitHub tính & lưu (đúng như Streamlit)
       final useServer =
           _needServer(widgets, note) ||
-          (loaded != null && !reorderOnly && otherActive);
+          (loaded != null && !reorderOnly && otherActive) ||
+          // Sort… + ô bớt cột (vd chọn chương trình): thứ tự phụ thuộc cột đã bớt → App.py tính
+          (loaded != null && reorderOnly && changesColumns(widgets, _values));
       _job = useServer ? _requestGithub(widgets) : null;
       final job = _job;
       if (job?.items != null) {
