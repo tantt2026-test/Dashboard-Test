@@ -1074,6 +1074,13 @@ def load_main_data(_month_key='Thang10'):
     df['Tên SP lower'] = ''
   # Mẫu số chốt ngày 28 tháng T-1 (L1 của đơn hàng ở trên vẫn map theo MCP đầy đủ)
   mcp = _mcp_lock_28(mcp, _df_ref_month(df))
+  # Rule KPI (user chốt 28/11): mọi KPI trừ TURNOVER chỉ tính CH có trên MCP chốt ngày 28 tháng T-1
+  try:
+    if 'Mã CH' in df.columns and c_out:
+      _ms = set(mcp[c_out].astype(str).str.strip().str.replace(r'\.0$', '', regex=True))
+      df['_mcp28'] = df['Mã CH'].isin(_ms)
+  except Exception:
+    pass
   return df, mcp
 
 
@@ -3229,6 +3236,9 @@ def build_report(
 
   if df is None:
     df = pd.DataFrame()
+  # Rule KPI: trừ TURNOVER, bỏ đơn của CH không có trên MCP chốt ngày 28 tháng T-1 (CH tạo mới)
+  if key != 'TURNOVER' and '_mcp28' in df.columns:
+    df = df[df['_mcp28'].fillna(False).astype(bool)]
 
   if df.empty or 'date' not in df.columns:
     df_mtd = pd.DataFrame()
