@@ -952,6 +952,42 @@ def _norm_mcp_cols(mcp):
   return mcp
 
 
+def _mcp_lock_28(mcp, ref_date):
+  """CV lương mục 6.3: mẫu số KPI chốt vào ngày 28 tháng T-1 → bỏ CH trên Data_MCP có
+  Created_date sau 23:59:59 ngày 28 tháng trước tháng của ref_date. CH thiếu ngày tạo vẫn giữ.
+  Ghi lại mcp.attrs['lock28'] = (ngày chốt, số CH bị bỏ)."""
+  if mcp is None or mcp.empty or ref_date is None:
+    return mcp
+  c_cd = next((c for c in mcp.columns
+               if str(c).strip().lower().replace(' ', '_') in ('created_date', 'createddate')), None)
+  if not c_cd:
+    return mcp
+  try:
+    first = date(ref_date.year, ref_date.month, 1)
+    prev = first - timedelta(days=1)
+    lock = date(prev.year, prev.month, 28)
+    cd = pd.to_datetime(mcp[c_cd], errors='coerce')
+    keep = cd.isna() | (cd < pd.Timestamp(lock) + pd.Timedelta(days=1))
+    n_drop = int((~keep).sum())
+    out = mcp[keep].copy() if n_drop else mcp
+    out.attrs['lock28'] = (lock, n_drop)
+    return out
+  except Exception:
+    return mcp
+
+
+def _df_ref_month(df):
+  """Ngày đại diện cho tháng T của data bán hàng (tháng xuất hiện nhiều nhất)."""
+  try:
+    s = pd.Series(pd.to_datetime(df['date'], errors='coerce')).dropna()
+    if s.empty:
+      return None
+    ym = s.dt.to_period('M').mode().iloc[0]
+    return date(ym.year, ym.month, 1)
+  except Exception:
+    return None
+
+
 @st.cache_data(ttl=600)
 def load_main_data(_month_key='Thang10'):
   """_month_key: cache riêng theo tháng."""
@@ -1036,6 +1072,8 @@ def load_main_data(_month_key='Thang10'):
     df['Tên SP lower'] = df['Tên sản phẩm'].astype(str).str.lower()
   else:
     df['Tên SP lower'] = ''
+  # Mẫu số chốt ngày 28 tháng T-1 (L1 của đơn hàng ở trên vẫn map theo MCP đầy đủ)
+  mcp = _mcp_lock_28(mcp, _df_ref_month(df))
   return df, mcp
 
 
@@ -30826,7 +30864,7 @@ def _pl_other_team_act(repo, folder, rd_iso):
       if is_sales:
         parts.append(_read_sales_excel(io.BytesIO(b)))
       else:
-        mcp = _norm_mcp_cols(pd.read_excel(io.BytesIO(b)))
+        mcp = _mcp_lock_28(_norm_mcp_cols(pd.read_excel(io.BytesIO(b))), date.fromisoformat(rd_iso))
     except Exception:
       pass
   if not parts or mcp is None:
