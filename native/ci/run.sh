@@ -19,6 +19,9 @@ team_merge() {
   [ -d _reports/t/all ] && [ -d _reports/t/vy ] || return 0
   python $P/team_merge.py --tan _reports --vy _reports/t/vy --all _reports/t/all || true
 }
+# Chỉ giữ biến thể ô lọc (__wN) của 2 ngày mới nhất — ngày cũ app tính lại bằng App.py khi lọc
+# (trước đây cộng dồn mọi ngày → branch reports 12 GB, publish/clone quá 30 phút)
+prune() { python $P/prune_variants.py _reports --keep 2 || true; }
 
 if [ "$STAGE" = all ] || [ "$STAGE" = first ]; then
 echo "::group::Lấy bản reports trước"
@@ -45,6 +48,7 @@ else
 fi
 
 team_merge
+prune
 # Đưa data mới lên cho app NGAY, đối chiếu chạy sau: lệch thì job báo đỏ (để sửa) nhưng không
 # giữ data cũ lại cả buổi
 bash native/ci/publish.sh _reports "Lượt 1 từ ${GITHUB_SHA::7}"
@@ -61,6 +65,7 @@ if [ -d _probes ] && [ "$STAGE" != rest ]; then
     python $P/merge_probes.py --probes "_pr/$team" --out "_reports/$(prefix_of "$team")"
   done
   team_merge
+  prune
   echo "::endgroup::"
   bash native/ci/publish.sh _reports "Lượt 1 + bộ lọc từ ${GITHUB_SHA::7}"
 fi
@@ -81,6 +86,7 @@ for team in $TEAMS; do
       --prev "_reports/$PREFIX" --workers 4 )
   echo "::endgroup::"
   [ "$team" = all ] && team_merge
+  prune
   bash native/ci/publish.sh _reports "Đầy đủ ($team) từ ${GITHUB_SHA::7}"
 done
 
