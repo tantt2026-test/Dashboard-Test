@@ -24398,6 +24398,12 @@ if _nav == '📊 BÁO CÁO KPI':
     df_brand = _lazy_brand(_mk_now)
     df_combo_off, df_combo_on = _lazy_combo(_mk_now)
     df_visit_sched = _lazy_visit(_mk_now)
+  # Ô Mã KH / Tên KH: data phụ nạp muộn (sau bước lọc chung ở trên) → lọc lại tại đây
+  if filter_ma_kh or filter_ten_kh:
+    df_cat = _apply_kh_filter(df_cat, filter_ma_kh, filter_ten_kh)
+    df_brand = _apply_kh_filter(df_brand, filter_ma_kh, filter_ten_kh)
+    df_combo_off = _apply_kh_filter(df_combo_off, filter_ma_kh, filter_ten_kh)
+    df_combo_on = _apply_kh_filter(df_combo_on, filter_ma_kh, filter_ten_kh)
   if _sk == 'MUC_TIEU_NGAY':
     try:
       df_brand = _lazy_brand(_mk_now)
